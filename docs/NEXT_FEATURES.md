@@ -13,13 +13,14 @@ features are deliberately excluded.
 | Find installed Steam games + the mods each one actually has on disk | works, read-only |
 | Import a local ZIP / `.7z` into the game's mod folder, unzip, verify | works for Stardew Valley |
 | See files the user downloaded in the browser, not only the plugin inbox | works, read-only (Round 42) |
+| See which mods ship the same file, without pretending to fix load order | works, read-only (Round 47) |
 | Enable / disable / uninstall / roll back | works (folder move in and out of the game's `Mods/`) |
 | See required dependencies and download the ones that are fetchable | works, up to 3 levels deep (Round 45) |
 | Download mods | GitHub Releases + direct HTTPS URL only |
 | Nexus | **metadata only** — browse and open the mod page; download links are premium-only, by Nexus policy |
 | Know whether the game actually loaded a mod (not just that it is on disk) | works, read-only (Round 40, docs/LOADER_LOG.md) |
 | Refuse writes when Mods/ belongs to another manager, and say why | works, structural (Round 44, docs/MOD_FOLDER_OWNERSHIP.md) |
-| Chinese / English UI | works, 443 keys each, parity enforced |
+| Chinese / English UI | works, 448 keys each, parity enforced |
 
 ## Closed since this page was written
 
@@ -77,7 +78,7 @@ features are deliberately excluded.
    the right default. The missing piece is a documented, tested recipe for
    adding a descriptor — the README sketch is not yet exercised by a second
    real game, so its shape is unproven.
-6. **No conflict detection beyond duplicate UniqueIDs.** Two mods editing the
+6. ~~**No conflict detection beyond duplicate UniqueIDs.**~~ **SHIPPED in Round 47** -- see `docs/MOD_FOLDER_CONFLICTS.md`. Shared paths are reported for `shared_tree` loaders and honestly declared inapplicable for per-mod-directory ones; nothing is reordered. Two mods editing the
    same game file, or load-order-sensitive mods, are silently accepted. The
    plugin should not solve ordering (that needs game knowledge), but it should
    at least report "these two mods both ship `X.dll`".

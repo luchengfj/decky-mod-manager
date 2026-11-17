@@ -175,7 +175,26 @@
         "note": "Where the Game Mode browser saves files. A free Nexus account cannot download through the API, so this is the directory the user's own download actually lands in. READ ONLY: nothing here is ever created, moved, or deleted."
       }
     ],
-    "import_roots_note": "Reading these is a Round 42 addition, not a new capability claim. Game Mode has no file manager, so without them the panel could only ever show files the plugin fetched itself, and the 'download it in your browser then import it' flow was unusable. The inbox stays first; these are a read-only courtesy, declared per game rather than discovered by scanning $HOME."
+    "import_roots_note": "Reading these is a Round 42 addition, not a new capability claim. Game Mode has no file manager, so without them the panel could only ever show files the plugin fetched itself, and the 'download it in your browser then import it' flow was unusable. The inbox stays first; these are a read-only courtesy, declared per game rather than discovered by scanning $HOME.",
+    "conflicts": {
+      "enabled": true,
+      "note": "READ-ONLY. Two mods that ship the same relative path overwrite each other and the winner depends on load order. This reports the fact; it never reorders, renames or deletes anything. The ignore list is per-mod metadata that would otherwise label every pair of mods as conflicting.",
+      "ignore": [
+        "manifest.json",
+        "about/about.xml",
+        "readme.md",
+        "readme.txt",
+        "changelog.md",
+        "license",
+        "license.md",
+        "i18n/*.json",
+        "config.json"
+      ],
+      "max_files_per_mod": 2000,
+      "max_conflicts": 50,
+      "scope": "per_mod_directory",
+      "scope_note": "SMAPI gives every mod its own folder, so two mods shipping config.json or i18n/zh.json are two unrelated files, not a collision -- measured on the device: 27 of 27 reported 'conflicts' were exactly those per-mod files. The honest conflict for this loader is a duplicate UniqueID, which the manifest scan already reports. Set scope to 'shared_tree' only for loaders that copy all mods into one directory (BepInEx, a game's own asset root)."
+    }
   },
   "state_mutator": {
     "strategy": "file_drop",

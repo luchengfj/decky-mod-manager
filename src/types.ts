@@ -73,6 +73,25 @@ export interface ModListEntry {
  * rather than an error.
  */
 /** Round 44: structural facts about the game's mod folder (read-only survey). */
+export interface ModConflict {
+  /** Relative path inside the mod folder, as it appears on disk. */
+  path: string;
+  /** Mod directory names that both ship this path, sorted. */
+  mods: string[];
+}
+
+export interface ModConflictReport {
+  checked?: boolean;
+  reason?: string;
+  detail?: string;
+  conflicts?: ModConflict[];
+  total?: number;
+  /** True when a cap was hit: the list is a prefix, not the whole truth. */
+  truncated?: boolean;
+  mods_scanned?: number;
+  skipped_symlinked?: number;
+}
+
 export interface ModLayoutState {
   checked?: boolean;
   exists?: boolean;
@@ -121,6 +140,12 @@ export interface StateInfo {
   launch_options?: string;
   read_only?: boolean;
   layout?: ModLayoutState;
+  /**
+   * Round 47: relative paths shipped by more than one mod. Reported, never
+   * resolved -- load order needs per-game knowledge this plugin does not have,
+   * and pretending otherwise would be worse than saying nothing.
+   */
+  conflicts?: ModConflictReport;
   /** Step 2: [uid, [dirs]] pairs for duplicate UniqueIDs. */
   duplicate_ids?: [string, string[]][];
   /** Step 2: dependency ids referenced but not present in the mod set. */

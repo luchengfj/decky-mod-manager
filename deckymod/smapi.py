@@ -30,7 +30,7 @@ import os
 import shutil
 import time
 
-from . import archive, file_drop, fomod, import_root, loaderlog, manifest, modwatch, paths
+from . import archive, conflicts, file_drop, fomod, import_root, loaderlog, manifest, modwatch, paths
 from .envelope import err, ok
 from .errors import ModError
 from .fsops import ensure_dir, map_oserror, preflight_root, same_filesystem
@@ -298,6 +298,17 @@ class FileDropEngine:
         # must stay visible, otherwise disabling one makes it vanish from the UI
         # with no way back.
         disabled_scan = manifest.scan_installed_mods(r.disabled_root, self._mod_package())
+        # Round 47: which paths do two mods both ship? A fact about the
+        # filesystem, not about the game -- so it needs no per-game knowledge,
+        # and it is read-only like everything else in status(). A failure here
+        # must not take the whole status down with it.
+        try:
+            conf_cfg = (self._mod_package() or {}).get("conflicts") or {}
+            conflict_info = conflicts.survey(r.mod_root, scanned["mods"], conf_cfg)
+        except Exception as exc:  # noqa: BLE001 - status must survive
+            conflict_info = {"checked": False, "reason": "scan_failed",
+                             "detail": "%s: %s" % (exc.__class__.__name__, exc),
+                             "conflicts": [], "total": 0, "truncated": False}
         ident = d.get("identity", {}) or {}
         pending = self.journal.pending()
         data = {
@@ -320,6 +331,10 @@ class FileDropEngine:
                 "launch_options": probe["launch_options"],
                 "read_only": probe["read_only"],
                 "layout": probe.get("layout") or {},
+                # Round 47: paths shipped by more than one mod. Reported, never
+                # resolved -- ordering needs per-game knowledge this plugin does
+                # not have and should not pretend to have.
+                "conflicts": conflict_info,
             },
             "installed": list(self.journal.installed().values()),
             "pending_recovery": pending,

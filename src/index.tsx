@@ -1811,6 +1811,28 @@ function Content() {
   const st = status?.state;
   // Round 40: absent on older backends, so every use is optional.
   const ll = status?.loader_log;
+  /**
+   * Round 47: one line summarising shared paths, or "" when there is nothing
+   * to say. Deliberately a summary and not a wall: a user with a big mod pack
+   * can easily have dozens, and a panel is not a diff view.
+   */
+  const conflictLine = (): string => {
+    const c = status?.state?.conflicts;
+    if (!c || !c.checked || !c.total) return "";
+    const shown = (c.conflicts || []).slice(0, 2).map((x) => {
+      const mods = (x.mods || []).join(" + ");
+      return x.path + " (" + mods + ")";
+    });
+    let text = t("CONFLICT_LINE", "{n} shared path(s): {list}",
+      { n: String(c.total), list: shown.join("; ") });
+    if (c.total > shown.length) {
+      text += " " + t("CONFLICT_MORE", "(+{n} more)", { n: String(c.total - shown.length) });
+    }
+    if (c.truncated) {
+      text += " " + t("CONFLICT_TRUNCATED");
+    }
+    return text;
+  };
   // Round 19: localized progress line (the key-status line is gone with the
   // retired credential surface).
   const progressLine = progress
@@ -1879,6 +1901,13 @@ function Content() {
           <PanelSectionRow>
             <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
               {t("LAYOUT_WHY_TITLE")} {foreignWhy()}
+            </div>
+          </PanelSectionRow>
+        ) : null}
+        {conflictLine() ? (
+          <PanelSectionRow>
+            <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
+              {conflictLine()}
             </div>
           </PanelSectionRow>
         ) : null}

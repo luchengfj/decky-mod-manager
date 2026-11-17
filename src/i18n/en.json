@@ -443,5 +443,8 @@
   "LAYOUT_WHY_ENTRIES": "the mod folder contains symlinked entries ({names}), which means a manager deployed them.",
   "LAYOUT_WHY_DEVICE": "the mod folder is on a different filesystem than the game.",
   "DEPS_ROW_DEEP": "{id} (depth {n})",
-  "DEPS_STILL": "Still missing: {ids}"
+  "DEPS_STILL": "Still missing: {ids}",
+  "CONFLICT_LINE": "{n} shared path(s): {list}",
+  "CONFLICT_MORE": "(+{n} more)",
+  "CONFLICT_TRUNCATED": "List capped -- there may be more."
 }

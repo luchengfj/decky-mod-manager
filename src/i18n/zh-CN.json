@@ -446,5 +446,11 @@
   "DEPS_STILL": "仍然缺少：{ids}",
   "CONFLICT_LINE": "{n} 个共享路径：{list}",
   "CONFLICT_MORE": "（另有 {n} 个）",
-  "CONFLICT_TRUNCATED": "列表已截断——可能还有更多。"
+  "CONFLICT_TRUNCATED": "列表已截断——可能还有更多。",
+  "QUAR_ORPHANS": "{n} 个隔离目录已无法恢复：{list}",
+  "QUAR_ROW": "{txn}（{bytes} 字节）",
+  "QUAR_BYTES": "{kb} KB",
+  "QUAR_RESTORABLE": "{n} 个目录仍可通过回滚恢复。",
+  "QUAR_UNKNOWN": "日志无法读取，因此这些目录状态未知——不等于无人认领。",
+  "QUAR_NONE": "隔离区为空。"
 }

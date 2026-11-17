@@ -30,7 +30,7 @@ import os
 import shutil
 import time
 
-from . import archive, conflicts, file_drop, fomod, import_root, loaderlog, manifest, modwatch, paths
+from . import archive, conflicts, file_drop, fomod, import_root, loaderlog, manifest, modwatch, paths, quarantine
 from .envelope import err, ok
 from .errors import ModError
 from .fsops import ensure_dir, map_oserror, preflight_root, same_filesystem
@@ -309,6 +309,19 @@ class FileDropEngine:
             conflict_info = {"checked": False, "reason": "scan_failed",
                              "detail": "%s: %s" % (exc.__class__.__name__, exc),
                              "conflicts": [], "total": 0, "truncated": False}
+        # Round 48: a quarantine folder is only restorable while the journal
+        # still holds the MOD_UNINSTALLED record that names it. Past that it is
+        # space the user believes is recoverable and no code path can reach --
+        # measured on the device at 29 of 45 folders, one holding a real mod.
+        # Reported, never cleaned: deleting folders this plugin did not create
+        # is one bug away from deleting a mod the user wanted.
+        try:
+            quar_info = quarantine.survey(r.quarantine_root, self.journal)
+        except Exception as exc:  # noqa: BLE001 - status must survive
+            quar_info = {"checked": False, "reason": "scan_failed",
+                         "detail": "%s: %s" % (exc.__class__.__name__, exc),
+                         "entries": [], "dirs": 0, "total_bytes": 0,
+                         "restorable": 0, "orphans": 0, "empty": 0}
         ident = d.get("identity", {}) or {}
         pending = self.journal.pending()
         data = {
@@ -335,6 +348,7 @@ class FileDropEngine:
                 # resolved -- ordering needs per-game knowledge this plugin does
                 # not have and should not pretend to have.
                 "conflicts": conflict_info,
+            "quarantine": quar_info,
             },
             "installed": list(self.journal.installed().values()),
             "pending_recovery": pending,

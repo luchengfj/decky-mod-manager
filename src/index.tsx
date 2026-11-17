@@ -1816,6 +1816,33 @@ function Content() {
    * to say. Deliberately a summary and not a wall: a user with a big mod pack
    * can easily have dozens, and a panel is not a diff view.
    */
+  /**
+   * Round 48: quarantine folders whose uninstall record is gone. Those hold
+   * data no code path can restore, while the user reasonably believes they are
+   * recoverable. Shown only when the folder actually contains something --
+   * an empty orphan is clutter, not a warning.
+   */
+  const quarantineLine = (): string => {
+    const q = status?.state?.quarantine;
+    if (!q || !q.checked) return "";
+    if (q.journal === "unreadable") return t("QUAR_UNKNOWN");
+    const held = (q.entries || []).filter(
+      (e) => e.state === "orphan" && (e.bytes || 0) > 0);
+    if (!held.length) return "";
+    const shown = held.slice(0, 2).map((e) =>
+      t("QUAR_ROW", "{txn} ({bytes} B)", {
+        txn: e.txn, bytes: String(e.bytes || 0),
+      }));
+    let text = t("QUAR_ORPHANS",
+      "{n} quarantine folder(s) can no longer be restored: {list}",
+      { n: String(held.length), list: shown.join("; ") });
+    if (held.length > shown.length) {
+      text += " " + t("CONFLICT_MORE", "(+{n} more)",
+        { n: String(held.length - shown.length) });
+    }
+    return text;
+  };
+
   const conflictLine = (): string => {
     const c = status?.state?.conflicts;
     if (!c || !c.checked || !c.total) return "";
@@ -1908,6 +1935,13 @@ function Content() {
           <PanelSectionRow>
             <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
               {conflictLine()}
+            </div>
+          </PanelSectionRow>
+        ) : null}
+        {quarantineLine() ? (
+          <PanelSectionRow>
+            <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
+              {quarantineLine()}
             </div>
           </PanelSectionRow>
         ) : null}

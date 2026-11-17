@@ -14,13 +14,14 @@ features are deliberately excluded.
 | Import a local ZIP / `.7z` into the game's mod folder, unzip, verify | works for Stardew Valley |
 | See files the user downloaded in the browser, not only the plugin inbox | works, read-only (Round 42) |
 | See which mods ship the same file, without pretending to fix load order | works, read-only (Round 47) |
+| Tell you which quarantined mods can still come back, and which cannot | works, read-only (Round 48) |
 | Enable / disable / uninstall / roll back | works (folder move in and out of the game's `Mods/`) |
 | See required dependencies and download the ones that are fetchable | works, up to 3 levels deep (Round 45) |
 | Download mods | GitHub Releases + direct HTTPS URL only |
 | Nexus | **metadata only** — browse and open the mod page; download links are premium-only, by Nexus policy |
 | Know whether the game actually loaded a mod (not just that it is on disk) | works, read-only (Round 40, docs/LOADER_LOG.md) |
 | Refuse writes when Mods/ belongs to another manager, and say why | works, structural (Round 44, docs/MOD_FOLDER_OWNERSHIP.md) |
-| Chinese / English UI | works, 448 keys each, parity enforced |
+| Chinese / English UI | works, 454 keys each, parity enforced |
 
 ## Closed since this page was written
 
@@ -82,9 +83,15 @@ features are deliberately excluded.
    same game file, or load-order-sensitive mods, are silently accepted. The
    plugin should not solve ordering (that needs game knowledge), but it should
    at least report "these two mods both ship `X.dll`".
-7. **Rollback has no expiry and no storage bound.** Snapshots and the
-   quarantine grow without limit. On a 64 GB Deck that is a slow-motion disk
-   full, and `E_NO_SPACE` already exists because it was expected.
+7. **Rollback has no expiry and no storage bound.** **Measured in Round 48**
+   (`docs/QUARANTINE.md`): the risk is not disk-full -- the whole quarantine
+   is 1.3 MB on a 64 GB Deck -- it is *unreachable* data. 29 of 45 folders
+   have no `MOD_UNINSTALLED` record left in the journal, so nothing can
+   restore them, and 16 of those hold real files (four hold a 114 KB mod).
+   The audit reports this in `status()` and deliberately deletes nothing:
+   "nobody claims this" is answered by the journal, and a rotated journal
+   looks identical to "nothing claims any of these". Remaining gap: there is
+   still no way for the user to say "yes, drop these".
 
 ## P2 — needed for a real release, not for correctness
 

@@ -73,6 +73,31 @@ export interface ModListEntry {
  * rather than an error.
  */
 /** Round 44: structural facts about the game's mod folder (read-only survey). */
+export interface QuarantineEntry {
+  txn: string;
+  /** "restorable" | "orphan" | "unknown" -- unknown is not an accusation. */
+  state: string;
+  children?: number;
+  files?: number;
+  bytes?: number;
+  restorable?: boolean;
+}
+
+export interface QuarantineReport {
+  checked?: boolean;
+  exists?: boolean;
+  reason?: string;
+  detail?: string;
+  journal?: string;
+  entries?: QuarantineEntry[];
+  dirs?: number;
+  total_bytes?: number;
+  restorable?: number;
+  orphans?: number;
+  empty?: number;
+  truncated?: boolean;
+}
+
 export interface ModConflict {
   /** Relative path inside the mod folder, as it appears on disk. */
   path: string;
@@ -146,6 +171,12 @@ export interface StateInfo {
    * and pretending otherwise would be worse than saying nothing.
    */
   conflicts?: ModConflictReport;
+  /**
+   * Round 48: what sits in the quarantine, and which of it can still come
+   * back. A folder whose uninstall record has left the journal holds data no
+   * code path can restore -- the user believes it is recoverable.
+   */
+  quarantine?: QuarantineReport;
   /** Step 2: [uid, [dirs]] pairs for duplicate UniqueIDs. */
   duplicate_ids?: [string, string[]][];
   /** Step 2: dependency ids referenced but not present in the mod set. */

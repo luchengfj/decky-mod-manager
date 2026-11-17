@@ -1064,8 +1064,36 @@ class FileDropEngine:
         uninst = next((e for e in events if e.get("event") == "MOD_UNINSTALLED"), None)
         if uninst and state in ("COMMITTED", "APPLYING", "PREPARED"):
             pid, qdir, src = uninst["packageId"], uninst["quarantine"], uninst["from_path"]
-            if os.path.isdir(qdir) and not os.path.isdir(src):
-                os.replace(qdir, src)
+            # Round 65: this used to be `if os.path.isdir(qdir) and not
+            # os.path.isdir(src): os.replace(...)` and then record the restore
+            # unconditionally. Both halves of that guard could be false for
+            # reasons the caller never heard about -- the user reinstalled the
+            # mod, or the quarantined copy was cleaned up -- and the answer was
+            # still "restored". The journal then believed the mod was back, so
+            # the quarantined bytes became an orphan that reclaim_quarantine is
+            # allowed to delete (round 54). Refuse instead: an undo that did not
+            # undo must not look like one.
+            if not os.path.isdir(qdir):
+                raise ModError("E_MOD_NOT_FOUND",
+                               detail=("the copy of %s saved for this transaction is gone "
+                                       "(%s); nothing can be restored" % (pid, qdir)))
+            if os.path.islink(src):
+                raise ModError("E_PATH_INVALID",
+                               detail=("refusing to restore %s over a symbolic link at %s"
+                                       % (pid, src)))
+            if os.path.exists(src):
+                raise ModError("E_FILE_COLLISION",
+                               detail=("%s already exists again; move it away before "
+                                       "undoing this uninstall" % src))
+            os.replace(qdir, src)
+            # Round 65: the transaction folder we just emptied is litter, and round
+            # 54 taught us that litter in the quarantine gets counted, shown and
+            # eventually offered for deletion. `os.rmdir` refuses a non-empty
+            # directory, which is exactly the guard we want here.
+            try:
+                os.rmdir(os.path.dirname(qdir))
+            except OSError:
+                pass
             self.journal.record("MOD_ROLLBACK_RESTORED", txn, packageId=pid,
                                 mod={"name": pid, "dir": src}, enabled=True,
                                 # Round 21: carry ownership with the event. A mod

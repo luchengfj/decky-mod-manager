@@ -33,6 +33,7 @@ features are deliberately excluded.
 | Chinese / English UI | works, 471 keys each, parity enforced |
 | Let a descriptor name its own third-party-manager marker | works (Round 53, docs/DECLARED_VS_READ.md) |
 | Refuse a mod whose manifest names an `EntryDll` it does not ship | works on both ZIP and `.7z` (Round 64, docs/ENTRY_DLL.md) |
+| Make an undo that cannot undo say so | `rollback` of an uninstall refuses instead of reporting a restore that did not happen (Round 65, docs/ROLLBACK.md) |
 
 0g. **Multi-mod archives, and any archive nested more than one folder deep.**
 
@@ -67,6 +68,26 @@ features are deliberately excluded.
    check was right and the fixtures described impossible packages. Proven by
    `tests/test_entry_dll.py` (14 cases), a nine-failure negative proof, and ten
    true booleans against the deployed plugin on the Deck.
+
+### `0i.` Undoing an uninstall reported success without restoring anything
+
+`rollback(txn)` of an uninstall guarded the restore with
+`if os.path.isdir(qdir) and not os.path.isdir(src)`, then wrote
+`MOD_ROLLBACK_RESTORED` and committed the transaction regardless. On the device
+that produced `ok:True / restored 'probe.reinstall'` in two cases where nothing
+was restored: the user had reinstalled the mod (so a *different* version was on
+disk), and the quarantined copy had been cleaned up (so nothing was on disk).
+The second is the dangerous one -- the journal then treated the real bytes as an
+orphan, and round 54's `reclaim_quarantine` may delete orphans, so a false
+success fed user data to a deleter.
+
+Both engines now refuse with `E_MOD_NOT_FOUND` / `E_PATH_INVALID` /
+`E_FILE_COLLISION` before recording anything, and clear the emptied transaction
+folder with `os.rmdir` (the round 56 lesson: quarantine litter gets counted and
+offered for deletion). No new error codes. Proven by
+`tests/test_rollback_undo.py` (9 cases), a 7-failure negative proof whose plain
+case still passes, and 18 checks against the deployed plugin. Details:
+`docs/ROLLBACK.md`.
 
 ## Closed since this page was written
 

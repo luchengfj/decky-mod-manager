@@ -543,8 +543,31 @@ class Engine:
                 snap = self.journal.read_snapshot(txn, "ModsConfig.xml.before")
             except ModError:
                 snap = None
-            if os.path.isdir(qdir) and not os.path.isdir(src):
-                os.replace(qdir, src)  # same fs
+            # Round 65: mirrors smapi.py. This guard used to skip the move
+            # silently and then rewrite ModsConfig.xml from the snapshot, which
+            # is worse here than in the Stardew path: the game would be told to
+            # load a mod whose folder is not on disk.
+            if not os.path.isdir(qdir):
+                raise ModError("E_MOD_NOT_FOUND",
+                               detail=("the copy of %s saved for this transaction is gone "
+                                       "(%s); nothing can be restored" % (pid, qdir)))
+            if os.path.islink(src):
+                raise ModError("E_PATH_INVALID",
+                               detail=("refusing to restore %s over a symbolic link at %s"
+                                       % (pid, src)))
+            if os.path.exists(src):
+                raise ModError("E_FILE_COLLISION",
+                               detail=("%s already exists again; move it away before "
+                                       "undoing this uninstall" % src))
+            os.replace(qdir, src)  # same fs
+            # Round 65: the transaction folder we just emptied is litter, and round
+            # 54 taught us that litter in the quarantine gets counted, shown and
+            # eventually offered for deletion. `os.rmdir` refuses a non-empty
+            # directory, which is exactly the guard we want here.
+            try:
+                os.rmdir(os.path.dirname(qdir))
+            except OSError:
+                pass
             if snap is not None:
                 atomic_write_bytes(r.state_file, snap)
                 self._update_fp(r, snap)

@@ -122,7 +122,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        50 modules, 756 cases (`Ran 756 tests ... OK (skipped=14)`)
+tests/                        51 modules, 765 cases (`Ran 765 tests ... OK (skipped=15)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -154,6 +154,7 @@ test_lifecycle_hooks.py     _unload/_uninstall/_migration leave the user's Mods/
 test_import_order.py        discovery imports everything first; no module may drop the game pin
 test_multi_mod_archive.py   several mods in one zip are refused; one mod lands at the top however deep it was packed
 test_entry_dll.py          a declared EntryDll must exist in the archive, or the import is refused
+test_rollback_undo.py      an undo that could not undo says so, and leaves no litter in the quarantine
   _verify.py                  compileall + registry JSON validation helper
 docs/                         see the index below
 .github/workflows/build.yml   CI: backend selftest + frontend build
@@ -254,7 +255,7 @@ python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_api_arity.py       -> BACKEND_RPCS 26 / FRONTEND_CALLS 26 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
-.decky-probe/r4_tar_drift.py             -> TAR_COUNT 114 / CUR_COUNT 114, drift 0
+.decky-probe/r4_tar_drift.py             -> TAR_COUNT 116 / CUR_COUNT 116, drift 0
 ```
 
 Backend is stdlib-only and **runs** on this box (the Windows-portability fix in
@@ -307,6 +308,7 @@ Reading order for a newcomer, and what each file is for:
 | [ARCHIVE_LAYOUT.md](ARCHIVE_LAYOUT.md) | where a mod starts inside a zip, and why a multi-mod archive has to be refused |
 | [ENTRY_DLL.md](ENTRY_DLL.md) | `EntryDll` names the file SMAPI loads; an archive that names one it does not contain is refused |
 | [PATH_DECISION.md](PATH_DECISION.md) | why "disabled" is a location, and what went wrong three rounds in a row because three places computed it |
+| [ROLLBACK.md](ROLLBACK.md) | undoing an uninstall used to report success without restoring anything, and what that cost |
 | [PREVIEW_AGREEMENT.md](PREVIEW_AGREEMENT.md) | why the confirm dialog must be generated from the same computation the write uses |
 | [RUNNING_GAME.md](RUNNING_GAME.md) | is the game running right now, and why that used to be an environment variable nobody set |
 | [DECLARED_VS_READ.md](DECLARED_VS_READ.md) | which descriptor keys the code actually reads, and the one that was decoration |

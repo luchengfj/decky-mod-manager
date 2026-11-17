@@ -207,15 +207,32 @@ class TestTheRpcIsWired(unittest.TestCase):
             body = src[i:i + 1400]
             self.assertNotIn("_check_write_allowed", body, mod)
 
+    def _body_of(self, src, name):
+        """The real body of a method, not the next N characters.
+
+        Round 65: this used to be ``src[i:i + 4000]``, which stopped covering
+        _rollback_inner as soon as that function grew. The assertion then either
+        passed by luck or failed for a reason unrelated to what it checks.
+        """
+        i = src.index("def %s(" % name)
+        rest = src[i:]
+        out = []
+        for line in rest.splitlines(True):
+            if out and line.startswith("    def "):
+                break
+            out.append(line)
+        return "".join(out)
+
     def test_both_rollbacks_know_about_it(self):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         for mod in ("smapi.py", "engine.py"):
             with open(os.path.join(root, "deckymod", mod), encoding="utf-8") as f:
                 src = f.read()
-            i = src.index("def _rollback_inner")
-            body = src[i:i + 4000]
+            body = self._body_of(src, "_rollback_inner")
             self.assertIn("MODS_HANDOVER", body, mod)
             self.assertIn("handover.restore", body, mod)
+            # and the body must actually be the function, not a stray fragment
+            self.assertIn("self.journal.state(txn)", body, mod)
 
 
 if __name__ == "__main__":

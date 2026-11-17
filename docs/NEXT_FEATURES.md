@@ -17,6 +17,7 @@ features are deliberately excluded.
 | Tell you which quarantined mods can still come back, and which cannot | works, read-only (Round 48) |
 | Delete the quarantine folders that can no longer be restored | works, two-phase + all write gates (Round 54) |
 | Roll back an upgrade to the version it displaced | works, one branch in each engine (Round 56) |
+| Upgrade a disabled mod without enabling or duplicating it | works, lands in place (Round 57) |
 | Take Mods/ over from another mod manager without deleting anything | works, two-phase, reversible (Round 55) |
 | Know which Nexus page a mod you already installed came from | works, read-only (Round 49) |
 | Refuse to change mods while the game is actually running | works, read-only check (Round 50, docs/RUNNING_GAME.md) |
@@ -43,6 +44,16 @@ features are deliberately excluded.
   `root: "downloads"` now appears next to the 13 inbox entries.
 
 0c. ~~**An upgrade could not be undone.**~~ **SHIPPED in Round 56** (`docs/UPGRADE.md`). `_install_inner` had always recorded `replaced_old`, the quarantine path the previous copy was moved into, and nothing read it. On the device a 1.0.0 -> 2.0.0 upgrade followed by `rollback` answered "nothing to roll back for txn ... (state=COMMITTED)", left 2.0.0 on disk, and turned the 1.0.0 folder into a quarantine ORPHAN -- which is exactly what Round 54's `reclaim_quarantine` is allowed to delete. Two separately correct features combined into losing the user's old version. The fix is a `MOD_INSTALLED` branch in each engine's `_rollback_inner`, sharing `deckymod/upgrade.py::undo_install`, which refuses a symlinked destination rather than shadowing it, refuses a source that left the quarantine, and cleans up the emptied transaction folder so it does not become fresh litter.
+
+0d. ~~**Upgrading a DISABLED mod silently re-enabled it and duplicated it.**~~ **SHIPPED in Round 57.** In the file_drop engine a mod is disabled by moving its folder to `.decky-disabled/`, and `install == enable` because the directory's LOCATION is the state. `_install_inner` computed `target = Mods/<dir>` and checked only that path, so upgrading a parked mod saw nothing there, unpacked a second copy into `Mods/` -- turning the mod back ON -- and left the old version parked. Measured on the device:
+
+    MODS_AFTER   ['someone.parkable']       # 2.0.0, now enabled
+    PARKED_AFTER ['someone.parkable']       # 1.0.0
+    SAME_UID_COPIES 2
+    STATUS_DUP_IDS []                       # not even reported
+    REENABLE_CODE  E_FILE_COLLISION         # wedged
+
+Two harms in one: the user's decision to disable the mod was reversed without being asked, and one UniqueID existed twice, which SMAPI loads both of. The rule is now "the new bytes go where the old bytes are": a parked mod stays parked and only its version changes, `MOD_ENABLED` is not written for a copy that stayed parked, `duplicate_ids` also consults the disabled root, and a foreign folder parked under the same name is a collision rather than an overwrite. `tests/test_duplicate_guard.py` had a test that asserted the old behaviour; it was rewritten, not deleted.
 
 ## P0 — must exist before this is safe to hand to a stranger
 

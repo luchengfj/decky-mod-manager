@@ -600,7 +600,18 @@ class FileDropEngine:
                 fomod_warnings = ["FOMOD selection could not be applied (%s); "
                                   "fell back to a plain extract" % fe]
                 self.journal.log("fomod fallback: %s" % fe)
+        # Round 57: a disabled mod lives in .decky-disabled/, not Mods/. Checking
+        # only `target` made an upgrade of a parked mod unpack a SECOND copy into
+        # Mods/ (which silently re-enables it) while the old one stayed parked.
+        # The directory's location IS the state in this engine, so the new bytes
+        # must go where the old bytes are.
+        parked_target = os.path.join(r.disabled_root, dn)
         managed = self._existing_managed(uid)
+        # Only a copy this plugin parked counts: an unrelated folder that happens
+        # to share the name must not be overwritten by an install.
+        parked_managed = bool(managed) and os.path.isdir(parked_target) \
+            and not os.path.islink(parked_target)
+        install_at = parked_target if parked_managed else target
         if managed and not after_confirm:
             raise ModError("E_DUPLICATE", detail=f"{uid} already managed", context={"packageId": uid})
         # Round 27: a second copy of a mod that already sits on disk under a
@@ -611,6 +622,9 @@ class FileDropEngine:
         # UniqueID is a broken install either way.
         if not managed:
             same_uid = self._disk_dirs_with_uid(r.mod_root, uid, exclude=dn)
+            if os.path.isdir(r.disabled_root):
+                same_uid += ["%s (disabled)" % d for d in
+                             self._disk_dirs_with_uid(r.disabled_root, uid, exclude=dn)]
             if same_uid:
                 raise ModError(
                     "E_DUPLICATE",
@@ -619,23 +633,31 @@ class FileDropEngine:
                     context={"packageId": uid, "existing_dirs": same_uid})
         if os.path.exists(target) and not managed:
             raise ModError("E_FILE_COLLISION", detail=f"{target} exists and is not managed")
+        if os.path.exists(parked_target) and not parked_managed:
+            raise ModError("E_FILE_COLLISION",
+                           detail=f"{parked_target} exists and is not managed")
         w2 = preflight_root(r.game_root, need_writable=True)
         if os.path.isdir(r.mod_root) and not same_filesystem(r.mod_root, r.staging):
             raise ModError("E_CROSS_DEVICE", detail="Mods/ and .decky-staging are on different filesystems")
         plan = {"op": "install", "packageId": uid, "uniqueId": uid, "name": info["name"],
-                "version": info["version"], "from": zip_path, "to": target,
+                "version": info["version"], "from": zip_path, "to": install_at,
                 "w2": r.mod_root, "free_w2": w2.get("free_bytes"), "fs_posix": r.fs_posix,
-                "strategy": "file_drop", "note": "install==enable (directory presence)"}
+                "strategy": "file_drop",
+                "parked": bool(parked_managed),
+                "note": ("install==enable (directory presence)" if not parked_managed
+                         else "this mod is disabled; the new version stays disabled")}
         if fomod_warnings:
             plan["fomod_warnings"] = fomod_warnings
             plan["fomod_selected"] = bool(fomod_override)
         if not after_confirm:
             return ok({"phase": "confirm", "plan": plan,
-                       "confirm_text": f"Install {info['name']} ({uid}) to {target}?\n"
-                                       f"(file_drop: unpacking the directory IS the enable step)",
+                       "confirm_text": (f"Install {info['name']} ({uid}) to {install_at}?\n"
+                                        + ("(this mod is disabled; it stays disabled)"
+                                           if parked_managed else
+                                           "(file_drop: unpacking the directory IS the enable step)")),
                        "confirm_key": "CONFIRM_INSTALL_FD",
-                       "confirm_vars": {"name": info["name"], "uid": uid, "target": target},
-                       "targets": {"w1_state_file": None, "w2_install_dir": target},
+                       "confirm_vars": {"name": info["name"], "uid": uid, "target": install_at},
+                       "targets": {"w1_state_file": None, "w2_install_dir": install_at},
                        "log_path": _log_path(self.journal)})
         txn = new_txn_id()
         self.journal.begin(txn, "install", plan)
@@ -646,10 +668,10 @@ class FileDropEngine:
             stage_dest = os.path.join(staged, dn)
             archive.extract_to(info, zip_path, stage_dest, member_override=fomod_override)
             replaced_qdir = None
-            if os.path.isdir(target):
+            if os.path.isdir(install_at):
                 replaced_qdir = os.path.join(r.quarantine_root, txn, dn + ".replaced")
                 ensure_dir(os.path.dirname(replaced_qdir))
-                os.replace(target, replaced_qdir)
+                os.replace(install_at, replaced_qdir)
             # Round 52: os.replace() into a target whose PARENT does not exist
             # fails with ENOENT, and a game that has never had a mod installed has
             # no Mods/ folder at all. The first install on a fresh game therefore
@@ -658,27 +680,33 @@ class FileDropEngine:
             # created yet". Creating the parent here is the same thing the user
             # would do by hand, and it happens after staging succeeded, so a
             # failure above still leaves no half-made folder.
-            ensure_dir(r.mod_root)
-            os.replace(stage_dest, target)
+            ensure_dir(os.path.dirname(install_at))
+            os.replace(stage_dest, install_at)
             self.journal.record("MOD_INSTALLED", txn, packageId=uid, uniqueId=uid,
-                                name=info["name"], version=info["version"], dir=target,
-                                dir_name=dn, replaced_old=replaced_qdir, ts=time.time())
-            self.journal.record("MOD_ENABLED", txn, packageId=uid)  # file_drop: install==enable
+                                name=info["name"], version=info["version"], dir=install_at,
+                                dir_name=dn, replaced_old=replaced_qdir, ts=time.time(),
+                                parked=bool(parked_managed))
+            if not parked_managed:
+                # file_drop: install==enable -- but only when it actually landed
+                # in Mods/. Writing MOD_ENABLED for a parked copy told the rest of
+                # the plugin the mod was live when it was not.
+                self.journal.record("MOD_ENABLED", txn, packageId=uid)
             # Verify uses the descriptor parser's manifest path, NOT a hard-coded
             # "manifest.json" (Step 3: game-agnostic engine).
             verify_rel = info.get("manifest_stripped") or self._manifest_basename()
-            if not os.path.isdir(target) or not os.path.isfile(os.path.join(target, verify_rel)):
+            if not os.path.isdir(install_at) or not os.path.isfile(os.path.join(install_at, verify_rel)):
                 raise ModError("E_VERIFY_FAILED", detail=f"installed dir missing {verify_rel}")
-            self.journal.committed(txn, {"packageId": uid, "dir": target})
-            result = {"packageId": uid, "uniqueId": uid, "dir": target, "dir_name": dn,
-                      "enabled": True, "txn": txn, "log_path": _log_path(self.journal)}
+            self.journal.committed(txn, {"packageId": uid, "dir": install_at})
+            result = {"packageId": uid, "uniqueId": uid, "dir": install_at, "dir_name": dn,
+                      "enabled": not parked_managed, "parked": bool(parked_managed),
+                      "txn": txn, "log_path": _log_path(self.journal)}
             if fomod_warnings:
                 result["fomod_warnings"] = fomod_warnings
             return ok(result)
         except Exception as e:
             try:
-                if os.path.isdir(target) and not managed:
-                    shutil.rmtree(target, ignore_errors=True)
+                if os.path.isdir(install_at) and not managed:
+                    shutil.rmtree(install_at, ignore_errors=True)
                 self.journal.rolled_back(txn, {"reason": str(e)})
                 code = e.code if isinstance(e, ModError) else (
                     map_oserror(e).code if isinstance(e, OSError) else "E_OP_FAILED")

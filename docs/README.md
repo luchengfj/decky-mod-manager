@@ -239,7 +239,7 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 690 tests ... OK (skipped=11)  (LASTEXITCODE=0)
+python -m unittest discover -s tests -v  -> Ran 705 tests ... OK (skipped=14)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_i18n.py            -> EN 470 / ZH 470, parity [] , EXIT=0
 .decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 28, ALL_STATIC_CHECKS True

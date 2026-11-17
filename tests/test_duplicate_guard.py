@@ -185,22 +185,72 @@ class TestHandInstalledDuplicateIsRefused(_Base):
         self.assertTrue(res["ok"], res)
         self.assertIn("other.mod", os.listdir(self.t.mods))
 
-    def test_parked_copy_is_visible_but_not_a_live_duplicate(self):
-        """A parked copy is not in Mods/, so a new install does not duplicate a
-        LIVE mod; both must stay visible and distinguishable."""
-        self.t.hand_install("DestroyableBushes", "Esca.DestroyableBushes")
-        # park it via the plugin's own disable path
-        d = self.eng.set_enabled("DestroyableBushes", False, after_confirm=True)
-        self.assertTrue(d["ok"], d)
+    def test_upgrading_a_parked_mod_keeps_it_parked(self):
+        """Round 57, found on the device.
+
+        The previous version of this test asserted the OPPOSITE: it disabled a
+        mod, installed the same UniqueID again, and checked that ``Mods/`` held
+        the new copy while ``.decky-disabled/`` still held the old one. That is
+        the defect, not the contract --
+          * a folder in Mods/ IS enabled in this engine (install == enable), so
+            the import silently reversed the user's decision to disable it;
+          * two copies declaring one UniqueID sat on disk, which SMAPI loads
+            both of;
+          * ``status().duplicate_ids`` was empty because it scanned Mods/ only;
+          * re-enabling then failed with E_FILE_COLLISION, leaving the user
+            wedged with a disabled copy they could no longer turn on.
+
+        The rule the engine needs is: the new bytes go where the old bytes are.
+        A parked mod stays parked, and only its version changes.
+        """
+        # Install 1.0.0 through the plugin so the journal owns it, then park it.
         _zip(self.zp, {"manifest.json": json.dumps(
-            _manifest("Esca.DestroyableBushes", "Destroyable Bushes")),
+            _manifest("Esca.DestroyableBushes", "Destroyable Bushes",
+                      version="1.0.0")),
+            "Mod.dll": b"MZ"}, wrapper="DestroyableBushes")
+        first = self.eng.install(self.zp, after_confirm=True)
+        self.assertTrue(first["ok"], first)
+        folder = os.path.basename(first["data"]["dir"])
+
+        d = self.eng.set_enabled(folder, False, after_confirm=True)
+        self.assertTrue(d["ok"], d)
+        parked = os.path.join(self.t.base, "Steam", "steamapps", "common",
+                              "Stardew Valley", ".decky-disabled")
+        self.assertEqual(sorted(os.listdir(parked)), [folder])
+        self.assertEqual(sorted(os.listdir(self.t.mods)), [])
+
+        _zip(self.zp, {"manifest.json": json.dumps(
+            _manifest("Esca.DestroyableBushes", "Destroyable Bushes",
+                      version="2.0.0")),
             "Mod.dll": b"MZ"}, wrapper="DestroyableBushes")
         res = self.eng.install(self.zp, after_confirm=True)
         self.assertTrue(res["ok"], res)
+        self.assertFalse(res["data"]["enabled"],
+                         "installing over a parked mod must not enable it")
+        self.assertTrue(res["data"].get("parked"))
+        self.assertEqual(os.path.dirname(res["data"]["dir"]), parked,
+                         "the new bytes must land where the old bytes were")
+
+        # It stayed parked, with the NEW version, and Mods/ stayed empty.
+        self.assertEqual(sorted(os.listdir(self.t.mods)), [],
+                         "the upgrade must not appear in Mods/")
+        self.assertEqual(sorted(os.listdir(parked)), [folder])
+
         st = self.eng.status()["data"]["state"]
-        dirs = sorted([m["dir"] for m in st["mods"]])
-        self.assertEqual(dirs, ["esca.destroyablebushes"])
-        self.assertEqual([m["dir"] for m in st["disabled_mods"]], ["DestroyableBushes"])
+        self.assertEqual([m["dir"] for m in st["mods"]], [])
+        parked_rows = st["disabled_mods"]
+        self.assertEqual([m["dir"] for m in parked_rows], [folder])
+        self.assertEqual(parked_rows[0]["version"], "2.0.0",
+                         "the parked copy must be the version just imported")
+        self.assertEqual(st["duplicate_ids"], [],
+                         "one copy, one UniqueID -- nothing duplicated")
+
+        # And the user can still turn it on, which the old behaviour made
+        # impossible with E_FILE_COLLISION.
+        on = self.eng.set_enabled(folder, True, after_confirm=True)
+        self.assertTrue(on["ok"], on)
+        self.assertEqual(sorted(os.listdir(self.t.mods)), [folder])
+        self.assertEqual(sorted(os.listdir(parked)), [])
 
 
 class TestDuplicateDetectionIsReadOnly(_Base):

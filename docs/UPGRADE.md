@@ -112,6 +112,58 @@ OLD_VERSION_DELETABLE      False
 no longer offered up as garbage, because it is no longer garbage -- it is on
 disk, where the user asked for it.
 
+## Upgrading a DISABLED mod (Round 57)
+
+The file_drop engine disables a mod by moving its folder out of `Mods/` into a
+sibling `.decky-disabled/`. That makes `install == enable` a property of the
+filesystem: a folder in `Mods/` is a mod the game will load.
+
+`_install_inner` computed `target = Mods/<dir>` and asked three questions about
+that one path -- does the journal manage this id, does the path exist, does a
+folder on disk declare this UniqueID. None of them looks in the disabled root,
+so upgrading a parked mod went like this, measured on the device:
+
+```
+DISABLE_OK      True
+MODS_DIR        []                              # parked
+PARKED_DIR      ['someone.parkable']            # 1.0.0
+V2_INSTALL_OK   True                            # import 2.0.0
+MODS_AFTER      ['someone.parkable']            # 2.0.0 -- now ENABLED
+PARKED_AFTER    ['someone.parkable']            # 1.0.0
+SAME_UID_COPIES 2
+STATUS_DUP_IDS  []                              # not even reported
+REENABLE_CODE   E_FILE_COLLISION                # wedged: cannot turn it on
+```
+
+So one import did three wrong things at once: it reversed the user's decision
+to disable the mod (nobody asked, and the panel never said so), it put two
+copies of one UniqueID on disk (SMAPI loads both), and it left the pair in a
+state where neither could be enabled because the destination name was taken.
+
+The fix is one idea: **the new bytes go where the old bytes are.** The install
+target is `Mods/<dir>` normally and `.decky-disabled/<dir>` when the journal
+manages that mod and the parked folder is a real directory. Around that:
+
+| change | why |
+|---|---|
+| `parked_target` / `install_at` | the copy being replaced is the copy that exists, wherever it is |
+| `duplicate_ids` also scans the disabled root | a parked copy still declares a UniqueID; reporting it keeps the detector and the enforcement agreeing |
+| a foreign parked folder is `E_FILE_COLLISION` | an unrelated folder that happens to share the name must never be overwritten |
+| `MOD_ENABLED` is not recorded when it stayed parked | the journal must not claim a mod is live when it is not |
+| the result carries `enabled: false` and `parked: true` | the caller can say what actually happened |
+
+After the fix the same probe reports `MODS_AFTER []`,
+`PARKED_AFTER ['someone.parkable']` at **2.0.0**, `SAME_UID_COPIES 1`,
+`STATUS_DUP_IDS []`, and `REENABLE_CODE None`.
+
+The old test in `tests/test_duplicate_guard.py` was named
+`test_parked_copy_is_visible_but_not_a_live_duplicate` and asserted exactly the
+broken outcome: that `Mods/` holds the new copy while `.decky-disabled/` keeps
+the old one. It was rewritten to assert the contract instead, and its docstring
+records that it used to document the defect -- a test that encodes a bug is
+worse than no test, because it makes the bug look intentional.
+
+
 ## Bounds
 
 | bound | value | why |
@@ -120,6 +172,7 @@ disk, where the user asked for it.
 | new RPCs | 0 | rollback already existed; it just answered a question it had the data for |
 | new modules | 1 (`upgrade.py`) | shared so the two engines cannot diverge |
 | branches added per engine | 1 | the third case, in the same shape as the other two |
+| install paths touched | 1 | the file_drop engine; RimWorld keeps the folder in `Mods/` and toggles the state file, so it has no parked copy to miss |
 
 ## What is proven, and what is not
 

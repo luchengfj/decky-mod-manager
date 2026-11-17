@@ -329,6 +329,10 @@ class Engine:
                 replaced_qdir = os.path.join(r.quarantine_root, txn, pid + ".replaced")
                 ensure_dir(os.path.dirname(replaced_qdir))
                 os.replace(target, replaced_qdir)
+            # Round 52: os.replace() into a target whose PARENT does not exist
+            # fails with ENOENT; a game that never had a mod installed has no
+            # Mods/ folder. Same fix as the file_drop engine, same reason.
+            ensure_dir(r.mod_root)
             os.replace(stage_dest, target)  # same filesystem -> no EXDEV
             # 4) record (no state-file change: install != enable)
             self.journal.record("MOD_INSTALLED", txn, packageId=pid, name=info["name"],
@@ -373,7 +377,7 @@ class Engine:
             raise ModError("E_ID_INVALID", detail="cannot toggle the Core entry")
         managed = self._existing_managed(package_id)
         if not managed:
-            raise ModError("E_DUPLICATE", detail=f"{package_id} is not installed/managed")
+            raise ModError("E_MOD_NOT_FOUND", detail=f"{package_id} is not installed/managed")
         r = self._resolve()
         data, parsed, st = self._read_state(r)  # verify_on_open drift check
         currently = package_id in parsed["activeMods"]
@@ -440,7 +444,7 @@ class Engine:
         self._check_no_pending()
         managed = self._existing_managed(package_id)
         if not managed:
-            raise ModError("E_DUPLICATE", detail=f"{package_id} is not installed/managed")
+            raise ModError("E_MOD_NOT_FOUND", detail=f"{package_id} is not installed/managed")
         r = self._resolve()
         # if enabled, disable first (part of this transaction)
         data, parsed, st = self._read_state(r)

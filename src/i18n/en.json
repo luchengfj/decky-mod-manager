@@ -228,6 +228,7 @@
   "ERR_E_GAME_NOT_FOUND": "The configured game was not found in any Steam library.",
   "ERR_E_GAME_AMBIGUOUS": "The configured game was found in more than one Steam library; cannot choose automatically.",
   "ERR_E_CAPABILITY_DISABLED": "This action is not available in this version.",
+  "ERR_E_MOD_NOT_FOUND": "No installed mod matches this name. Refresh the list; it may have been removed already.",
   "ERR_E_GAME_RUNNING": "The game is running. Close it before changing mods.",
   "ERR_E_FLATPAK_PERMISSION": "Flatpak Steam uses an isolated library path. This build does not manage it.",
   "ERR_E_LOADER_REQUIRED": "This sample game does not need a loader. (Reserved for planned games.)",

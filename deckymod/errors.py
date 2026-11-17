@@ -30,6 +30,13 @@ ERRORS = {
     "E_EXTERNAL_MANAGER": ("safety", "Another mod manager owns this Mods folder (symlink deployment detected). Read-only mode: install/enable/uninstall/rollback are refused to avoid damaging it.", False),
     "E_MANIFEST_UNSAFE": ("import", "The SMAPI manifest.json is missing required fields or has an invalid UniqueID.", False),
 
+    # --- target resolution (round 52) ---
+    # Reusing E_DUPLICATE here was a real bug: its message says "already
+    # installed, use Replace", which is the opposite of "there is nothing by
+    # that name". Three different operations (uninstall / disable / enable)
+    # hit it, and a user type-checking the name will meet it more than once.
+    "E_MOD_NOT_FOUND": ("discovery", "No installed mod matches this name. Refresh the list; it may have been removed already.", False),
+
     # --- inbox / import ---
     "E_INBOX_MISSING": ("import", "The import folder does not exist.", False),
     "E_INBOX_EMPTY": ("import", "No ZIP files found in the import folder.", False),

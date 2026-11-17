@@ -40,6 +40,18 @@ features are deliberately excluded.
 
 ## P0 — must exist before this is safe to hand to a stranger
 
+0b. ~~**The first install on a fresh game failed, and "not found" said the
+   opposite of what happened.**~~ **SHIPPED in Round 52**
+   (`tests/test_first_run.py`). Both were found on the device by asking what a
+   user who has never installed a mod meets first. A game that has never had a
+   mod has no `Mods/` folder, and `os.replace(staged, target)` fails with
+   ENOENT when the target's parent is missing, so the very first import died
+   with `E_OP_FAILED` naming a staging path. And every "no such mod" answer
+   was `E_DUPLICATE`, whose message is "already installed, use Replace" --
+   reachable from uninstall, disable and enable with any mistyped name. That
+   now has its own code, `E_MOD_NOT_FOUND` (the 51st), because none of the
+   existing 50 could say it without lying.
+
 0. ~~**`refuse_if_game_running` was a promise the code did not keep.**~~
    **SHIPPED in Round 50** (`deckymod/procs.py`, see `docs/RUNNING_GAME.md`).
    The descriptor said `true` since Round 39 and all four destructive call
@@ -109,15 +121,22 @@ features are deliberately excluded.
 
 ## P2 — needed for a real release, not for correctness
 
-8. **No install lifecycle.** There is no update check, no version migration
-   hook beyond `_migration`, and no way to uninstall the plugin while leaving
-   the user's mods untouched — documented, but not enforced by a test.
+8. **No update check, and nothing pins what `_uninstall` may delete.**
+   The lifecycle hooks are real (`main.py` `_unload` / `_uninstall` /
+   `_migration`), and the plugin removes only its own data directory, but no
+   test asserts that about the user's `Mods/`. What is genuinely missing is an
+   update check: a stale plugin has no way to tell its user it is stale.
 9. **The panel has never been seen by a human in Game Mode.** Every claim
    about layout comes from DOM text captured over CDP. Reading text is not the
    same as looking at it, and it cannot prove the D-pad reaches every control.
-10. **No CI on the frontend.** `.github/workflows/build.yml` builds it, but the
-    type check that caught eight real `strict` null-payload errors only runs
-    when someone remembers to run it on a device with `node_modules`.
+10. ~~**No CI on the frontend.**~~ **SHIPPED in Round 46.**
+    `.github/workflows/build.yml` now runs `pnpm run typecheck`
+    (`tsc --noEmit`, `strict`) before `pnpm run build`. The script existed from
+    the start and was never called; rollup does not type-check, so three
+    `TS2304 Cannot find name` defects reached `main` behind two green CI jobs
+    and were caught by a Deck build afterwards. A local pre-check
+    (`USED_BUT_UNIMPORTED` in `r19_frontend_preflight.py`) now covers the same
+    shape offline, and was proven to fire by deleting an import on purpose.
 
 ## Deliberately not planned
 

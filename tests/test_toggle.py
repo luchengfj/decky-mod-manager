@@ -135,7 +135,7 @@ class TestRefusals(_Base):
         for bad in ("..", ".", "../etc", "a/b", "/home/deck", "", ".hidden"):
             r = self.eng.set_enabled(bad, False, after_confirm=True)
             self.assertFalse(r["ok"], (bad, r))
-            self.assertEqual(r["code"], "E_DUPLICATE", (bad, r))
+            self.assertEqual(r["code"], "E_MOD_NOT_FOUND", (bad, r))
         self.assertTrue(os.path.isdir(os.path.join(self.t.mods, "Automate")),
                         "refusals must leave the tree untouched")
 
@@ -143,7 +143,7 @@ class TestRefusals(_Base):
         _plain_mod(os.path.join(self.t.mods, "Automate"))
         r = self.eng.set_enabled("Automate", True, after_confirm=True)
         self.assertFalse(r["ok"], r)
-        self.assertEqual(r["code"], "E_DUPLICATE")
+        self.assertEqual(r["code"], "E_MOD_NOT_FOUND")
 
     def test_collision_refuses_instead_of_merging(self):
         _plain_mod(os.path.join(self.t.mods, "Automate"))
@@ -169,7 +169,7 @@ class TestRefusals(_Base):
         # gate (E_EXTERNAL_MANAGER) before the per-name resolver can say
         # E_DUPLICATE. Both refuse; the layout answer is the more accurate one,
         # because the folder as a whole belongs to someone else.
-        self.assertIn(r["code"], ("E_DUPLICATE", "E_EXTERNAL_MANAGER"),
+        self.assertIn(r["code"], ("E_MOD_NOT_FOUND", "E_EXTERNAL_MANAGER"),
                       "symlink must not be resolvable as a mod dir")
 
     def test_game_running_guard_wins(self):

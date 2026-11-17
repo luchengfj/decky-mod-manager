@@ -228,6 +228,7 @@
   "ERR_E_GAME_NOT_FOUND": "未在任何 Steam 库中找到所配置的游戏。",
   "ERR_E_GAME_AMBIGUOUS": "所配置的游戏出现在多个 Steam 库中，无法自动选择。",
   "ERR_E_CAPABILITY_DISABLED": "此版本不支持该操作。",
+  "ERR_E_MOD_NOT_FOUND": "没有找到与此名称匹配的已安装 MOD。请刷新列表；它可能已经被移除了。",
   "ERR_E_GAME_RUNNING": "游戏正在运行。请先关闭游戏再更改 MOD。",
   "ERR_E_FLATPAK_PERMISSION": "Flatpak Steam 使用隔离的库路径，本构建不管理它。",
   "ERR_E_LOADER_REQUIRED": "此示例游戏不需要加载器。（为规划中的游戏保留。）",

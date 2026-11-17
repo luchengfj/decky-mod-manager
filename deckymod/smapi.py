@@ -612,6 +612,15 @@ class FileDropEngine:
                 replaced_qdir = os.path.join(r.quarantine_root, txn, dn + ".replaced")
                 ensure_dir(os.path.dirname(replaced_qdir))
                 os.replace(target, replaced_qdir)
+            # Round 52: os.replace() into a target whose PARENT does not exist
+            # fails with ENOENT, and a game that has never had a mod installed has
+            # no Mods/ folder at all. The first install on a fresh game therefore
+            # failed with a bare "[Errno 2] No such file or directory" naming the
+            # staging path, which reads like a plugin bug rather than "nothing was
+            # created yet". Creating the parent here is the same thing the user
+            # would do by hand, and it happens after staging succeeded, so a
+            # failure above still leaves no half-made folder.
+            ensure_dir(r.mod_root)
             os.replace(stage_dest, target)
             self.journal.record("MOD_INSTALLED", txn, packageId=uid, uniqueId=uid,
                                 name=info["name"], version=info["version"], dir=target,
@@ -684,10 +693,12 @@ class FileDropEngine:
         src_root, dst_root = (r.mod_root, r.disabled_root) if not enabled else (r.disabled_root, r.mod_root)
         name = self._pick_dir_name(package_id, known_dir, [src_root])
         if name is None:
+            # Round 52: not-found is its own answer. E_DUPLICATE says the mod IS
+            # installed, which is the opposite of what happened here.
             if enabled:
-                raise ModError("E_DUPLICATE",
+                raise ModError("E_MOD_NOT_FOUND",
                                detail=f"{package_id} is not disabled (nothing parked in {r.disabled_root})")
-            raise ModError("E_DUPLICATE", detail=f"{package_id} is not an enabled mod directory")
+            raise ModError("E_MOD_NOT_FOUND", detail=f"{package_id} is not an enabled mod directory")
         src = os.path.join(src_root, name)
         dst = os.path.join(dst_root, name)
         if not os.path.isdir(src) or os.path.islink(src):
@@ -794,7 +805,7 @@ class FileDropEngine:
             # _resolve_disk_dir() refuses symlinks and anything outside Mods/.
             disk_dir = self._resolve_disk_dir(str(package_id), r.mod_root)
             if disk_dir is None:
-                raise ModError("E_DUPLICATE", detail=f"{package_id} is not installed/managed")
+                raise ModError("E_MOD_NOT_FOUND", detail=f"{package_id} is not installed/managed")
             managed = {"packageId": package_id, "dir": disk_dir, "unmanaged": True}
             unmanaged = True
             # Round 20 fix (found on the device): the UI lists DIRECTORY names,

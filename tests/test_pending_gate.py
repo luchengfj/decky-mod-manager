@@ -131,7 +131,7 @@ class TestPendingBlocksNewTransactions(unittest.TestCase):
         from deckymod.errors import ERRORS
         self.assertIn("E_RECOVERY_PENDING", ERRORS)
         self.assertEqual(ERRORS["E_RECOVERY_PENDING"][2], True)
-        self.assertEqual(len(ERRORS), 50)
+        self.assertEqual(len(ERRORS), 51)
 
     def test_an_unreadable_journal_does_not_block_writes(self):
         """A read failure must not become 'the plugin is stuck forever'."""

@@ -6,7 +6,8 @@ install / one-click import were already proven on the device in earlier rounds.
 "Manage" however was half-missing: ``uninstall`` consulted only the journal
 (``journal.installed()``), so the user's 27 pre-existing mod directories could be
 LISTED in ``status.state.mods`` but never removed -- each attempt returned
-``E_DUPLICATE: <id> is not installed/managed``.
+``E_DUPLICATE: <id> is not installed/managed``. (Round 52 changed that answer
+to ``E_MOD_NOT_FOUND``, because E_DUPLICATE means the opposite.)
 
 This module proves the Round 20 relaxation and, just as importantly, that it did
 not weaken anything:
@@ -166,7 +167,7 @@ class TestExistingModUninstall(_Base):
     def test_unknown_name_still_reports_the_original_error(self):
         got = self.eng.uninstall("no.such.mod", after_confirm=False)
         self.assertFalse(got["ok"])
-        self.assertEqual(got["code"], "E_DUPLICATE")
+        self.assertEqual(got["code"], "E_MOD_NOT_FOUND")
         self.assertIn("not installed/managed", got["detail"])
 
 
@@ -176,7 +177,7 @@ class TestExistingModRefusals(_Base):
     def _assert_refused(self, name):
         got = self.eng.uninstall(name, after_confirm=False)
         self.assertFalse(got["ok"], f"{name!r} must be refused, got {got}")
-        self.assertEqual(got["code"], "E_DUPLICATE", got)
+        self.assertEqual(got["code"], "E_MOD_NOT_FOUND", got)
 
     def test_traversal_is_refused(self):
         for name in ("..", "../etc", "../../home/deck", "a/../b", "a/b"):
@@ -209,7 +210,7 @@ class TestExistingModRefusals(_Base):
         # the plugin should stop rather than pick off single names in it.
         got = self.eng.uninstall("linked.mod", after_confirm=False)
         self.assertFalse(got["ok"], got)
-        self.assertIn(got["code"], ("E_DUPLICATE", "E_EXTERNAL_MANAGER"), got)
+        self.assertIn(got["code"], ("E_MOD_NOT_FOUND", "E_EXTERNAL_MANAGER"), got)
         if got["code"] == "E_EXTERNAL_MANAGER":
             self.assertIn("symlink", got["detail"])
         self.assertTrue(os.path.isdir(outside), "target must be untouched")

@@ -42,6 +42,7 @@ import type {
   NexusModData,
   NexusDownloadLinkData,
   OpenModPageData,
+  SearchPageData,
 } from "./types";
 
 export const PROGRESS_EVENT = "deckymod:progress";
@@ -222,6 +223,20 @@ export const openModPage = (modId: number) =>
   invoke<OpenModPageData>("open_mod_page", modId);
 
 /**
+ * Round 43: keyword search, run where search actually exists.
+ *
+ * The API has no search endpoint (`mods/search.json` reads "search" as a mod
+ * id and answers 422), and every website page is behind a Cloudflare
+ * challenge, so scraping is not a fallback. The site's own search page does
+ * work, so this opens it with the keyword already applied.
+ *
+ * Takes the keyword only, never a URL: the address is assembled in the backend
+ * from the descriptor's game domain.
+ */
+export const openSearchPage = (query: string) =>
+  invoke<SearchPageData>("open_search_page", query);
+
+/**
  * `callable` demonstration (§1). These typed handles are equivalent to the
  * wrappers above; they exist to document the callable() shape against the
  * LOCKED template. They are intentionally NOT used by the UI so the code has a
@@ -254,6 +269,7 @@ export const callableHandles = {
   nexus_mod: callable<[number], Envelope<NexusModData>>("nexus_mod"),
   nexus_download_link: callable<[number, number], Envelope<NexusDownloadLinkData>>("nexus_download_link"),
   open_mod_page: callable<[number], Envelope<OpenModPageData>>("open_mod_page"),
+  open_search_page: callable<[string], Envelope<SearchPageData>>("open_search_page"),
 };
 
 /** Convenience: extract a localized, friendly error string for toasts. */

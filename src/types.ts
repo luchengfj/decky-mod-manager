@@ -601,6 +601,14 @@ export interface OpenModPageData {
   opened: boolean;
 }
 
+/**
+ * Round 43: a keyword search handed to the real search page.
+ *
+ * `opened` reports whether the client accepted the address, not whether pages
+ * loaded — the plugin cannot see that, and claiming otherwise would be a lie.
+ */
+export interface SearchPageData { url: string; query: string; opened: boolean }
+
 export interface NexusDownloadLinkData {
   /** True for every free account: the API issues download links to premium only. */
   premium_required: boolean;

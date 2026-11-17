@@ -224,7 +224,7 @@ class TestTriStateCoordinator(unittest.TestCase):
                       if isinstance(n, ast.ClassDef) and n.name == "Plugin")
         rpcs = [m.name for m in plugin.body
                 if isinstance(m, ast.AsyncFunctionDef) and not m.name.startswith("_")]
-        self.assertEqual(len(rpcs), 25, rpcs)
+        self.assertEqual(len(rpcs), 26, rpcs)
         self.assertIn("gh_download", rpcs)
         self.assertIn("download_url", rpcs)
         self.assertNotIn("legacy_fetch", rpcs)

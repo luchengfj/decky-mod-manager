@@ -426,5 +426,16 @@
   "OPEN_PAGE_FAIL": "无法打开页面:{reason}",
   "OPEN_PAGE_WHY": "这一步把地址交给 Steam 客户端,也就是游戏模式里你真正看得到的浏览器。如果什么都没出现,说明客户端拒绝了请求——请改用下面这个地址。",
   "OPEN_PAGE_FREE": "免费的 Nexus 账户无法通过 API 取得下载直链,所以请用这个页面:在那里下载,再回到这里导入 ZIP。",
-  "INBOX_ROOT": "来自 {root}"
+  "INBOX_ROOT": "来自 {root}",
+  "SEARCH_SECTION": "按关键词搜索",
+  "SEARCH_SECTION_DESC": "Nexus API 没有搜索接口，所以这里直接把关键词交给网站自己的搜索页——只有那里才有真实结果。",
+  "SEARCH_INPUT": "关键词",
+  "SEARCH_INPUT_DESC": "例如 automate、chests、HD 高清；最多 64 个字符，引号和标点都可以。",
+  "SEARCH_BTN": "打开搜索页",
+  "SEARCH_BTN_DESC": "在 Game Mode 里你真正能看到的浏览器中打开。",
+  "SEARCH_OK": "已打开搜索页。",
+  "SEARCH_FAIL": "搜索页没有打开。",
+  "SEARCH_EMPTY": "请先输入关键词。",
+  "SEARCH_WHY": "这一步把地址交给 Steam 客户端，也就是 Game Mode 里可见的浏览器。若什么都没出现，请把下面的地址复制到浏览器。",
+  "SEARCH_DOWNLOAD_NOTE": "在那个浏览器里下载文件，然后回到导入列表——它现在也会读取你的下载文件夹。"
 }

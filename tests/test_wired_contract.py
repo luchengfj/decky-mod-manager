@@ -45,7 +45,7 @@ class TestRpcSurface(unittest.TestCase):
     def test_public_rpc_count(self):
         plugin, _ = _plugin_methods()
         rpc = [b.name for b in _public_rpc(plugin)]
-        self.assertEqual(len(rpc), 25, rpc)
+        self.assertEqual(len(rpc), 26, rpc)
 
     def test_download_rpcs_are_still_present(self):
         plugin, _ = _plugin_methods()
@@ -102,21 +102,57 @@ class TestCredentialDirection(unittest.TestCase):
 
 
 class TestNoSearchPromise(unittest.TestCase):
-    def test_no_search_rpc_exists(self):
-        # The Nexus API has no keyword search; an RPC named for one would be a
-        # promise the backend cannot keep. ``gh_search`` is exempt because
-        # GitHub's search endpoint is real and already shipped.
+    """Search is allowed only where it is real.
+
+    Earlier rounds asserted that NO RPC mentions "search", because the Nexus
+    API cannot search and an RPC named for it would be a promise the backend
+    cannot keep. Round 43 changed the premise without weakening it: the
+    *website* has a working search page, so `open_search_page` exists — but it
+    may only open that page. It must not return results, and it must not
+    touch the network, because the plugin cannot read those results (every
+    website page is behind a Cloudflare challenge).
+    """
+
+    ALLOWED = {"gh_search", "open_search_page"}
+
+    def test_only_the_two_real_searches_exist(self):
         plugin, _ = _plugin_methods()
         for node in _public_rpc(plugin):
-            if node.name == "gh_search":
+            has_search = "search" in node.name.lower()
+            if node.name in self.ALLOWED:
                 continue
-            self.assertNotIn("search", node.name.lower(), node.name)
+            self.assertFalse(has_search, "%s looks like a search RPC" % node.name)
 
-    def test_nexus_module_exposes_no_search_function(self):
+    def test_open_search_page_returns_no_results(self):
+        # A dict with a "mods" list would be a lie: we never read the results.
+        plugin, _ = _plugin_methods()
+        fn = None
+        for node in _public_rpc(plugin):
+            if node.name == "open_search_page":
+                fn = node
+                break
+        self.assertIsNotNone(fn, "open_search_page is missing")
+        src = ast.dump(fn)
+        for forbidden in ("'mods'", "'results'", "'count'"):
+            self.assertNotIn(forbidden, src,
+                             "open_search_page must not report results")
+
+    def test_nexus_module_has_no_api_search_function(self):
+        # mods/search.json parses "search" as a mod id -> 422. A function that
+        # calls it would be dead code shaped like a feature. Building the
+        # website's search ADDRESS is not fetching, so search_page_url is fine.
         with open(os.path.join(ROOT, "deckymod", "nexus.py"), encoding="utf-8") as f:
             tree = ast.parse(f.read())
         funcs = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
         self.assertNotIn("search", funcs)
+        self.assertNotIn("mod_search", funcs)
+        if "search_page_url" in funcs:
+            body = ast.dump([n for n in tree.body
+                             if isinstance(n, ast.FunctionDef)
+                             and n.name == "search_page_url"][0])
+            for call in ("_raw", "urlopen", "_get", "open("):
+                self.assertNotIn(call, body,
+                                 "search_page_url must build a string, not fetch")
 
     def test_no_html_scraping_in_the_nexus_client(self):
         # Every website page answers a Cloudflare challenge, so a scraper would

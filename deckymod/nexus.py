@@ -34,6 +34,7 @@ status handling is local.
 from __future__ import annotations
 
 import json
+import urllib.parse
 
 from . import download
 
@@ -337,3 +338,35 @@ def mod_page_url(game_domain: str, mod_id) -> str:
     if mod_id is None:
         return "https://www.nexusmods.com/%s" % game_domain
     return "https://www.nexusmods.com/%s/mods/%s" % (game_domain, mod_id)
+
+
+#: A search keyword is a user string that ends up in a URL another program
+#: opens, so it is bounded and stripped of anything that could change the
+#: meaning of the address.
+MAX_QUERY_CHARS = 64
+
+
+def clean_query(query) -> tuple[str, str | None]:
+    """Return ``(query, problem)``; problem is None when the query is usable."""
+    if not isinstance(query, str):
+        return "", "query must be text"
+    text = query.strip()
+    if not text:
+        return "", "query is empty"
+    if len(text) > MAX_QUERY_CHARS:
+        return "", "query is longer than %d characters" % MAX_QUERY_CHARS
+    for ch in text:
+        if ch in "\r\n\t" or ord(ch) < 0x20 or ord(ch) == 0x7F:
+            return "", "query contains a control character"
+    return text, None
+
+
+def search_page_url(game_domain: str, query: str) -> str:
+    """The WEBSITE search page for a keyword.
+
+    The API has no keyword search (``mods/search.json`` parses ``search`` as a
+    mod id and answers 422), so the only real search is the site's own. This
+    builds that address; opening it is ``openurl``'s job. Nothing here fetches.
+    """
+    return "https://www.nexusmods.com/%s/search/?gsearch=%s" % (
+        game_domain, urllib.parse.quote(query, safe=""))

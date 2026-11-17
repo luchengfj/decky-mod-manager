@@ -426,5 +426,16 @@
   "OPEN_PAGE_FAIL": "Could not open the page: {reason}",
   "OPEN_PAGE_WHY": "This hands the address to the Steam client, which is the browser you can actually see in Game Mode. If nothing appears, the client refused the request -- copy the URL below instead.",
   "OPEN_PAGE_FREE": "A free Nexus account cannot get a download link from the API, so use this page: download there, then import the ZIP back here.",
-  "INBOX_ROOT": "from {root}"
+  "INBOX_ROOT": "from {root}",
+  "SEARCH_SECTION": "Search by keyword",
+  "SEARCH_SECTION_DESC": "The Nexus API has no search endpoint, so this opens the site's own search page with your keyword — that is the only place real results exist.",
+  "SEARCH_INPUT": "Keyword",
+  "SEARCH_INPUT_DESC": "e.g. automate, chests, HD textures. Up to 64 characters; quotes and punctuation are fine.",
+  "SEARCH_BTN": "Open search page",
+  "SEARCH_BTN_DESC": "Opens the browser you can actually see in Game Mode.",
+  "SEARCH_OK": "Search page opened.",
+  "SEARCH_FAIL": "The search page did not open.",
+  "SEARCH_EMPTY": "Type a keyword first.",
+  "SEARCH_WHY": "This hands the address to the Steam client, which is the browser visible in Game Mode. If nothing appeared, copy the address below into a browser.",
+  "SEARCH_DOWNLOAD_NOTE": "Download the file in that browser, then come back to the import list — it now reads your Downloads folder too."
 }

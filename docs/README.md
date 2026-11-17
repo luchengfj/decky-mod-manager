@@ -73,7 +73,7 @@ src/
   api.ts                      @decky/api call/callable bridge, invoke() guard
   types.ts                    TS mirror of the JSON-safe envelope + per-RPC payload types
   i18n.ts                     t() / errorText() / categoryText(), zh-CN via navigator.language
-  i18n/en.json, zh-CN.json    428 keys each, parity enforced by validate_i18n.py
+  i18n/en.json, zh-CN.json    439 keys each, parity enforced by validate_i18n.py
   components/
     Modal.tsx                 gamepad-first showInfo / showListModal / showErrorModal / showFomodModal
     ConfirmModal.tsx          two-phase confirm (A=confirm, B=cancel)
@@ -113,11 +113,12 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        26 modules, 461 cases (`Ran 461 tests ... OK (skipped=6)`)
+tests/                        27 modules, 481 cases (`Ran 481 tests ... OK (skipped=6)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
   test_import_root.py         declared roots, symlink refusal, read-only guarantee
+  test_search_page.py         query sanitising, the site's search URL, no results promised
   test_steamlib.py            library enumeration incl. both SD-card layouts
   test_download*.py           download core, integrity checks, wiring
   test_fomod.py / test_templates.py / test_toggle.py / test_duplicate_guard.py ...
@@ -213,12 +214,12 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 461 tests ... OK (skipped=6)  (LASTEXITCODE=0)
+python -m unittest discover -s tests -v  -> Ran 481 tests ... OK (skipped=6)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
-.decky-probe/validate_i18n.py            -> EN 428 / ZH 428, parity [] , EXIT=0
-.decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 25, ALL_STATIC_CHECKS True
+.decky-probe/validate_i18n.py            -> EN 439 / ZH 439, parity [] , EXIT=0
+.decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 26, ALL_STATIC_CHECKS True
 .decky-probe/validate_download_wiring.py -> DOWNLOAD_WIRING_ALL_OK=True, EXIT=0
-.decky-probe/validate_api_arity.py       -> BACKEND_RPCS 25 / FRONTEND_CALLS 25 / BAD 0
+.decky-probe/validate_api_arity.py       -> BACKEND_RPCS 26 / FRONTEND_CALLS 26 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
 .decky-probe/r4_tar_drift.py             -> TAR_COUNT 80 / CUR_COUNT 80, drift 0

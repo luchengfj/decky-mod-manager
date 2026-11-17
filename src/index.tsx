@@ -64,6 +64,7 @@ import {
   nexusMod,
   nexusDownloadLink,
   openModPage,
+  openSearchPage,
 } from "./api";
 import type {
   Envelope,
@@ -155,6 +156,11 @@ function Content() {
   const [keyInput, setKeyInput] = useState("");
   const [nexusVerify, setNexusVerify] = useState("");
   const [nexusModId, setNexusModId] = useState("");
+  // Round 43: the keyword is ordinary text, not a secret, so it may be
+  // rendered back. It is handed to open_search_page, which refuses control
+  // characters and anything over 64 characters, then opens the site's own
+  // search page.
+  const [searchText, setSearchText] = useState("");
 
   // Round 37: "my mods, grouped by game". The plugin's journal only knows what
   // IT installed, so a game the user modded by hand looked empty. The scan is
@@ -1677,6 +1683,52 @@ function Content() {
   };
 
   /**
+   * Round 43: run a keyword search where search actually exists.
+   *
+   * The API has no search endpoint, so this opens the website's search page
+   * with the keyword applied. Two outcomes must stay distinguishable: the
+   * client accepted the address (success), or it did not (failure with the
+   * address printed). Anything else would repeat the xdg-open mistake, where
+   * an exit code of 0 accompanied nothing appearing on screen.
+   */
+  const doSearch = () => {
+    const q = searchText.trim();
+    if (!q) {
+      setLastResult(t("SEARCH_EMPTY"));
+      return;
+    }
+    setBusySafe(true);
+    const g = generation.current;
+    (async () => {
+      const r = await openSearchPage(q);
+      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+      setBusySafe(false);
+      if (!r.ok) {
+        const url = (r.data && r.data.url) || "";
+        const why = r.detail || r.code || "—";
+        setLastResult(t("SEARCH_FAIL"));
+        showInfo(
+          t("SEARCH_SECTION"),
+          [
+            t("SEARCH_FAIL"),
+            t("SEARCH_WHY"),
+            "",
+            url ? t("NEXUS_BROWSER_URL", undefined, { url }) : why,
+          ],
+          [],
+          t("SEARCH_SECTION"),
+        );
+        return;
+      }
+      setLastResult(t("SEARCH_OK"));
+    })().catch((e) => {
+      if (!mounted.current) return;
+      setBusySafe(false);
+      setError(bridgeError(String(e)));
+    });
+  };
+
+  /**
    * Ask for one file's download link. For a free account this is REFUSED by
    * Nexus — the point of having the RPC is that the refusal is reported as a
    * refusal (premium gate + browser URL), not dressed up as a broken download.
@@ -2183,6 +2235,35 @@ function Content() {
             onClick={doNexusMod}
           >
             {t("NEXUS_MOD_FETCH")}
+          </ButtonItem>
+
+          <PanelSectionRow>
+            <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word", marginTop: "10px", fontWeight: 700 }}>
+              {t("SEARCH_SECTION")}
+            </div>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <div style={{ fontSize: "11px", opacity: 0.6, wordBreak: "break-word" }}>
+              {t("SEARCH_SECTION_DESC")}
+            </div>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
+              <TextField
+                label={t("SEARCH_INPUT")}
+                value={searchText}
+                disabled={busy}
+                onChange={(e) => setSearchText(e?.target?.value ?? "")}
+              />
+            </Focusable>
+          </PanelSectionRow>
+          <ButtonItem
+            label={t("SEARCH_BTN")}
+            description={t("SEARCH_BTN_DESC")}
+            disabled={busy || !searchText.trim()}
+            onClick={doSearch}
+          >
+            {t("SEARCH_SECTION")}
           </ButtonItem>
 
           {readOnly ? (

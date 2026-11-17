@@ -379,6 +379,52 @@ goal 第二条要求「可以通过已安装游戏进入相关网页下载」，
 **仍 OPEN**：面板上这个按钮本身还没有人用手柄按过（本轮证明的是 RPC 与真实跳转，不是焦点可达性）；
 `nxm://` 与 Amethyst 共存仍未做交互测试。
 
+## §6.9 Round 43 添加段：关键词搜索放到它真正存在的地方
+
+目标第二条要求「关键词等」。实测结论是：**API 没有搜索能力，但网站有**。这一节记录为什么不能假装搜索，以及实际做了什么。
+
+### 三条实测事实
+
+| 路径 | 结果 |
+| --- | --- |
+| `GET /v1/games/{d}/mods/search.json?search=SMAPI`（带 key） | **422** `Invalid parameter 'id' value "search": Must be a number.` —— 路由把 `search` 当成 mod_id |
+| `q=` / `game_id=` / `/v2/search.json` / `categories.json` | 全 **404** |
+| 网站搜索页 `/{d}/search/?gsearch=...` 的 HTML | **403** Cloudflare `Just a moment...`，不可抓 |
+
+所以三条路都不通：没有 API 搜索、没有替代参数、也不能抓页面。
+
+### 实际做法
+
+`deckymod/nexus.py` 新增两个纯函数（**不发任何请求**）：
+
+- `clean_query(query) -> (text, problem)`：去首尾空白；空/非文本/超过 `MAX_QUERY_CHARS = 64`、含控制字符（`< 0x20` 或 `0x7F`）一律拒绝。引号与 `&` 是合法文本，不拒。
+- `search_page_url(game_domain, query)`：`https://www.nexusmods.com/{domain}/search/?gsearch={quote(query, safe="")}`。查询字符串必须百分百转义，否则一个 `&` 就能变成另一个参数。
+
+`main.py` 新增第 26 个 RPC `open_search_page(query)`：从描述符的 `game_domain` 生成地址 → `openurl.open_url()` 交给 Steam 客户端。**不走 `_network_download_gate()`**：没下载任何东西，没有请求离开设备，只是把一个 URI 交给一个已经在运行、自带网络的进程，和 `open_mod_page` 完全同形。
+
+设计上的一个硬约束：**RPC 永远不返回搜索结果**。它只返回 `{url, query, opened}`。理由：插件读不到那些结果（Cloudflare），如果假装返回一个 `mods` 列表，那就是编造。`tests/test_wired_contract.py::TestNoSearchPromise` 用 AST 把这条钉死：函数体内不得出现 `'mods'`/`'results'`/`'count'`。
+
+### 为什么要改旧测试
+
+`tests/test_wired_contract.py` 原先断言「任何 RPC 名字都不得含 search」。那是当时唯一诚实的答案；现在前提变了（网站搜索页真的能用）。改法是**换成当初让它正确的那个断言**：只允许 `gh_search`（GitHub 搜索是真的）与 `open_search_page`（只打开页面），且后者不得返回结果、不得调网络函数、不得读取存储的 key。断言变强了，不是被删了。
+
+### 真机证据（活进程，Deck `disable_plugin` + `enable_plugin` 之后）
+
+- `open_search_page("automate")` → `{"ok":true,..."data":{"url":"https://www.nexusmods.com/stardewvalley/search/?gsearch=automate","query":"automate","opened":true}}`
+- CEF target 列表：同一个 `5519F915FDB0` 从 `.../mods/1915` **真导航**到 `.../search/?gsearch=automate`（不是新开 tab），Cloudflare turnstile iframe 也重新出现——说明页面确实被加载了。
+- 拒绝路径（都不启动进程）：`"   "` → `query is empty`；65 个 `a` → `query is longer than 64 characters`；`"a\nb"` → `query contains a control character`。均为 `E_PATH_INVALID`。
+- 构建：`TSC_EXIT=0` / `ROLLUP_EXIT=0` / `DIST_SIZE=211330` / `DIST_SHA=714c6dc00ae760f066e31e720ad10389ce56c17cd573ba0db9f9333e5d291099`；ZIP 257709 B / `c384b981b887164e83a17a8f7399a20aa9997a3e2da8748b7fc1dd7186020852` / 43 entries；部署 `CHECKED=40 VERIFY_FAIL=0`。
+
+### 这一步带来的一个真实缺口修复
+
+首次构建 `TSC_EXIT=2`：`src/api.ts(236,10)` 与 `(271,49): Cannot find name 'SearchPageData'`。原因是我在 `api.ts` 用了该类型却没把它加进 `from "./types"` 的 import 列表。**静态预检完全没报警**（它只检查 import/export 名字，不做类型解析），只有真正的 `tsc --noEmit` 能发现。这是本仓库第三次被 `tsc` 抦住而静态检查漏掉的错误。
+
+### 仍然 OPEN
+
+- 面板上的搜索框与按钮 **没有被人手在 Game Mode 里按过**（只验证了 RPC 与 bundle 存在）。
+- 搜索页本身在 Game Mode 的渲染效果不归插件管，也未目视。
+- 还没有「搜索结果直接回到面板」的能力，且短期不可能有（需要 Cloudflare 解答）。
+
 ## §7 仍 OPEN / 不予翻动
 
 - V1 唯一 CLOSED；V2–V20 / F1–F3 全 OPEN；原 G3(RimWorld 294100) OPEN / NOT SHIPPABLE。

@@ -822,3 +822,42 @@ class Plugin:
             _progress("open_mod_page:done")
             return ok({"url": url, "opened": True})
         return _guard(_run)
+
+    async def open_search_page(self, query: str):
+        """Run a keyword search where search actually exists: the website.
+
+        Goal item 2 asks for keyword search. The API cannot do it -- measured:
+        ``/games/{d}/mods/search.json?search=SMAPI`` answers 422 because the
+        router reads ``search`` as a mod id, and ``q=``, ``game_id=`` and
+        ``/v2/search.json`` are all 404. Every website page is behind a
+        Cloudflare challenge, so scraping is not a fallback either.
+
+        What IS true: the website has a working search page. Rather than
+        pretend to search or return an empty list, this opens that page with
+        the keyword already applied. The user sees real results, in the
+        browser they are already signed in to.
+
+        Same two properties as ``open_mod_page``: the caller supplies only the
+        keyword (the address is built here from ``game_domain``), and no
+        ``_network_download_gate()`` applies because nothing is downloaded.
+        """
+        def _run():
+            domain = self._nexus_domain()
+            if domain is None:
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[open_search_page] nexus_metadata source disabled")
+            text, problem = nexus.clean_query(query)
+            if problem is not None:
+                return err("E_PATH_INVALID",
+                           detail="[open_search_page] %s" % problem)
+            url = nexus.search_page_url(domain, text)
+            got = openurl.open_url(url)
+            if not got.get("ok"):
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[open_search_page] %s: %s" % (
+                               got.get("reason"), got.get("detail") or ""),
+                           data={"url": url, "query": text,
+                                 "reason": got.get("reason")})
+            _progress("open_search_page:done")
+            return ok({"url": url, "query": text, "opened": True})
+        return _guard(_run)

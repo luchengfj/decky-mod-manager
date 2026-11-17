@@ -122,7 +122,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        44 modules, 710 cases (`Ran 710 tests ... OK (skipped=14)`)
+tests/                        45 modules, 714 cases (`Ran 714 tests ... OK (skipped=14)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -141,6 +141,7 @@ tests/                        44 modules, 710 cases (`Ran 710 tests ... OK (skip
   test_handover_gate.py       through the engine: read-only flips, rollback restores
   test_upgrade.py             upgrading then rolling back must restore the OLD version, not refuse
 test_parked_uninstall.py    a disabled mod is uninstallable; a missing one is refused, not faked
+test_preview_agreement.py   the import preview must name the path the install will use
   test_reclaim.py             plan refuses restorable and unknown; two-phase; symlink recheck
   test_reclaim_gate.py        reclaim through the real engine, behind every write gate
 test_procs.py               faked /proc: marker, path, unknown-is-not-stopped
@@ -240,7 +241,7 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 710 tests ... OK (skipped=14)  (LASTEXITCODE=0)
+python -m unittest discover -s tests -v  -> Ran 714 tests ... OK (skipped=14)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_i18n.py            -> EN 470 / ZH 470, parity [] , EXIT=0
 .decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 28, ALL_STATIC_CHECKS True
@@ -297,6 +298,7 @@ Reading order for a newcomer, and what each file is for:
 | [NEXUS_ROADMAP.md](NEXUS_ROADMAP.md) | historical round notes, incl. §6.7 the Nexus metadata surface and why download links stay premium-only; snapshots are never backfilled |
 | [QUARANTINE.md](QUARANTINE.md) | what "uninstall" keeps, and when a kept folder can no longer be restored |
 | [UPGRADE.md](UPGRADE.md) | what happens to the version an install overwrote, and why rollback used to answer "nothing to roll back" |
+| [PREVIEW_AGREEMENT.md](PREVIEW_AGREEMENT.md) | why the confirm dialog must be generated from the same computation the write uses |
 | [RUNNING_GAME.md](RUNNING_GAME.md) | is the game running right now, and why that used to be an environment variable nobody set |
 | [DECLARED_VS_READ.md](DECLARED_VS_READ.md) | which descriptor keys the code actually reads, and the one that was decoration |
 | [FIRST_RUN.md](FIRST_RUN.md) | what the very first install does on a game that has never had a mod, and why "not found" needed its own answer |

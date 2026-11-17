@@ -19,6 +19,7 @@ features are deliberately excluded.
 | Roll back an upgrade to the version it displaced | works, one branch in each engine (Round 56) |
 | Upgrade a disabled mod without enabling or duplicating it | works, lands in place (Round 57) |
 | Uninstall a disabled mod, and refuse instead of faking it | works, resolves the parked path (Round 58) |
+| Preview the import exactly as it will execute | works, one target computation (Round 59) |
 | Take Mods/ over from another mod manager without deleting anything | works, two-phase, reversible (Round 55) |
 | Know which Nexus page a mod you already installed came from | works, read-only (Round 49) |
 | Refuse to change mods while the game is actually running | works, read-only check (Round 50, docs/RUNNING_GAME.md) |
@@ -65,6 +66,18 @@ Two harms in one: the user's decision to disable the mod was reversed without be
     AFTER_STATUS_DISABLED ['someone.parkuninstall'] # still listed
 
 So the plugin forgot a mod it had not removed: `journal.installed()` dropped the id, which is the same silent corruption the duplicate guard exists to prevent, just in the other direction. Two corrections -- resolve the parked path when the recorded dir is not on disk, and refuse with `E_MOD_NOT_FOUND` when the folder is nowhere, instead of reporting success. The `if os.path.isdir` guard was replaced with a raise, so the shape cannot come back.
+
+0f. ~~**The import preview named a destination the install would not use.**~~ **SHIPPED in Round 59.** Rounds 57-58 were the same root cause twice: in the file_drop engine "disabled" is a LOCATION, not a flag, and several paths resolved one root only. Round 59 stopped finding them by hand and asked the machine instead -- every function in both engines was scanned for which roots it mentions (`TOTAL_FUNCS_WITH_ROOTS 19`, `BOTH_ROOTS 4`, `MOD_ONLY 9`). That surfaced the last real one.
+
+`inspect()` is the preview the confirm dialog is built from, and it still computed `targets.w2_install_dir` as `Mods/<dir>` while `_install_inner` had moved to landing parked mods in `.decky-disabled/`. Measured on the device:
+
+    PREVIEW_TARGET        .../Mods/someone.parkinspect
+    PREVIEW_DUPLICATE     True
+    PREVIEW_SAME_UID_DIRS []
+    REAL_DIR              .../.decky-disabled/someone.parkinspect
+    PREVIEW_MATCHES_REAL  False
+
+The user agreed to one sentence and a different operation ran. A preview that disagrees with its execute is worse than no preview, because consent was given for the text on screen. The preview now resolves the same target install does, carries `conflict.parked`, says "(this mod is disabled, the new version stays disabled)" when that applies, and counts parked copies in `same_unique_id_dirs` so the warning appears before the refusal rather than after it.
 
 ## P0 — must exist before this is safe to hand to a stranger
 

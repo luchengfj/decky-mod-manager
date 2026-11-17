@@ -527,11 +527,27 @@ class FileDropEngine:
         r = self._resolve()
         uid, dn = info["uniqueId"], info["dir_name"]
         managed = self._existing_managed(uid)
-        collision = os.path.exists(os.path.join(r.mod_root, dn))
+        # Round 59, found by auditing every root lookup after rounds 57-58:
+        # _install_inner now lands a parked mod's new bytes in .decky-disabled/
+        # and counts parked copies in its duplicate check, but this preview did
+        # neither. It named `Mods/<dn>` as the destination for a mod the install
+        # would place under `.decky-disabled/<dn>`, so the confirm dialog -- the
+        # one thing the user actually reads and agrees to -- described a
+        # different operation than the one that ran.
+        #
+        # A preview that disagrees with its execute is worse than no preview: the
+        # user's consent was given for the text on screen.
+        parked_target = os.path.join(r.disabled_root, dn)
+        parked_managed = bool(managed) and os.path.isdir(parked_target) and not os.path.islink(parked_target)
+        install_at = parked_target if parked_managed else os.path.join(r.mod_root, dn)
+        collision = os.path.exists(install_at)
         # Round 27: a same-UniqueID mod may already sit under a DIFFERENT folder
         # name (that is exactly what a hand-installed mod looks like). Report it
         # so the UI can warn, and refuse it in install unless the caller confirms.
+        # Round 59: the parked root holds copies too, and install refuses them.
         same_uid_dirs = self._disk_dirs_with_uid(r.mod_root, uid)
+        same_uid_dirs += ["%s (disabled)" % d
+                          for d in self._disk_dirs_with_uid(r.disabled_root, uid, exclude=dn)]
         # Keep "members" in the wire dict: the frontend/test surface uses it to
         # show the archive contents. It is JSON-safe (file_drop made it so).
         return ok({
@@ -541,10 +557,13 @@ class FileDropEngine:
             "fomod": info.get("fomod") or {"present": False},
             "conflict": {"duplicate": bool(managed), "file_collision": bool(collision and not managed),
                          "managed": managed,
-                         "same_unique_id_dirs": same_uid_dirs},
-            "targets": {"w1_state_file": None, "w2_install_dir": os.path.join(r.mod_root, dn)},
-            "confirm_text": f"Install {info['name']} to {os.path.join(r.mod_root, dn)} "
-                            f"(file_drop: install == enable)",
+                         "same_unique_id_dirs": same_uid_dirs,
+                         "parked": bool(parked_managed)},
+            "targets": {"w1_state_file": None, "w2_install_dir": install_at},
+            "confirm_text": f"Install {info['name']} to {install_at} "
+                            f"(file_drop: install == enable"
+                            + ("; this mod is disabled, the new version stays disabled)"
+                               if parked_managed else ")"),
             "log_path": _log_path(self.journal),
         })
 

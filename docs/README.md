@@ -293,8 +293,19 @@ On Linux the behaviour is unchanged.
 - `backend-selftest`: Python 3.11, `compileall deckymod main.py`, validate all
   `registry/**/*.json`, `python -m unittest discover -s tests -v`.
 - `frontend-build`: Node 20 + pnpm 9, `pnpm install --frozen-lockfile`,
-  `pnpm run build`. **A `pnpm-lock.yaml` must be committed** (generated on a machine
-  with registry access) for `--frozen-lockfile` to pass.
+  `pnpm run typecheck` (tsc --noEmit, strict), then `pnpm run build`. **A
+  `pnpm-lock.yaml` must be committed** (generated on a machine with registry
+  access) for `--frozen-lockfile` to pass.
+
+The typecheck step was added in round 46 and is the load-bearing one. Before
+it, CI ran only `rollup -c`, and rollup does not type-check — so a `TS2304
+Cannot find name` in the frontend could reach `main` with both CI jobs green.
+That happened three times locally (rounds 41-43) before the step existed, and
+each time it was caught by a Deck build after the fact instead of by CI. The
+static preflight in `.decky-probe/` now also checks that every name used from
+one of our own modules is actually imported, with a negative proof that it
+fires on the round-43 defect; but `tsc` is the real guard, and CI is where it
+now lives.
 
 ## Adding another game (future)
 

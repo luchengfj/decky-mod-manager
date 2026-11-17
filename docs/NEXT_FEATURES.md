@@ -16,6 +16,7 @@ features are deliberately excluded.
 | See which mods ship the same file, without pretending to fix load order | works, read-only (Round 47) |
 | Tell you which quarantined mods can still come back, and which cannot | works, read-only (Round 48) |
 | Delete the quarantine folders that can no longer be restored | works, two-phase + all write gates (Round 54) |
+| Roll back an upgrade to the version it displaced | works, one branch in each engine (Round 56) |
 | Take Mods/ over from another mod manager without deleting anything | works, two-phase, reversible (Round 55) |
 | Know which Nexus page a mod you already installed came from | works, read-only (Round 49) |
 | Refuse to change mods while the game is actually running | works, read-only check (Round 50, docs/RUNNING_GAME.md) |
@@ -40,6 +41,8 @@ features are deliberately excluded.
   always first). It never walks `$HOME` — that would be both slow and a
   privacy problem — and it refuses symlinks. Measured on the device:
   `root: "downloads"` now appears next to the 13 inbox entries.
+
+0c. ~~**An upgrade could not be undone.**~~ **SHIPPED in Round 56** (`docs/UPGRADE.md`). `_install_inner` had always recorded `replaced_old`, the quarantine path the previous copy was moved into, and nothing read it. On the device a 1.0.0 -> 2.0.0 upgrade followed by `rollback` answered "nothing to roll back for txn ... (state=COMMITTED)", left 2.0.0 on disk, and turned the 1.0.0 folder into a quarantine ORPHAN -- which is exactly what Round 54's `reclaim_quarantine` is allowed to delete. Two separately correct features combined into losing the user's old version. The fix is a `MOD_INSTALLED` branch in each engine's `_rollback_inner`, sharing `deckymod/upgrade.py::undo_install`, which refuses a symlinked destination rather than shadowing it, refuses a source that left the quarantine, and cleans up the emptied transaction folder so it does not become fresh litter.
 
 ## P0 — must exist before this is safe to hand to a stranger
 

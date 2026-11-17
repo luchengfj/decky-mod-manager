@@ -30,8 +30,21 @@ import os
 import shutil
 import time
 
-from . import (archive, conflicts, file_drop, fomod, handover, import_root, loaderlog,
-               manifest, modwatch, paths, procs, quarantine)
+from . import (
+    archive,
+    conflicts,
+    file_drop,
+    fomod,
+    handover,
+    import_root,
+    loaderlog,
+    manifest,
+    modwatch,
+    paths,
+    procs,
+    quarantine,
+    upgrade,
+)
 from .envelope import err, ok
 from .errors import ModError
 from .fsops import ensure_dir, map_oserror, preflight_root, same_filesystem
@@ -962,6 +975,28 @@ class FileDropEngine:
             self.journal.committed(txn, {"rollback_of": "handover"})
             return ok({"restored": "handover", "moved": got["moved"],
                        "failed": got["failed"], "txn": txn,
+                       "log_path": _log_path(self.journal)})
+        # Round 56: an upgrade moved the displaced version into the quarantine and
+        # recorded where in `replaced_old`; nothing read it, so rollback answered
+        # "nothing to roll back", the new version stayed on disk, and the old one
+        # became an orphan that reclaim_quarantine is allowed to delete.
+        inst = next((e for e in events
+                     if e.get("event") == "MOD_INSTALLED" and e.get("replaced_old")), None)
+        if inst and state in ("COMMITTED", "APPLYING", "PREPARED"):
+            got = upgrade.undo_install(inst.get("replaced_old"), inst.get("dir"))
+            if not got.get("ok"):
+                raise ModError(got.get("code") or "E_OP_FAILED",
+                               detail=got.get("detail") or "could not restore the previous copy")
+            self.journal.record("MOD_ROLLBACK_RESTORED", txn,
+                                packageId=inst.get("packageId"),
+                                mod={"name": inst.get("packageId"), "dir": inst.get("dir")},
+                                restored_from=inst.get("replaced_old"),
+                                removed_new=bool(got.get("removed_new")))
+            self.journal.committed(txn, {"rollback_of": "upgrade",
+                                         "packageId": inst.get("packageId")})
+            return ok({"restored": inst.get("packageId"), "dir": inst.get("dir"),
+                       "restored_from": inst.get("replaced_old"),
+                       "removed_new": bool(got.get("removed_new")), "txn": txn,
                        "log_path": _log_path(self.journal)})
         if state in ("PREPARED", "APPLYING"):
             try:

@@ -165,11 +165,28 @@ export interface InboxItem {
   name: string;
   path: string;
   size: number | null;
+  /**
+   * Round 42: which declared root this file came from.
+   *
+   * Optional because a plugin-internal caller may build an item by hand; the
+   * backend always sets it, and the UI must treat "absent" as "unknown origin"
+   * rather than guessing the inbox.
+   */
+  root?: string;
+}
+
+/** Round 42: one directory the import list reads (inbox first). */
+export interface ImportRoot {
+  label: string;
+  path: string;
+  exists: boolean;
 }
 
 export interface InboxData {
   inbox: string;
   items: InboxItem[];
+  /** Round 42: the declared roots, so the panel can say where it looked. */
+  roots?: ImportRoot[];
   log_path: string;
 }
 

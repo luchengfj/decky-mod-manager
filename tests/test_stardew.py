@@ -418,6 +418,73 @@ class TestLoaderLogInStatus(unittest.TestCase):
         self.assertTrue(st["data"]["loader_log"]["available"])
 
 
+class TestImportRootsThroughTheEngine(unittest.TestCase):
+    """Round 42: a ZIP the USER downloaded must be visible and installable.
+
+    The bug this guards against is not in a parser, it is in a boundary: the
+    Steam browser writes to $XDG_DOWNLOAD_DIR, the plugin listed only its own
+    inbox, and Game Mode has no file manager to move the file across. A unit
+    test on deckymod/import_root.py would not catch a list_inbox() that never
+    calls it, so these tests go through the engine.
+    """
+
+    def setUp(self):
+        self.t = StardewTree(); self.t.env()
+        self.eng = StardewEngine(journal=Journal(self.t.data, self.t.logs, "stardew"))
+        self.dl = os.path.join(self.t.home, "Downloads")
+        os.makedirs(self.dl, exist_ok=True)
+
+    def tearDown(self):
+        self.t.cleanup()
+
+    def test_a_file_in_downloads_appears_in_list_inbox(self):
+        with open(os.path.join(self.dl, "UserDownload.zip"), "wb") as f:
+            f.write(b"PK\x03\x04x")
+        listing = self.eng.list_inbox()
+        self.assertTrue(listing["ok"], listing)
+        names = [i["name"] for i in listing["data"]["items"]]
+        self.assertIn("UserDownload.zip", names)
+
+    def test_items_carry_the_root_they_came_from(self):
+        with open(os.path.join(self.dl, "UserDownload.zip"), "wb") as f:
+            f.write(b"PK\x03\x04x")
+        items = self.eng.list_inbox()["data"]["items"]
+        row = next(i for i in items if i["name"] == "UserDownload.zip")
+        self.assertEqual(row["root"], "downloads")
+
+    def test_roots_are_reported_so_the_panel_can_explain_itself(self):
+        roots = self.eng.list_inbox()["data"]["roots"]
+        labels = [r["label"] for r in roots]
+        self.assertEqual(labels[0], "inbox")
+        self.assertIn("downloads", labels)
+
+    def test_a_downloads_file_can_be_inspected_not_only_listed(self):
+        """Listing without inspect would be a dead end in the UI."""
+        z = os.path.join(self.dl, "Visible.zip")
+        _make_stardew_zip(z)
+        info = self.eng.inspect(z)
+        self.assertTrue(info["ok"], info)
+        self.assertTrue(info["data"]["mod"]["uniqueId"])
+
+    def test_a_path_outside_every_root_is_still_refused(self):
+        outside = os.path.join(self.t.base, "elsewhere.zip")
+        _make_stardew_zip(outside)
+        got = self.eng.inspect(outside)
+        self.assertFalse(got["ok"])
+        self.assertEqual(got["code"], "E_PATH_ESCAPE")
+
+
+def _make_stardew_zip(path):
+    """A minimal valid Stardew mod archive (manifest.json at the root)."""
+    import zipfile
+    manifest = (
+        '{\n  "Name": "Visible",\n  "Author": "someone",\n'
+        '  "Version": "1.0.0",\n  "UniqueID": "someone.visible",\n'
+        '  "MinimumApiVersion": "4.0.0",\n  "EntryDll": "Visible.dll"\n}\n'
+    )
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("Visible/manifest.json", manifest)
+
 
 if __name__ == "__main__":
     unittest.main()

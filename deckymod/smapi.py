@@ -30,7 +30,7 @@ import os
 import shutil
 import time
 
-from . import archive, file_drop, fomod, loaderlog, manifest, paths
+from . import archive, file_drop, fomod, import_root, loaderlog, manifest, paths
 from .envelope import err, ok
 from .errors import ModError
 from .fsops import ensure_dir, map_oserror, preflight_root, same_filesystem
@@ -191,12 +191,22 @@ class FileDropEngine:
             return None
         return real
 
+    def _import_roots(self):
+        """The inbox plus every root the descriptor DECLARES (Round 42)."""
+        inbox = os.environ.get("DECKYMOD_INBOX") or os.path.join(self.journal.decky_data, "inbox")
+        try:
+            user_home = self._resolve().user_home
+        except Exception:                                   # noqa: BLE001
+            # Resolution failure must not take the import list with it: without a
+            # home directory we simply have no extra roots to offer.
+            user_home = os.path.expanduser("~")
+        return import_root.roots_for(inbox, self._descriptor(), user_home)
+
     def _validate_import_path(self, p: str):
         if not isinstance(p, str) or not p:
             raise ModError("E_PATH_INVALID", detail="empty path")
         ap = os.path.abspath(p)
-        inbox = os.path.abspath(os.environ.get("DECKYMOD_INBOX") or os.path.join(self.journal.decky_data, "inbox"))
-        allowed = [inbox]
+        allowed = import_root.allowed_roots(self._import_roots())
         extra = os.environ.get("DECKYMOD_EXTRA_IMPORT_ROOT")
         if extra:
             allowed.append(os.path.abspath(extra))
@@ -307,26 +317,32 @@ class FileDropEngine:
         return ok(data)
 
     def list_inbox(self) -> dict:
+        """Importable archives across the inbox and the declared user roots.
+
+        Round 42: the inbox alone was not enough. A free Nexus account cannot
+        download through the API, so the intended flow is "open the page, fetch
+        it in the browser, import the ZIP" -- and the browser writes to
+        $XDG_DOWNLOAD_DIR, which is not the inbox. Game Mode has no file manager,
+        so a list that only showed the inbox showed the user nothing they had
+        just downloaded. Each item now carries ``root`` so the two sources stay
+        distinguishable.
+        """
         try:
             self._gate("local_import")
         except ModError as e:
             return err(e.code, detail=e.detail)
-        inbox = os.environ.get("DECKYMOD_INBOX") or os.path.join(self.journal.decky_data, "inbox")
+        roots = self._import_roots()
+        inbox = roots[0]["path"] if roots else (
+            os.environ.get("DECKYMOD_INBOX") or os.path.join(self.journal.decky_data, "inbox"))
         if not os.path.isdir(inbox):
             return err("E_INBOX_MISSING", detail=inbox)
-        try:
-            names = sorted(n for n in os.listdir(inbox)
-                           if n.lower().endswith((".zip", ".7z")))
-        except OSError:
-            return err("E_INBOX_UNREADABLE", detail=inbox)
-        items = []
-        for n in names:
-            p = os.path.join(inbox, n)
-            try:
-                items.append({"name": n, "path": p, "size": os.path.getsize(p)})
-            except OSError:
-                items.append({"name": n, "path": p, "size": None})
-        return ok({"inbox": inbox, "items": items, "log_path": _log_path(self.journal)})
+        items = import_root.list_files(roots)
+        return ok({
+            "inbox": inbox,
+            "items": items,
+            "roots": [{"label": r["label"], "path": r["path"], "exists": r["exists"]} for r in roots],
+            "log_path": _log_path(self.journal),
+        })
 
     def inspect(self, zip_path: str) -> dict:
         """Dry-run inspection (no writes)."""

@@ -435,19 +435,24 @@ function Content() {
   /* -------------------------------------------------------------- §5.1 #2/#3 inbox */
   const openInbox = () => {
     const items = inbox?.items || [];
+    // Round 42: a file the plugin downloaded and a file the user fetched in the
+    // Game Mode browser can share a name. Showing the root is the only way the
+    // user can tell which one they are about to install.
     const rows: ListRow[] = items.map((it) => ({
       label: it.name,
-      sub: `${it.path}${it.size != null ? t("INBOX_BYTES", "  ·  {n} bytes", { n: it.size }) : ""}`,
+      sub: `${it.root ? t("INBOX_ROOT", "from {root}", { root: it.root }) + "  ·  " : ""}${it.path}${it.size != null ? t("INBOX_BYTES", "  ·  {n} bytes", { n: it.size }) : ""}`,
       onActivate: (close) => {
         close();
         void inspectAndImport(it.path);
       },
     }));
     showListModal(
-      t("INBOX_TITLE", "Inbox — local ZIPs ({n})", { n: items.length }),
+      t("INBOX_TITLE", "Local archives ({n})", { n: items.length }),
       rows,
-      t("INBOX_SUB", "Inbox: {path}\nA = preview / import · B = back. No network, no Workshop.",
-        { path: inbox?.inbox || t("NOT_SET") }),
+      t("INBOX_SUB",
+        "Looking in:\n{roots}\nA = preview / import · B = back. No network, no Workshop.",
+        { roots: (inbox?.roots || []).map((r) => `${r.label}: ${r.path}${r.exists ? "" : " (absent)"}`).join("\n")
+          || (inbox?.inbox || t("NOT_SET")) }),
     );
   };
 

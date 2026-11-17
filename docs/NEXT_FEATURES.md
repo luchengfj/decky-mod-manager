@@ -12,11 +12,24 @@ features are deliberately excluded.
 | --- | --- |
 | Find installed Steam games + the mods each one actually has on disk | works, read-only |
 | Import a local ZIP / `.7z` into the game's mod folder, unzip, verify | works for Stardew Valley |
+| See files the user downloaded in the browser, not only the plugin inbox | works, read-only (Round 42) |
 | Enable / disable / uninstall / roll back | works (folder move in and out of the game's `Mods/`) |
 | See required dependencies and download the ones that are fetchable | works, one level deep |
 | Download mods | GitHub Releases + direct HTTPS URL only |
 | Nexus | **metadata only** — browse and open the mod page; download links are premium-only, by Nexus policy |
-| Chinese / English UI | works, 409 keys each, parity enforced |
+| Chinese / English UI | works, 428 keys each, parity enforced |
+
+## Closed since this page was written
+
+- **The import surface could only see its own inbox.** The plugin read
+  `${DECKY_DATA}/inbox` and nothing else, while the Game Mode browser saves
+  to `$XDG_DOWNLOAD_DIR`. Game Mode has no file manager, so "download the
+  mod, then import the ZIP" was an instruction the user could not follow.
+  Round 42 added `deckymod/import_root.py`: a declared, bounded, read-only
+  set of extra roots (`mod_package.import_roots` in the descriptor, inbox
+  always first). It never walks `$HOME` — that would be both slow and a
+  privacy problem — and it refuses symlinks. Measured on the device:
+  `root: "downloads"` now appears next to the 13 inbox entries.
 
 ## P0 — must exist before this is safe to hand to a stranger
 

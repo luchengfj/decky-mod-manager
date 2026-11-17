@@ -167,7 +167,15 @@
       ".dylib"
     ],
     "allow_extensions_note": "SECURITY POSTURE CHANGE (approved 2026-11-14): SMAPI mods are .NET assemblies, so .dll/.so/.dylib MUST be accepted. ONLY these three are relaxed. .exe/.msi/.bat/.cmd/.ps1/.scr/.com/.jar remain refused, and ALL structural guards (symlink/device/hardlink, path traversal, backslash, absolute path, duplicate, encrypted, zip-bomb ratio, entry/depth caps) remain in force. The archive is unpacked, never executed.",
-    "notes": "SMAPI mods ship as a directory with manifest.json. The plugin never executes archive contents."
+    "notes": "SMAPI mods ship as a directory with manifest.json. The plugin never executes archive contents.",
+    "import_roots": [
+      {
+        "label": "downloads",
+        "path": "${XDG_DOWNLOAD}",
+        "note": "Where the Game Mode browser saves files. A free Nexus account cannot download through the API, so this is the directory the user's own download actually lands in. READ ONLY: nothing here is ever created, moved, or deleted."
+      }
+    ],
+    "import_roots_note": "Reading these is a Round 42 addition, not a new capability claim. Game Mode has no file manager, so without them the panel could only ever show files the plugin fetched itself, and the 'download it in your browser then import it' flow was unusable. The inbox stays first; these are a read-only courtesy, declared per game rather than discovered by scanning $HOME."
   },
   "state_mutator": {
     "strategy": "file_drop",

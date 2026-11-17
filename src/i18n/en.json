@@ -437,5 +437,9 @@
   "SEARCH_FAIL": "The search page did not open.",
   "SEARCH_EMPTY": "Type a keyword first.",
   "SEARCH_WHY": "This hands the address to the Steam client, which is the browser visible in Game Mode. If nothing appeared, copy the address below into a browser.",
-  "SEARCH_DOWNLOAD_NOTE": "Download the file in that browser, then come back to the import list — it now reads your Downloads folder too."
+  "SEARCH_DOWNLOAD_NOTE": "Download the file in that browser, then come back to the import list — it now reads your Downloads folder too.",
+  "LAYOUT_WHY_TITLE": "Why this is read-only:",
+  "LAYOUT_WHY_SYMLINK": "the mod folder is a symlink, so another tool owns the real one.",
+  "LAYOUT_WHY_ENTRIES": "the mod folder contains symlinked entries ({names}), which means a manager deployed them.",
+  "LAYOUT_WHY_DEVICE": "the mod folder is on a different filesystem than the game."
 }

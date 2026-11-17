@@ -165,7 +165,12 @@ class TestRefusals(_Base):
             self.skipTest("symlinks unavailable on this platform")
         r = self.eng.set_enabled("Automate", False, after_confirm=True)
         self.assertFalse(r["ok"], r)
-        self.assertEqual(r["code"], "E_DUPLICATE", "symlink must not be resolvable as a mod dir")
+        # Round 44: a symlinked entry inside Mods/ is now caught by the layout
+        # gate (E_EXTERNAL_MANAGER) before the per-name resolver can say
+        # E_DUPLICATE. Both refuse; the layout answer is the more accurate one,
+        # because the folder as a whole belongs to someone else.
+        self.assertIn(r["code"], ("E_DUPLICATE", "E_EXTERNAL_MANAGER"),
+                      "symlink must not be resolvable as a mod dir")
 
     def test_game_running_guard_wins(self):
         _plain_mod(os.path.join(self.t.mods, "Automate"))

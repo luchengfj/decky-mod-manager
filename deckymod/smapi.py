@@ -30,7 +30,7 @@ import os
 import shutil
 import time
 
-from . import archive, file_drop, fomod, import_root, loaderlog, manifest, paths
+from . import archive, file_drop, fomod, import_root, loaderlog, manifest, modwatch, paths
 from .envelope import err, ok
 from .errors import ModError
 from .fsops import ensure_dir, map_oserror, preflight_root, same_filesystem
@@ -95,6 +95,14 @@ class FileDropEngine:
         if file_drop.detect_external_manager(r.game_root, r.mod_root):
             raise ModError("E_EXTERNAL_MANAGER",
                            detail=f"external mod manager markers in {r.mod_root}; read-only mode")
+        # Round 44: markers only ever recognise the tools somebody thought of.
+        # The LAYOUT is the durable signal (symlinked Mods/, symlinked entries,
+        # another filesystem), so refuse on that too. Nothing here guesses from
+        # names, mtimes or counts -- see deckymod/modwatch.py.
+        foreign = modwatch.survey(r.game_root, r.mod_root)
+        if modwatch.is_foreign(foreign):
+            raise ModError("E_EXTERNAL_MANAGER",
+                           detail="%s; read-only mode" % modwatch.describe(foreign))
         det = d.get("loader_detection", {}) or {}
         patterns = det.get("patterns") or []
         if patterns and not file_drop.detect_loader(r.game_root, patterns):
@@ -237,10 +245,18 @@ class FileDropEngine:
                 r.user_home,
                 appid=str(d.get("identity", {}).get("appid", "")),
                 launcher_token=det.get("launcher_token") or "")
+        # Round 44: the marker check above only recognises known tools. The layout
+        # survey is what catches "somebody else deployed this folder" in general,
+        # and it is also what lets the panel say WHY instead of just "read-only".
+        try:
+            foreign = modwatch.survey(r.game_root, r.mod_root)
+        except Exception:                             # noqa: BLE001 - never fail probe
+            foreign = {"checked": False, "reasons": [], "explain": ""}
         read_only = bool(external or not loader or lo == "missing"
-                         or d.get("force_read_only"))
+                         or d.get("force_read_only") or modwatch.is_foreign(foreign))
         return {"external_manager": bool(external), "loader_detected": bool(loader),
-                "launch_options": lo, "read_only": read_only}
+                "launch_options": lo, "read_only": read_only,
+                "layout": foreign}
 
     def status(self) -> dict:
         try:
@@ -303,6 +319,7 @@ class FileDropEngine:
                 "loader_detected": probe["loader_detected"],
                 "launch_options": probe["launch_options"],
                 "read_only": probe["read_only"],
+                "layout": probe.get("layout") or {},
             },
             "installed": list(self.journal.installed().values()),
             "pending_recovery": pending,

@@ -437,5 +437,9 @@
   "SEARCH_FAIL": "搜索页没有打开。",
   "SEARCH_EMPTY": "请先输入关键词。",
   "SEARCH_WHY": "这一步把地址交给 Steam 客户端，也就是 Game Mode 里可见的浏览器。若什么都没出现，请把下面的地址复制到浏览器。",
-  "SEARCH_DOWNLOAD_NOTE": "在那个浏览器里下载文件，然后回到导入列表——它现在也会读取你的下载文件夹。"
+  "SEARCH_DOWNLOAD_NOTE": "在那个浏览器里下载文件，然后回到导入列表——它现在也会读取你的下载文件夹。",
+  "LAYOUT_WHY_TITLE": "为什么这里是只读：",
+  "LAYOUT_WHY_SYMLINK": "MOD 文件夹本身是符号链接，真正的目录由别的工具掌管。",
+  "LAYOUT_WHY_ENTRIES": "MOD 文件夹里有符号链接条目（{names}），说明这些 MOD 是别的管理器部署的。",
+  "LAYOUT_WHY_DEVICE": "MOD 文件夹与游戏不在同一个文件系统上。"
 }

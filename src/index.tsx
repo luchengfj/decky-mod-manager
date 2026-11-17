@@ -1772,6 +1772,26 @@ function Content() {
   const fd = isFileDrop(status);
   const caps = status?.capabilities || {};
   const canToggle = fd ? !!caps.enable_disable : true;
+  // Round 44: "read-only" alone tells the user nothing actionable. The backend
+  // now returns a structural survey of the mod folder (symlinked folder, symlinked
+  // entries, another filesystem), so the banner can name the actual cause.
+  const foreignWhy = (): string => {
+    const lay = status?.state?.layout;
+    if (!lay || !lay.reasons || !lay.reasons.length) return "";
+    const bits: string[] = [];
+    for (const r of lay.reasons) {
+      if (r === "mods_dir_missing") continue;
+      if (r === "mods_dir_is_symlink") bits.push(t("LAYOUT_WHY_SYMLINK"));
+      else if (r === "symlinked_entry") {
+        const names = (lay.symlinked || []).join(", ");
+        const total = lay.symlinked_count || (lay.symlinked || []).length;
+        const more = total > (lay.symlinked || []).length ? ` (+${total - (lay.symlinked || []).length})` : "";
+        bits.push(t("LAYOUT_WHY_ENTRIES", undefined, { names: names + more }));
+      } else if (r === "mods_on_other_device") bits.push(t("LAYOUT_WHY_DEVICE"));
+      else bits.push(r);
+    }
+    return bits.join(" ");
+  };
   const readOnly = fd ? !!status?.state?.read_only : false;
   const st = status?.state;
   // Round 40: absent on older backends, so every use is optional.
@@ -1837,6 +1857,13 @@ function Content() {
           <PanelSectionRow>
             <div style={{ fontSize: "12px", opacity: 0.95, wordBreak: "break-word", fontWeight: 600 }}>
               {t("READ_ONLY_BANNER")}
+            </div>
+          </PanelSectionRow>
+        ) : null}
+        {fd && readOnly && foreignWhy() ? (
+          <PanelSectionRow>
+            <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
+              {t("LAYOUT_WHY_TITLE")} {foreignWhy()}
             </div>
           </PanelSectionRow>
         ) : null}

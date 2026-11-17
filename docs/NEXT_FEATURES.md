@@ -17,7 +17,9 @@ features are deliberately excluded.
 | See required dependencies and download the ones that are fetchable | works, one level deep |
 | Download mods | GitHub Releases + direct HTTPS URL only |
 | Nexus | **metadata only** — browse and open the mod page; download links are premium-only, by Nexus policy |
-| Chinese / English UI | works, 428 keys each, parity enforced |
+| Know whether the game actually loaded a mod (not just that it is on disk) | works, read-only (Round 40, docs/LOADER_LOG.md) |
+| Refuse writes when Mods/ belongs to another manager, and say why | works, structural (Round 44, docs/MOD_FOLDER_OWNERSHIP.md) |
+| Chinese / English UI | works, 443 keys each, parity enforced |
 
 ## Closed since this page was written
 
@@ -33,12 +35,15 @@ features are deliberately excluded.
 
 ## P0 — must exist before this is safe to hand to a stranger
 
-1. **Second-writer detection is Stardew-specific and marker-based.**
-   `deckymod/smapi.py::_check_write_allowed()` looks for `.mm_deployed` and
-   `Mods_Core/`, which is how *Amethyst* announces ownership. Any other mod
-   manager, or a user who keeps both tools in different moods, is invisible.
-   The honest fix is a pre-write stat of `Mods/` compared against the last
-   observed state, not a longer list of magic filenames.
+1. ~~**Second-writer detection is Stardew-specific and marker-based.**~~
+   **SHIPPED in Round 44** (`deckymod/modwatch.py`, see
+   `docs/MOD_FOLDER_OWNERSHIP.md`). The marker list was replaced by a
+   structural survey of `Mods/` itself: is the folder a symlink, are any of its
+   children symlinks, is it on another device. Measured on the device, the two
+   Amethyst markers are now *absent*, which had turned the old check into a
+   constant `False` — the failure mode a filename list always has. The same
+   `E_EXTERNAL_MANAGER` code is raised, from a signal that does not need to
+   know the other manager's name.
 2. **The dependency resolver only goes one level deep and trusts an index that
    is provably stale.** `selph.ExtraMachineConfig` is mapped by the SMAPI index
    to a repository that does not contain it (verified twice with

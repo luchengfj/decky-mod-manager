@@ -72,6 +72,20 @@ export interface ModListEntry {
  * been launched since this plugin was installed), so the UI shows a quiet line
  * rather than an error.
  */
+/** Round 44: structural facts about the game's mod folder (read-only survey). */
+export interface ModLayoutState {
+  checked?: boolean;
+  exists?: boolean;
+  is_symlink?: boolean;
+  device?: number | null;
+  game_device?: number | null;
+  entries?: number;
+  symlinked?: string[];
+  symlinked_count?: number;
+  reasons?: string[];
+  explain?: string;
+}
+
 export interface LoaderLogData {
   available: boolean;
   reason?: string;
@@ -106,6 +120,7 @@ export interface StateInfo {
   loader_detected?: boolean;
   launch_options?: string;
   read_only?: boolean;
+  layout?: ModLayoutState;
   /** Step 2: [uid, [dirs]] pairs for duplicate UniqueIDs. */
   duplicate_ids?: [string, string[]][];
   /** Step 2: dependency ids referenced but not present in the mod set. */

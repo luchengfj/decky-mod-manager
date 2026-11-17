@@ -202,7 +202,16 @@ class TestExistingModRefusals(_Base):
             os.symlink(outside, link)
         except (OSError, NotImplementedError):
             self.skipTest("symlinks unavailable on this platform")
-        self._assert_refused("linked.mod")
+        # Round 44: the layout gate now sees a symlinked entry inside Mods/ and
+        # refuses the WHOLE write surface with E_EXTERNAL_MANAGER, before the
+        # per-directory resolver can answer E_DUPLICATE. That is the more honest
+        # answer: one symlinked entry means somebody else deployed this tree, and
+        # the plugin should stop rather than pick off single names in it.
+        got = self.eng.uninstall("linked.mod", after_confirm=False)
+        self.assertFalse(got["ok"], got)
+        self.assertIn(got["code"], ("E_DUPLICATE", "E_EXTERNAL_MANAGER"), got)
+        if got["code"] == "E_EXTERNAL_MANAGER":
+            self.assertIn("symlink", got["detail"])
         self.assertTrue(os.path.isdir(outside), "target must be untouched")
 
     def test_a_file_is_not_a_directory(self):

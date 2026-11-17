@@ -887,6 +887,24 @@ class FileDropEngine:
                     unmanaged = False
                     break
         src = managed.get("dir") or os.path.join(r.mod_root, str(package_id).lower())
+        # Round 58, found on the device: a mod the user DISABLED lives in
+        # .decky-disabled/, but every lookup above looked in Mods/ only. The
+        # execute branch below guards the move with ``if os.path.isdir(src)``,
+        # so a parked folder was neither moved nor reported -- the call returned
+        # ok:True, wrote MOD_UNINSTALLED, and the folder stayed exactly where it
+        # was. The panel then kept listing it, and journal.installed() forgot it,
+        # so the plugin claimed to have removed something it had not touched.
+        #
+        # Two corrections: resolve the parked path when the recorded dir is not
+        # on disk, and refuse rather than report success when neither exists.
+        parked_src = os.path.join(r.disabled_root, os.path.basename(src))
+        if not os.path.isdir(src) and os.path.isdir(parked_src) and not os.path.islink(parked_src):
+            src = parked_src
+            if managed.get("dir"):
+                managed = {**managed, "dir": parked_src}
+        if not os.path.isdir(src):
+            raise ModError("E_MOD_NOT_FOUND",
+                           detail=f"{package_id} is not on disk ({src} does not exist)")
         # The journal is keyed by UniqueID; the caller may have passed a directory
         # name. Record events under the id the journal actually knows, so
         # installed() stays consistent either way.
@@ -911,8 +929,13 @@ class FileDropEngine:
         self.journal.applying(txn)
         try:
             ensure_dir(os.path.dirname(qdir))
-            if os.path.isdir(src):
-                os.replace(src, qdir)
+            # Round 58: this used to be ``if os.path.isdir(src): os.replace(...)``,
+            # which silently skipped the move for a source that was not there and
+            # still recorded a successful uninstall. The existence check above
+            # makes that unreachable, and this raise keeps it unreachable.
+            if not os.path.isdir(src):
+                raise ModError("E_OP_FAILED", detail=f"{src} disappeared before it could be moved")
+            os.replace(src, qdir)
             self.journal.record("MOD_UNINSTALLED", txn, packageId=journal_id, from_path=src,
                                 quarantine=qdir, txn_quarantine=txn, enabled=False,
                                 # Round 21: remember whether the plugin ever owned

@@ -235,3 +235,52 @@ V1 remains the only CLOSED item. V2–V20 / F1–F3 stay OPEN. The original G3
 (RimWorld 294100) stays OPEN / NOT SHIPPABLE. Step 5 write-back stays out of
 scope. Track C stays independently gated. S9 (unauthenticated endpoint) and S10
 (V8 flip) remain report-only.
+
+## Uninstalling a parked mod (Round 58)
+
+Disabling a mod moves its folder out of `Mods/` into the sibling
+`.decky-disabled/`. `status().state.disabled_mods` reports those, the panel lists
+them, and so the panel offers Uninstall on them. That path was broken in a way
+that is worse than an error.
+
+Device probe, synthetic tree: install 1.0.0, disable, uninstall.
+
+```
+UNINSTALL_OK           True
+UNINSTALL_CODE         None
+MODS_AFTER             []
+PARKED_AFTER           ['someone.parkuninstall']      # never moved
+QUARANTINE_TXNS        ['20261117T185221-0d2dc400']   # a txn WAS opened
+AFTER_STATUS_DISABLED  ['someone.parkuninstall']      # and still listed
+```
+
+Every lookup resolved into `Mods/`, and the execute branch read:
+
+```python
+ensure_dir(os.path.dirname(qdir))
+if os.path.isdir(src):
+    os.replace(src, qdir)
+```
+
+For a parked source that condition is false, so the move was skipped -- but the
+transaction had already been opened, `MOD_UNINSTALLED` was written regardless,
+and the call returned success. `journal.installed()` then dropped the id while
+the folder stayed on disk. The plugin forgot a mod it had not removed, and the
+panel kept showing it, so nothing the user could see disagreed with anything.
+
+The fix:
+
+| change | why |
+|---|---|
+| resolve `.decky-disabled/<name>` when the recorded dir is not on disk | a parked mod is a mod the panel offers to uninstall |
+| `E_MOD_NOT_FOUND` when neither location exists | a refusal is recoverable; a fake success corrupts the ownership table |
+| `if os.path.isdir(src):` became `raise` | the silent-skip shape must not be reachable again |
+| rollback restores into the parked folder | undoing the uninstall restores the prior state, and the prior state was disabled |
+
+That last row matters for the same reason as Round 57: rollback restoring a
+deliberately-disabled mod into `Mods/` would turn it back on, which is exactly
+the silent reversal that round removed from install.
+
+After the fix the same probe reports `PARKED_AFTER []`,
+`AFTER_STATUS_DISABLED []`, and the quarantine transaction holds the folder's
+bytes (`manifest.json` is still inside it, so the uninstall remains undoable).

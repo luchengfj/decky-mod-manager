@@ -18,6 +18,7 @@ features are deliberately excluded.
 | Delete the quarantine folders that can no longer be restored | works, two-phase + all write gates (Round 54) |
 | Roll back an upgrade to the version it displaced | works, one branch in each engine (Round 56) |
 | Upgrade a disabled mod without enabling or duplicating it | works, lands in place (Round 57) |
+| Uninstall a disabled mod, and refuse instead of faking it | works, resolves the parked path (Round 58) |
 | Take Mods/ over from another mod manager without deleting anything | works, two-phase, reversible (Round 55) |
 | Know which Nexus page a mod you already installed came from | works, read-only (Round 49) |
 | Refuse to change mods while the game is actually running | works, read-only check (Round 50, docs/RUNNING_GAME.md) |
@@ -54,6 +55,16 @@ features are deliberately excluded.
     REENABLE_CODE  E_FILE_COLLISION         # wedged
 
 Two harms in one: the user's decision to disable the mod was reversed without being asked, and one UniqueID existed twice, which SMAPI loads both of. The rule is now "the new bytes go where the old bytes are": a parked mod stays parked and only its version changes, `MOD_ENABLED` is not written for a copy that stayed parked, `duplicate_ids` also consults the disabled root, and a foreign folder parked under the same name is a collision rather than an overwrite. `tests/test_duplicate_guard.py` had a test that asserted the old behaviour; it was rewritten, not deleted.
+
+0e. ~~**Uninstalling a DISABLED mod reported success and moved nothing.**~~ **SHIPPED in Round 58.** `status().state.disabled_mods` lists parked mods, so the panel offers them, so uninstall has to work on them. Every lookup in `_uninstall_inner` resolved into `Mods/` only, and the execute branch guarded the move with `if os.path.isdir(src): os.replace(...)`. For a parked source that guard was false, so the move was skipped -- while the transaction was opened, `MOD_UNINSTALLED` was written and the call returned `ok:True`. Measured on the device:
+
+    UNINSTALL_OK      True
+    MODS_AFTER        []
+    PARKED_AFTER      ['someone.parkuninstall']     # still there
+    QUARANTINE_TXNS   ['20261117T185221-0d2dc400']  # a txn was opened
+    AFTER_STATUS_DISABLED ['someone.parkuninstall'] # still listed
+
+So the plugin forgot a mod it had not removed: `journal.installed()` dropped the id, which is the same silent corruption the duplicate guard exists to prevent, just in the other direction. Two corrections -- resolve the parked path when the recorded dir is not on disk, and refuse with `E_MOD_NOT_FOUND` when the folder is nowhere, instead of reporting success. The `if os.path.isdir` guard was replaced with a raise, so the shape cannot come back.
 
 ## P0 — must exist before this is safe to hand to a stranger
 

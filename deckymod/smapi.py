@@ -1108,6 +1108,36 @@ class FileDropEngine:
             self.journal.log(f"rollback unexpected: {type(e).__name__}: {e}")
             return err("E_UNKNOWN", detail=f"{type(e).__name__}: {e}")
 
+    def _read_dir_identity(self, dirpath: str):
+        """What is actually in this folder right now (Round 70).
+
+        A restore moves a folder back by PATH. The journal remembers that path
+        belonged to some mod, but the bytes underneath may have been replaced by
+        hand while the folder was in the quarantine. Recording the remembered
+        identity then makes ``status().installed`` describe a mod that is not
+        there (measured on the device: the row said ``probe.alpha`` /
+        ``version: null`` while the disk held ``probe.beta 9.0.0``), and the
+        next install displaces somebody else's folder as "the old copy".
+
+        So every restore asks the restored folder who it is now. Returns None
+        when there is no readable manifest -- "cannot tell" is never turned into
+        a guess.
+        """
+        try:
+            if not dirpath or not os.path.isdir(dirpath) or os.path.islink(dirpath):
+                return None
+            parser = manifest.parser_for(self._mod_package())
+            globs = list(self._mod_package().get("manifest_globs") or [])
+            mfile = manifest._find_manifest_in_dir(dirpath, globs)
+            if not mfile:
+                return None
+            with open(mfile, "rb") as f:
+                raw = f.read()
+            pm = parser.parse(raw, mfile)
+        except Exception:
+            return None
+        return {"packageId": pm.uid, "name": pm.name, "version": pm.version}
+
     def _replaced_copy_for(self, txn: str):
         """The copy an interrupted install moved aside, if it is still there.
 
@@ -1188,14 +1218,41 @@ class FileDropEngine:
                 os.rmdir(os.path.dirname(qdir))
             except OSError:
                 pass
-            self.journal.record("MOD_ROLLBACK_RESTORED", txn, packageId=pid,
-                                mod={"name": pid, "dir": src}, enabled=True,
-                                # Round 21: carry ownership with the event. A mod
-                                # the plugin never installed must not become
-                                # "managed" just because its uninstall was undone.
-                                unmanaged=bool(uninst.get("unmanaged")))
+            # Round 70: ask the folder who it is NOW. Moving a directory back
+            # restores a PATH; it does not restore the mod that used to live
+            # there. When the contents were swapped by hand, recording `pid`
+            # made status().installed claim a mod that is not on disk (and the
+            # next install displaced the impostor as "the old copy").
+            actual = self._read_dir_identity(src)
+            found = str((actual or {}).get("packageId") or "")
+            same = bool(found) and found.strip().lower() == str(pid).strip().lower()
+            mismatch = bool(found) and not same
+            self.journal.record(
+                "MOD_ROLLBACK_RESTORED", txn,
+                # Under the id the folder really holds, so installed() never
+                # names a mod that is not there. A folder that holds somebody
+                # else is also not ours to own (round 21's rule).
+                packageId=pid if not mismatch else found,
+                mod={"name": (actual or {}).get("name") or pid, "dir": src,
+                     "version": (actual or {}).get("version"),
+                     "expected_package_id": pid if mismatch else None,
+                     "found_package_id": found or None},
+                enabled=True,
+                # Round 21: carry ownership with the event. A mod
+                # the plugin never installed must not become
+                # "managed" just because its uninstall was undone.
+                unmanaged=bool(uninst.get("unmanaged")) or mismatch)
             self.journal.committed(txn, {"rollback_of": "uninstall", "packageId": pid})
-            return ok({"restored": pid, "dir": src, "txn": txn, "log_path": _log_path(self.journal)})
+            result = {"restored": pid, "dir": src, "txn": txn,
+                      "log_path": _log_path(self.journal)}
+            if found:
+                result["restored_uid"] = found
+            if mismatch:
+                # The folder came back; the mod did not. Say both.
+                result["expected_uid"] = pid
+                result["note"] = ("the folder was restored, but it now holds %s, "
+                                  "not %s" % (found, pid))
+            return ok(result)
         # Round 55: a handover transaction moved entries to the quarantine; the
         # confirm dialog promised Rollback would put them back, so it must.
         hand = next((e for e in events if e.get("event") == "MODS_HANDOVER"), None)
@@ -1227,9 +1284,14 @@ class FileDropEngine:
             if not got.get("ok"):
                 raise ModError(got.get("code") or "E_OP_FAILED",
                                detail=got.get("detail") or "could not restore the previous copy")
+            # Round 70: the version that came back is the version on disk.
+            actual = self._read_dir_identity(inst.get("dir"))
             self.journal.record("MOD_ROLLBACK_RESTORED", txn,
                                 packageId=inst.get("packageId"),
-                                mod={"name": inst.get("packageId"), "dir": inst.get("dir")},
+                                mod={"name": (actual or {}).get("name")
+                                     or inst.get("packageId"),
+                                     "dir": inst.get("dir"),
+                                     "version": (actual or {}).get("version")},
                                 restored_from=inst.get("replaced_old"),
                                 removed_new=bool(got.get("removed_new")))
             self.journal.committed(txn, {"rollback_of": "upgrade",
@@ -1259,11 +1321,14 @@ class FileDropEngine:
                     raise ModError(got.get("code") or "E_OP_FAILED",
                                    detail=got.get("detail")
                                    or "could not restore the interrupted install")
+                actual = self._read_dir_identity(plan.get("to"))
                 self.journal.record("MOD_ROLLBACK_RESTORED", txn,
                                     packageId=plan.get("packageId"),
-                                    mod={"name": plan.get("name") or plan.get("packageId"),
+                                    mod={"name": (actual or {}).get("name")
+                                         or plan.get("name") or plan.get("packageId"),
                                          "dir": plan.get("to"),
-                                         "version": plan.get("version")},
+                                         "version": (actual or {}).get("version")
+                                         or plan.get("version")},
                                     restored_from=saved,
                                     removed_new=bool(got.get("removed_new")))
                 self.journal.rolled_back(txn, {"recovered": True,

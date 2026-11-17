@@ -36,6 +36,7 @@ features are deliberately excluded.
 | Make an undo that cannot undo say so | `rollback` of an uninstall refuses instead of reporting a restore that did not happen (Round 65, docs/ROLLBACK.md) |
 | Report a dependency that is installed but too old | global + per-row `outdated_dependencies`; no update performed (Round 67, docs/OUTDATED_DEPENDENCIES.md) |
 | Make a failed install or upgrade say what actually happened | the old version stays or the leftover goes, and the answer matches the disk (Round 69, docs/FAILED_INSTALL.md) |
+| Record the mod that a restore actually put back | reads the folder's manifest instead of repeating the old record (Round 70, docs/RESTORE_IDENTITY.md) |
 | Report a disabled dependency as disabled, not as missing | the fetcher is no longer handed an id the user parked, so a download cannot overwrite it (Round 66, docs/PARKED_DEPENDENCIES.md) |
 
 0g. **Multi-mod archives, and any archive nested more than one folder deep.**
@@ -183,6 +184,20 @@ Evidence: `tests/test_failed_install.py` (14 cases, one of them seeding a
 journal row with no folder), a mutation run that flips the cleanup back and
 fails exactly the new case, and 21/21 device checks including
 `E2_NOTHING_LEFT_BEHIND ['probe.upgradefail']`.
+
+0n. A restore recorded a remembered identity, not the disk.
+
+    `rollback` of an uninstall copied the `mod` dictionary out of the record of
+    the transaction being undone, so after the folder's contents had been
+    replaced by another mod the journal still named the old one (with
+    `version: null`) while the scanner reported the new one -- and the next
+    install moved the impostor folder into the quarantine as "the old copy".
+    A single `_read_dir_identity()` helper now reads the manifest of the folder
+    that came back, and the three restore branches use it. When the folder
+    holds a different mod the restore still succeeds but says so
+    (`restored_uid`, `expected_uid`, `note`) and does not claim ownership.
+    8 new cases in tests/test_restore_identity.py; 23 device checks on the
+    deployed plugin; see docs/RESTORE_IDENTITY.md.
 
 ## Closed since this page was written
 

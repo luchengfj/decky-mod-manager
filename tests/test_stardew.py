@@ -345,10 +345,13 @@ class TestLoaderLogInStatus(unittest.TestCase):
 
     def _install(self, uid, name):
         zp = os.path.join(self.t.inbox, uid.replace(".", "_") + ".zip")
+        # Round 64: the manifest names EntryDll <uid>.dll, so the archive has
+        # to contain that file. It used to ship "x.dll" and still installed.
+        dll = uid.split(".")[-1] + ".dll"
         _zip(zp, {"manifest.json": json.dumps({
             "Name": name, "Author": "x", "Version": "1.0.0",
-            "UniqueID": uid, "EntryDll": uid.split(".")[-1] + ".dll"}),
-            "x.dll": b"MZ"}, wrapper=uid.replace(".", "_"))
+            "UniqueID": uid, "EntryDll": dll}),
+            dll: b"MZ"}, wrapper=uid.replace(".", "_"))
         self.eng.install(zp, after_confirm=True)
 
     def test_no_log_yet_is_reported_not_failed(self):
@@ -484,6 +487,10 @@ def _make_stardew_zip(path):
     )
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("Visible/manifest.json", manifest)
+        # Round 64: the manifest names EntryDll Visible.dll. A package that
+        # declares it and does not ship it installs and never loads, so the
+        # fixture ships it like a real mod would.
+        z.writestr("Visible/Visible.dll", b"MZ")
 
 
 if __name__ == "__main__":

@@ -218,6 +218,40 @@ def _strip_jsonc_text(text: str) -> str:
     return "".join(res)
 
 
+def check_entry_dll(entry_dll, members) -> None:
+    """Refuse a manifest whose declared EntryDll is not shipped in the archive.
+
+    ``members`` is the extraction map: ``{relative_path: {...}}`` as returned by
+    ``file_drop.inspect_mod`` -- exactly the paths that will land in the mod
+    folder, so this compares against what the user will actually get, not
+    against the raw archive listing (which includes files the mapping drops).
+
+    ``entry_dll`` empty/None means the package declares none (a content pack),
+    which is not an error: only a DECLARED but absent file is.
+    """
+    if entry_dll is None:
+        return
+    rel = str(entry_dll).strip().replace("\\", "/")
+    if not rel:
+        return
+    if rel.startswith("/") or (len(rel) > 1 and rel[1] == ":") or ".." in rel.split("/"):
+        raise ModError(
+            "E_MANIFEST_UNSAFE",
+            detail="EntryDll %r points outside the mod folder" % entry_dll)
+    want = rel.lower()
+    have = {str(k).replace("\\", "/").lower() for k in (members or {})}
+    if want in have:
+        return
+    # A leading "./" (or repeated separators) is noise, not a different file.
+    squashed = "/".join(p for p in want.split("/") if p not in ("", "."))
+    if squashed and squashed in have:
+        return
+    raise ModError(
+        "E_MANIFEST_INVALID",
+        detail=("EntryDll %r is not in this archive; the mod would be installed "
+                "but fail to load" % entry_dll))
+
+
 def _apply_aliases(obj: dict, aliases: dict) -> None:
     """Copy alias keys onto their canonical key (descriptor-driven, in place).
 

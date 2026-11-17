@@ -241,6 +241,9 @@ class TestInspect7z(_Tree):
         path = os.path.join(self.inbox, "renamed.7z")
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("manifest.json", json.dumps(MANIFEST))
+            # The manifest declares EntryDll AutoBush.dll; ship it, or the
+            # archive is one SMAPI could never load (round 64).
+            zf.writestr("AutoBush.dll", b"MZ")
         calls = []
 
         def spy(argv, cwd=None):

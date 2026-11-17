@@ -157,10 +157,13 @@ class TestOneModAlwaysLandsAtTheTop(_Base):
         # The property that actually matters: whatever the wrapper depth, the
         # manifest is written at the top of Mods/<dir>/.
         for entries in (
-            [("A/manifest.json", _manifest_json("probe.one")), ("A/One.dll", "MZ")],
-            [("A/B/manifest.json", _manifest_json("probe.two")), ("A/B/Two.dll", "MZ")],
-            [("A/B/C/manifest.json", _manifest_json("probe.three")), ("A/B/C/Three.dll", "MZ")],
-            [("manifest.json", _manifest_json("probe.bare")), ("Bare.dll", "MZ")],
+            # The name must match the DLL that ships, because the manifest's
+            # EntryDll comes from it (round 64).
+            [("A/manifest.json", _manifest_json("probe.one", "One")), ("A/One.dll", "MZ")],
+            [("A/B/manifest.json", _manifest_json("probe.two", "Two")), ("A/B/Two.dll", "MZ")],
+            [("A/B/C/manifest.json", _manifest_json("probe.three", "Three")),
+             ("A/B/C/Three.dll", "MZ")],
+            [("manifest.json", _manifest_json("probe.bare", "Bare")), ("Bare.dll", "MZ")],
         ):
             info = self._inspect("layout.zip", entries)
             members = info["members"]

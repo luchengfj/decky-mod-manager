@@ -73,7 +73,7 @@ src/
   api.ts                      @decky/api call/callable bridge, invoke() guard
   types.ts                    TS mirror of the JSON-safe envelope + per-RPC payload types
   i18n.ts                     t() / errorText() / categoryText(), zh-CN via navigator.language
-  i18n/en.json, zh-CN.json    470 keys each, parity enforced by validate_i18n.py
+  i18n/en.json, zh-CN.json    471 keys each, parity enforced by validate_i18n.py
   components/
     Modal.tsx                 gamepad-first showInfo / showListModal / showErrorModal / showFomodModal
     ConfirmModal.tsx          two-phase confirm (A=confirm, B=cancel)
@@ -122,7 +122,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        49 modules, 742 cases (`Ran 742 tests ... OK (skipped=14)`)
+tests/                        50 modules, 756 cases (`Ran 756 tests ... OK (skipped=14)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -153,6 +153,7 @@ test_pending_gate.py        an unfinished txn blocks install/enable/uninstall, n
 test_lifecycle_hooks.py     _unload/_uninstall/_migration leave the user's Mods/ byte-identical
 test_import_order.py        discovery imports everything first; no module may drop the game pin
 test_multi_mod_archive.py   several mods in one zip are refused; one mod lands at the top however deep it was packed
+test_entry_dll.py          a declared EntryDll must exist in the archive, or the import is refused
   _verify.py                  compileall + registry JSON validation helper
 docs/                         see the index below
 .github/workflows/build.yml   CI: backend selftest + frontend build
@@ -304,6 +305,7 @@ Reading order for a newcomer, and what each file is for:
 | [UPGRADE.md](UPGRADE.md) | what happens to the version an install overwrote, and why rollback used to answer "nothing to roll back" |
 | [LIFECYCLE.md](LIFECYCLE.md) | what the unload/uninstall/migration hooks may touch, and how that promise is now tested |
 | [ARCHIVE_LAYOUT.md](ARCHIVE_LAYOUT.md) | where a mod starts inside a zip, and why a multi-mod archive has to be refused |
+| [ENTRY_DLL.md](ENTRY_DLL.md) | `EntryDll` names the file SMAPI loads; an archive that names one it does not contain is refused |
 | [PATH_DECISION.md](PATH_DECISION.md) | why "disabled" is a location, and what went wrong three rounds in a row because three places computed it |
 | [PREVIEW_AGREEMENT.md](PREVIEW_AGREEMENT.md) | why the confirm dialog must be generated from the same computation the write uses |
 | [RUNNING_GAME.md](RUNNING_GAME.md) | is the game running right now, and why that used to be an environment variable nobody set |

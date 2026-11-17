@@ -30,8 +30,9 @@ features are deliberately excluded.
 | Nexus | **metadata only** — browse and open the mod page; download links are premium-only, by Nexus policy |
 | Know whether the game actually loaded a mod (not just that it is on disk) | works, read-only (Round 40, docs/LOADER_LOG.md) |
 | Refuse writes when Mods/ belongs to another manager, and say why | works, structural (Round 44, docs/MOD_FOLDER_OWNERSHIP.md) |
-| Chinese / English UI | works, 455 keys each, parity enforced |
+| Chinese / English UI | works, 471 keys each, parity enforced |
 | Let a descriptor name its own third-party-manager marker | works (Round 53, docs/DECLARED_VS_READ.md) |
+| Refuse a mod whose manifest names an `EntryDll` it does not ship | works on both ZIP and `.7z` (Round 64, docs/ENTRY_DLL.md) |
 
 0g. **Multi-mod archives, and any archive nested more than one folder deep.**
 
@@ -53,6 +54,19 @@ features are deliberately excluded.
    `Mods/probe.twice/` with `manifest.json` on top and all three multi-mod
    shapes refused with nothing written. No product code changed for it -- the
    round existed to stop assuming.
+
+0h. **A declared `EntryDll` is now checked against the archive (round 64).**
+   `ParsedManifest.entry_dll` was parsed and then never compared to anything;
+   `parse_manifest()` had no callers, so the value did not even reach the panel.
+   A package naming a DLL it does not ship installed, appeared as installed and
+   enabled, and never loaded -- and a traversal path like `../../etc/passwd` was
+   accepted. `manifest.check_entry_dll()` now runs on both the ZIP and `.7z`
+   readers: an absent DLL is `E_MANIFEST_INVALID`, an escaping one is
+   `E_MANIFEST_UNSAFE`, and a mod with no `EntryDll` (content pack) is untouched.
+   Twelve fixtures that declared a DLL they never shipped were corrected -- the
+   check was right and the fixtures described impossible packages. Proven by
+   `tests/test_entry_dll.py` (14 cases), a nine-failure negative proof, and ten
+   true booleans against the deployed plugin on the Deck.
 
 ## Closed since this page was written
 

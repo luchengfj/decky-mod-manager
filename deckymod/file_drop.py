@@ -218,6 +218,10 @@ def inspect_mod(path: str, limits: dict | None = None, reject_extensions=None,
             continue
         members[stripped] = {"orig": nm, "size": zi.file_size}
 
+    # Round 64: a manifest that declares an EntryDll the archive does not ship
+    # installs fine and then never loads. Refuse it while nothing is written.
+    manifest.check_entry_dll(pm.entry_dll, members)
+
     version = pm.version
     version_is_fallback = False
     if not version:
@@ -238,6 +242,7 @@ def inspect_mod(path: str, limits: dict | None = None, reject_extensions=None,
         "supportedVersions": ([str(pm.minimum_api_version)] if pm.minimum_api_version else []),
         "badges": pm.badges,
         "dependencies": pm.dependencies,
+        "entryDll": pm.entry_dll,
         "install_relpath": prefix + pm.dir_name,
         "dir_name": pm.dir_name,
         "strip_single_root": hit.root,
@@ -380,6 +385,10 @@ def _inspect_7z(path: str, mp: dict, forbidden, limits) -> dict:
             continue
         members[stripped] = {"orig": nm, "size": entry.get("size") or 0}
 
+    # Round 64: same check on the .7z path -- it is a parallel implementation, so
+    # a ZIP-only fix would leave this format unchecked (see round 63).
+    manifest.check_entry_dll(pm.entry_dll, members)
+
     version = pm.version
     version_is_fallback = False
     if not version:
@@ -393,6 +402,7 @@ def _inspect_7z(path: str, mp: dict, forbidden, limits) -> dict:
     prefix = mp.get("install_relpath_prefix") or "Mods/"
     return {
         "format": "7z",
+        "entryDll": pm.entry_dll,
         "fomod": fomod_info,
         "total_uncompressed": listed["total_uncompressed"],
         "packageId": pm.uid,

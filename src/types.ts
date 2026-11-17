@@ -53,6 +53,13 @@ export interface ModListEntry {
   author?: string | null;
   dependencies?: string[];
   missing_dependencies?: string[];
+  /**
+   * Round 66: required dependencies the user OWNS but has disabled. They are
+   * not missing -- they are present and switched off, so the remedy is to
+   * enable them. Kept out of `missing_dependencies` so the automatic
+   * dependency download never replaces a mod the user parked on purpose.
+   */
+  parked_dependencies?: string[];
   parse_error?: string;
   /**
    * Round 40: what the loader said about THIS mod on its last launch.
@@ -234,6 +241,8 @@ export interface StateInfo {
   duplicate_ids?: [string, string[]][];
   /** Step 2: dependency ids referenced but not present in the mod set. */
   missing_dependencies?: string[];
+  /** Round 66: dependency ids that are installed but parked (disabled). */
+  parked_dependencies?: string[];
 }
 
 export interface ManagedMod {

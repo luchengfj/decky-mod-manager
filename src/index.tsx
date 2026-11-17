@@ -1044,6 +1044,8 @@ function Content() {
               ? [t("MODLIST_DEPS", "Dependencies: {v}", { v: m.dependencies.join(", ") })] : []),
             ...(m.missing_dependencies && m.missing_dependencies.length
               ? [t("MODLIST_MISSING_DEPS", "Missing dependencies: {v}", { v: m.missing_dependencies.join(", ") })] : []),
+            ...(m.parked_dependencies && m.parked_dependencies.length
+              ? [t("MODLIST_PARKED_DEPS", "Dependencies installed but disabled: {v} (enable them)", { v: m.parked_dependencies.join(", ") })] : []),
             ...(m.parse_error
               ? [t("MODLIST_PARSE_ERR", "Manifest error: {v}", { v: m.parse_error })] : []),
             ...(keys.length
@@ -1109,6 +1111,14 @@ function Content() {
           v: m.missing_dependencies.join(", "),
         }));
       }
+      // Round 66: a disabled dependency is the user's own switch, so it is
+      // reported with the action that fixes it instead of as a gap.
+      if (m.parked_dependencies && m.parked_dependencies.length) {
+        notes.push(t("MODLIST_PARKED_DEPS",
+          "Dependencies installed but disabled: {v} (enable them)", {
+            v: m.parked_dependencies.join(", "),
+          }));
+      }
       const others = dupMap.get(m.dir) || [];
       if (others.length) {
         notes.push(t("MODLIST_DUP_ID", "Duplicate UniqueID also in: {v}", { v: others.join(", ") }));
@@ -1126,6 +1136,12 @@ function Content() {
       summary.push(t("MODLIST_SUMMARY_DEPS", "Missing dependencies: {v}", {
         v: st.missing_dependencies.join(", "),
       }));
+    }
+    if (st?.parked_dependencies && st.parked_dependencies.length) {
+      summary.push(t("MODLIST_SUMMARY_PARKED_DEPS",
+        "Dependencies installed but disabled: {v}", {
+          v: st.parked_dependencies.join(", "),
+        }));
     }
     if (st?.duplicate_ids && st.duplicate_ids.length) {
       summary.push(t("MODLIST_SUMMARY_DUP", "Duplicate IDs: {v}", {

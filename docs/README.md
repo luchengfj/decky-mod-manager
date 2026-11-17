@@ -122,7 +122,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        51 modules, 765 cases (`Ran 765 tests ... OK (skipped=15)`)
+tests/                        52 modules, 774 cases (`Ran 774 tests ... OK (skipped=15)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -155,6 +155,7 @@ test_import_order.py        discovery imports everything first; no module may dr
 test_multi_mod_archive.py   several mods in one zip are refused; one mod lands at the top however deep it was packed
 test_entry_dll.py          a declared EntryDll must exist in the archive, or the import is refused
 test_rollback_undo.py      an undo that could not undo says so, and leaves no litter in the quarantine
+test_parked_dependencies.py  a disabled dependency is not a missing one, and the fetcher never sees it
   _verify.py                  compileall + registry JSON validation helper
 docs/                         see the index below
 .github/workflows/build.yml   CI: backend selftest + frontend build
@@ -255,7 +256,7 @@ python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_api_arity.py       -> BACKEND_RPCS 26 / FRONTEND_CALLS 26 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
-.decky-probe/r4_tar_drift.py             -> TAR_COUNT 116 / CUR_COUNT 116, drift 0
+.decky-probe/r4_tar_drift.py             -> TAR_COUNT 117 / CUR_COUNT 117, drift 0
 ```
 
 Backend is stdlib-only and **runs** on this box (the Windows-portability fix in
@@ -318,6 +319,7 @@ Reading order for a newcomer, and what each file is for:
 | [MOD_FOLDER_CONFLICTS.md](MOD_FOLDER_CONFLICTS.md) | which mods ship the same file, why scope belongs to the loader, and the 27 false alarms the device found |
 | [HANDOVER.md](HANDOVER.md) | handing Mods/ over from another manager without deleting anything, and what it refuses |
 | [MOD_FOLDER_OWNERSHIP.md](MOD_FOLDER_OWNERSHIP.md) | who owns the Mods folder, and why a filename list can never answer that |
+| [PARKED_DEPENDENCIES.md](PARKED_DEPENDENCIES.md) | why a dependency the user disabled is reported apart from one that is absent, and the download that used to overwrite it |
 | [NEXT_FEATURES.md](NEXT_FEATURES.md) | what is still missing, ranked by whether it can corrupt user data or fail silently — not a wish list |
 
 ## Windows portability note

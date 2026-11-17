@@ -189,6 +189,8 @@
   "MODLIST_ROW": "{name} · v{version} · {author}",
   "MODLIST_ROW_UNKNOWN": "{dir} ·（manifest 无法读取）",
   "MODLIST_MISSING_DEPS": "缺失依赖：{v}",
+  "MODLIST_PARKED_DEPS": "已安装但被停用：{v}（启用即可）",
+  "MODLIST_SUMMARY_PARKED_DEPS": "已安装但被停用：{v}",
   "MODLIST_DUP_ID": "重复 UniqueID，也出现在：{v}",
   "MODLIST_PARSE_ERR": "Manifest 错误：{v}",
   "MODLIST_DEPS": "依赖：{v}",

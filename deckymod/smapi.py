@@ -416,7 +416,13 @@ class FileDropEngine:
         # manifest via the descriptor parser, computes missing deps / duplicate
         # ids. A single bad manifest is isolated to parse_error, never aborts
         # the whole status. NO writes, NO journal.begin -> safe in read_only.
-        scanned = manifest.scan_installed_mods(r.mod_root, self._mod_package())
+        # Round 66: the parked root is scanned FIRST so the active scan can be
+        # told which ids are disabled rather than absent. Both are read-only.
+        disabled_scan = manifest.scan_installed_mods(r.disabled_root, self._mod_package())
+        parked_ids = [m["uniqueId"] for m in disabled_scan["mods"]
+                      if m.get("uniqueId")]
+        scanned = manifest.scan_installed_mods(r.mod_root, self._mod_package(),
+                                               parked_ids=parked_ids)
         # Round 40: ask the loader's own log what it actually accepted. This is the
         # only place in the plugin that can tell "in Mods/" from "in the game" --
         # the device showed 30 folders against 22 loaded mods and 3 content packs.
@@ -439,8 +445,8 @@ class FileDropEngine:
                            "detail": log_info.get("detail") or ""})
         # Round 25: mods parked in .decky-disabled/ are still the user's mods and
         # must stay visible, otherwise disabling one makes it vanish from the UI
-        # with no way back.
-        disabled_scan = manifest.scan_installed_mods(r.disabled_root, self._mod_package())
+        # with no way back. (Round 66: this scan now happens above, because the
+        # active scan needs its ids to tell "disabled" from "absent".)
         # Round 47: which paths do two mods both ship? A fact about the
         # filesystem, not about the game -- so it needs no per-game knowledge,
         # and it is read-only like everything else in status(). A failure here
@@ -485,6 +491,10 @@ class FileDropEngine:
                 "disabled_mods": disabled_scan["mods"],
                 "duplicate_ids": scanned["duplicate_ids"],
                 "missing_dependencies": scanned["missing_dependencies"],
+                # Round 66: dependencies the user owns but disabled. Reported
+                # apart from missing ones: the remedy is "enable it", and the
+                # fetcher reads the missing list only.
+                "parked_dependencies": scanned["parked_dependencies"],
                 "external_manager": probe["external_manager"],
                 "loader_detected": probe["loader_detected"],
                 "launch_options": probe["launch_options"],

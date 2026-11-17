@@ -426,7 +426,8 @@ def _find_manifest_in_dir(dir_path: str, globs: List[str]) -> Optional[str]:
     return None
 
 
-def scan_installed_mods(mod_root: str, mod_package: dict) -> dict:
+def scan_installed_mods(mod_root: str, mod_package: dict,
+                        parked_ids=None) -> dict:
     """Read-only enumeration of installed mod directories (Step 2).
 
     Returns a JSON-safe dict::
@@ -438,12 +439,24 @@ def scan_installed_mods(mod_root: str, mod_package: dict) -> dict:
     badges/missing_dependencies, or a ``parse_error`` code when that one mod is
     unreadable. A single bad manifest NEVER aborts the whole scan. No writes,
     no journal.begin — this is safe under read_only posture.
+
+    Round 66: ``parked_ids`` are the ids the caller knows are DISABLED (they
+    live in ``.decky-disabled/``, a sibling of ``Mods/``, so this walk cannot
+    see them). A disabled dependency is not absent -- it is present and the
+    user turned it off. Keeping the two apart matters because
+    ``missing_dependencies`` is what the automatic download fetches, and a
+    device run proved the cost of conflating them: fetching a parked
+    dependency replaced the copy the user had deliberately disabled, and the
+    missing list still did not clear. So parked ids are reported in their own
+    list, with the remedy the game actually needs (enable it).
     """
     try:
         parser = parser_for(mod_package)
     except ModError:
-        return {"mods": [], "duplicate_ids": [], "missing_dependencies": []}
+        return {"mods": [], "duplicate_ids": [], "missing_dependencies": [],
+                "parked_dependencies": []}
     globs = list(mod_package.get("manifest_globs") or [])
+    parked = {str(x).strip().lower() for x in (parked_ids or []) if str(x).strip()}
     mods: List[dict] = []
     id_to_dirs: Dict[str, List[str]] = {}
     try:
@@ -490,12 +503,20 @@ def scan_installed_mods(mod_root: str, mod_package: dict) -> dict:
 
     present = set(id_to_dirs.keys())
     missing: set = set()
+    parked_gaps: set = set()
     for m in mods:
         deps = m.get("dependencies") or []
-        missing_here = [d for d in deps if d.lower() not in present]
+        absent = [d for d in deps if d.lower() not in present]
+        # Round 66: split "absent" into "present but disabled" and "truly not
+        # here". Only the second is a download problem.
+        parked_here = [d for d in absent if d.lower() in parked]
+        missing_here = [d for d in absent if d.lower() not in parked]
         m["missing_dependencies"] = missing_here
+        m["parked_dependencies"] = parked_here
         for d in missing_here:
             missing.add(d)
+        for d in parked_here:
+            parked_gaps.add(d)
     duplicate_ids = [
         [uid, dirs] for uid, dirs in sorted(id_to_dirs.items()) if len(dirs) > 1
     ]
@@ -503,4 +524,8 @@ def scan_installed_mods(mod_root: str, mod_package: dict) -> dict:
         "mods": mods,
         "duplicate_ids": duplicate_ids,
         "missing_dependencies": sorted(missing),
+        # Round 66: dependencies the user owns but has disabled. Kept apart
+        # from ``missing_dependencies`` on purpose -- the panel can offer
+        # "enable it" and the fetcher must not touch it.
+        "parked_dependencies": sorted(parked_gaps),
     }

@@ -34,6 +34,7 @@ features are deliberately excluded.
 | Let a descriptor name its own third-party-manager marker | works (Round 53, docs/DECLARED_VS_READ.md) |
 | Refuse a mod whose manifest names an `EntryDll` it does not ship | works on both ZIP and `.7z` (Round 64, docs/ENTRY_DLL.md) |
 | Make an undo that cannot undo say so | `rollback` of an uninstall refuses instead of reporting a restore that did not happen (Round 65, docs/ROLLBACK.md) |
+| Report a disabled dependency as disabled, not as missing | the fetcher is no longer handed an id the user parked, so a download cannot overwrite it (Round 66, docs/PARKED_DEPENDENCIES.md) |
 
 0g. **Multi-mod archives, and any archive nested more than one folder deep.**
 
@@ -88,6 +89,34 @@ offered for deletion). No new error codes. Proven by
 `tests/test_rollback_undo.py` (9 cases), a 7-failure negative proof whose plain
 case still passes, and 18 checks against the deployed plugin. Details:
 `docs/ROLLBACK.md`.
+
+### `0j.` A disabled dependency was downloaded over and still reported missing
+
+Round 66. `.decky-disabled/` is a sibling of `Mods/`, and
+`scan_installed_mods()` only walks the root it is handed, so a dependency the
+user had parked fell into `missing_dependencies` -- the exact list `main.py`
+hands to `fetch_dependencies`. On the device, with the network handlers injected
+so nothing left the machine:
+
+    PARKED_VERSION_BEFORE  1.0.0
+    FETCH_INSTALLED        1              # deps.run says "resolved"
+    PARKED_VERSION_AFTER   1.1.0          # the parked copy was replaced
+    MISSING_AFTER          ['probe.thedep']   # still reported as missing
+
+Two harms that are worth separating: the user's "off" switch was overwritten by
+a download they never asked for, and the panel then reported failure *after*
+mutating their data. The mod was never missing -- it was installed, owned,
+visible, and switched off, so the remedy is one tap, not a fetch.
+
+`scan_installed_mods()` now takes the known parked ids and answers with two
+lists: `missing_dependencies` (nobody provides it -> download) and
+`parked_dependencies` (the user disabled it -> enable it). `status()` scans the
+parked root first so the active scan can be told the difference, and the panel
+renders the second list with the action that fixes it. No new error code; the
+fetcher keeps its contract and simply stops being handed ids it must not touch.
+Tests: `tests/test_parked_dependencies.py` (9 cases) including one that runs the
+real `deps.run()` and asserts no fetch is attempted at all. Details:
+`docs/PARKED_DEPENDENCIES.md`.
 
 ## Closed since this page was written
 

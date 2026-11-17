@@ -32,5 +32,7 @@ jobs:
         run: npm i -g pnpm@9
       - name: Install (versions pinned by pnpm-lock.yaml)
         run: pnpm install --frozen-lockfile
+      - name: Type-check (strict)
+        run: pnpm run typecheck
       - name: Build frontend bundle
         run: pnpm run build

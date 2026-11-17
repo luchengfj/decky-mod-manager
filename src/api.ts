@@ -43,6 +43,7 @@ import type {
   NexusDownloadLinkData,
   OpenModPageData,
   SearchPageData,
+  ReclaimData,
 } from "./types";
 
 export const PROGRESS_EVENT = "deckymod:progress";
@@ -237,6 +238,21 @@ export const openSearchPage = (query: string) =>
   invoke<SearchPageData>("open_search_page", query);
 
 /**
+ * Round 54: delete quarantine folders the journal can no longer restore.
+ *
+ * Takes an explicit list of transaction ids, never "everything": the backend
+ * refuses an empty list rather than sweeping, because a folder it cannot prove
+ * is orphaned may hold the only copy of a mod the user still wants.
+ *
+ * Two-phase like installMod: confirm returns the confirm payload (phase
+ * "confirm" + confirm_key CONFIRM_RECLAIM), commit returns the removal report.
+ */
+export const reclaimQuarantine = (txns: string[], afterConfirm: boolean) =>
+  invoke<ConfirmData | OpResultData>(
+    "reclaim_quarantine", txns, afterConfirm,
+  ) as Promise<OpEnvelope>;
+
+/**
  * `callable` demonstration (§1). These typed handles are equivalent to the
  * wrappers above; they exist to document the callable() shape against the
  * LOCKED template. They are intentionally NOT used by the UI so the code has a
@@ -270,6 +286,7 @@ export const callableHandles = {
   nexus_download_link: callable<[number, number], Envelope<NexusDownloadLinkData>>("nexus_download_link"),
   open_mod_page: callable<[number], Envelope<OpenModPageData>>("open_mod_page"),
   open_search_page: callable<[string], Envelope<SearchPageData>>("open_search_page"),
+  reclaim_quarantine: callable<[string[], boolean], Envelope<ReclaimData>>("reclaim_quarantine"),
 };
 
 /** Convenience: extract a localized, friendly error string for toasts. */

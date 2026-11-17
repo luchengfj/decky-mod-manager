@@ -151,16 +151,20 @@ class TestRimworldEngineHasTheSameGate(unittest.TestCase):
     """The RimWorld engine had the same hole; assert the wiring textually.
 
     A real tree would need a Steam library fixture, and the point here is only
-    that the guard is present in all three write paths of the OTHER engine too.
+    that the guard is present in all write paths of the OTHER engine too.
+
+    Round 54 added a fourth write path (``_reclaim_inner``), which deletes
+    quarantine folders. It is a write, so it is guarded like the other three --
+    that is the claim, and the count below is what makes it checkable.
     """
 
-    def test_all_three_write_paths_call_the_guard(self):
+    def test_every_write_path_calls_the_guard(self):
         import io
         path = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "deckymod", "engine.py")
         with io.open(path, encoding="utf-8") as f:
             src = f.read()
-        self.assertEqual(src.count("self._check_no_pending()"), 3)
+        self.assertEqual(src.count("self._check_no_pending()"), 4)
         self.assertIn("def _check_no_pending", src)
 
     def test_rollback_is_the_only_write_path_without_it(self):
@@ -180,7 +184,8 @@ class TestRimworldEngineHasTheSameGate(unittest.TestCase):
                         and inner.func.attr == "_check_no_pending"):
                     guarded.add(node.name)
         self.assertEqual(guarded,
-                         {"_install_inner", "_set_enabled_inner", "_uninstall_inner"})
+                         {"_install_inner", "_set_enabled_inner",
+                          "_uninstall_inner", "_reclaim_inner"})
         self.assertNotIn("_rollback_inner", guarded)
 
 

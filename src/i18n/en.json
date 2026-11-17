@@ -456,5 +456,11 @@
   "QUAR_NONE": "The quarantine is empty.",
   "MODDETAIL_KEYS": "Declared update keys: {v}",
   "RUNNING_LINE": "The game is running -- close it before changing mods.",
-  "RUNNING_UNKNOWN": "Whether the game is running could not be checked."
+  "RUNNING_UNKNOWN": "Whether the game is running could not be checked.",
+  "QUAR_RECLAIM_BTN": "Delete unrecoverable folders…",
+  "QUAR_RECLAIM_DESC": "Permanently deletes the quarantine folders that no longer have a journal record.",
+  "CONFIRM_RECLAIM": "Permanently delete {n} quarantine folder(s) ({kb} KB)? Rollback cannot bring them back.",
+  "QUAR_RECLAIM_DONE": "Deleted {n} folder(s), freed {kb} KB.",
+  "QUAR_RECLAIM_NONE": "Nothing to delete.",
+  "QUAR_RECLAIM_KEPT": "Kept {n} folder(s) that can still be restored."
 }

@@ -942,6 +942,83 @@ class FileDropEngine:
                 return err("E_ROLLBACK_FAILED", detail=str(rb))
         raise ModError("E_UNKNOWN", detail=f"nothing to roll back for txn {txn} (state={state})")
 
+    # ------------------------------------------------------------------ reclaim (round 54)
+    def reclaim_quarantine(self, txns, *, after_confirm: bool = False) -> dict:
+        """Delete quarantine folders the journal can no longer restore.
+
+        Every write gate runs first, in the same order as the other destructive
+        ops, because this removes data from disk. Then ``quarantine.reclaim``
+        decides: only ``orphan`` entries, only ones named by the caller, and
+        only with ``after_confirm``. See that function for the argument.
+        """
+        try:
+            return self._reclaim_inner(txns, after_confirm)
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        except OSError as e:
+            return err(map_oserror(e).code, detail=e.strerror)
+        except Exception as e:
+            self.journal.log(f"reclaim unexpected: {type(e).__name__}: {e}")
+            return err("E_UNKNOWN", detail=f"{type(e).__name__}: {e}")
+
+    def _reclaim_inner(self, txns, after_confirm: bool) -> dict:
+        # Deliberately the same three gates as uninstall: this deletes files the
+        # user can no longer get back, so it is not "just cleanup".
+        self._check_not_running()
+        r = self._resolve()
+        self._check_write_allowed(r)
+        self._check_no_pending()
+        cfg = (self._mod_package().get("quarantine") or {})
+        if cfg.get("allow_reclaim") is False:
+            raise ModError("E_CAPABILITY_DISABLED",
+                           detail="reclaim is disabled in the descriptor")
+        if isinstance(txns, str):
+            txns = [txns]
+        wanted = [str(t) for t in (txns or []) if str(t)]
+        if not wanted:
+            raise ModError("E_PATH_INVALID", detail="no transaction ids were given")
+        # Cap: a single call must not be able to empty a large quarantine. The
+        # limit is the descriptor's, because how many folders is "a lot" is a
+        # property of the game's install, not of this module.
+        limit = int(cfg.get("max_reclaim") or quarantine.MAX_DIRS)
+        if len(wanted) > limit:
+            raise ModError("E_PATH_INVALID",
+                           detail=f"at most {limit} folders per call; %d were given"
+                                  % len(wanted))
+
+        survey = quarantine.survey(r.quarantine_root, self.journal, cfg)
+        out = quarantine.reclaim(r.quarantine_root, wanted, survey,
+                                 after_confirm=after_confirm)
+        if out.get("phase") == "confirm":
+            # The confirm payload is built HERE rather than in quarantine.py:
+            # the module knows the filesystem, this method knows the descriptor
+            # and the UI contract. Without these four fields runTwoPhase() would
+            # see phase=="confirm" and open a modal with nothing in it.
+            n = len(out.get("accepted") or [])
+            out.update({
+                "phase": "confirm",
+                "plan": {"op": "reclaim",
+                         "txns": list(out.get("accepted") or []),
+                         "bytes": out.get("bytes"),
+                         "files": out.get("files"),
+                         "refused": dict(out.get("refused") or {})},
+                "confirm_text": "Delete %d quarantine folder(s) permanently? "
+                                "Rollback cannot bring them back." % n,
+                "confirm_key": "CONFIRM_RECLAIM",
+                "confirm_vars": {"n": str(n),
+                                 "kb": str(int((out.get("bytes") or 0) / 1024))},
+                "targets": {"w1_state_file": None,
+                            "w2_quarantine": r.quarantine_root},
+            })
+        if out.get("phase") == "removed" and out.get("removed"):
+            self.journal.record("QUARANTINE_RECLAIMED",
+                                new_txn_id(),
+                                removed=out.get("removed"),
+                                failed=sorted((out.get("failed") or {}).keys()),
+                                bytes=out.get("bytes"))
+        out["log_path"] = _log_path(self.journal)
+        return ok(out)
+
     # ------------------------------------------------------------------ history / refresh
     def history(self, limit: int = 50) -> dict:
         try:

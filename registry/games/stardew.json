@@ -205,6 +205,11 @@
       "max_conflicts": 50,
       "scope": "per_mod_directory",
       "scope_note": "SMAPI gives every mod its own folder, so two mods shipping config.json or i18n/zh.json are two unrelated files, not a collision -- measured on the device: 27 of 27 reported 'conflicts' were exactly those per-mod files. The honest conflict for this loader is a duplicate UniqueID, which the manifest scan already reports. Set scope to 'shared_tree' only for loaders that copy all mods into one directory (BepInEx, a game's own asset root)."
+    },
+    "quarantine": {
+      "allow_reclaim": true,
+      "max_reclaim": 50,
+      "note": "Round 54. allow_reclaim gates DELETEING quarantine folders the journal can no longer restore (see docs/QUARANTINE.md). Deleting is the only way to get the space back, and it is not undoable, so the RPC takes an explicit list of transaction ids and a second confirming call; nothing sweeps the folder looking for things to remove. Folders the journal still references stay restorable and are refused by name."
     }
   },
   "state_mutator": {

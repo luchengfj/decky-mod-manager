@@ -15,6 +15,7 @@ features are deliberately excluded.
 | See files the user downloaded in the browser, not only the plugin inbox | works, read-only (Round 42) |
 | See which mods ship the same file, without pretending to fix load order | works, read-only (Round 47) |
 | Tell you which quarantined mods can still come back, and which cannot | works, read-only (Round 48) |
+| Delete the quarantine folders that can no longer be restored | works, two-phase + all write gates (Round 54) |
 | Know which Nexus page a mod you already installed came from | works, read-only (Round 49) |
 | Refuse to change mods while the game is actually running | works, read-only check (Round 50, docs/RUNNING_GAME.md) |
 | Refuse to start a new operation while a previous one never finished | works (Round 51, docs/RECOVERY.md) |
@@ -110,15 +111,20 @@ features are deliberately excluded.
    same game file, or load-order-sensitive mods, are silently accepted. The
    plugin should not solve ordering (that needs game knowledge), but it should
    at least report "these two mods both ship `X.dll`".
-7. **Rollback has no expiry and no storage bound.** **Measured in Round 48**
-   (`docs/QUARANTINE.md`): the risk is not disk-full -- the whole quarantine
-   is 1.3 MB on a 64 GB Deck -- it is *unreachable* data. 29 of 45 folders
-   have no `MOD_UNINSTALLED` record left in the journal, so nothing can
-   restore them, and 16 of those hold real files (four hold a 114 KB mod).
-   The audit reports this in `status()` and deliberately deletes nothing:
-   "nobody claims this" is answered by the journal, and a rotated journal
-   looks identical to "nothing claims any of these". Remaining gap: there is
-   still no way for the user to say "yes, drop these".
+7. ~~**Rollback has no expiry and no storage bound.**~~ **Gap closed in Round 54**
+   for the part that mattered. Measured in Round 48 (`docs/QUARANTINE.md`): the
+   risk was not disk-full -- the whole quarantine is 1.3 MB on a 64 GB Deck --
+   it was *unreachable* data. 29 of 45 folders had no `MOD_UNINSTALLED` record
+   left in the journal, so nothing could restore them, and 16 of those held real
+   files (four held a 114 KB mod). The audit reported this and deliberately
+   deleted nothing, because "nobody claims this" is answered by the journal and
+   a rotated journal looks identical to "nothing claims any of these".
+   `reclaim_quarantine(txns, after_confirm)` now lets the user say "yes, drop
+   these" -- naming each transaction id, only for `orphan` entries, behind every
+   write gate, with a two-phase confirm. **Still open:** nothing expires a
+   *restorable* folder either, so a quarantine can still hold every uninstall
+   forever; that is a policy decision (how long is a rollback worth keeping?)
+   this round did not make.
 
 ## P2 — needed for a real release, not for correctness
 

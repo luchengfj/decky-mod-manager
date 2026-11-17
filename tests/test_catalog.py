@@ -154,7 +154,7 @@ class TestCatalogInStatusEnvelope(unittest.TestCase):
             if not name.startswith("_") and callable(getattr(main.Plugin, name))
             and asyncio.iscoroutinefunction(getattr(main.Plugin, name))
         )
-        self.assertEqual(len(rpc), 26, rpc)
+        self.assertEqual(len(rpc), 27, rpc)
         for name in ("gh_search", "gh_releases", "gh_download", "download_url",
                      "list_games"):
             self.assertIn(name, rpc)

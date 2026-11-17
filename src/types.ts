@@ -94,7 +94,25 @@ export interface QuarantineEntry {
   files?: number;
   bytes?: number;
   restorable?: boolean;
+  /** Round 54: the first few child names, so the user can recognise a folder
+   *  before deleting it. "114308 bytes" is not a decision anybody can make;
+   *  "esca.destroyablebushes" is. Bounded by the backend, never complete. */
+  names?: string[];
 }
+
+/** Round 54: the answer to a reclaim request. `phase` is "confirm" until the
+ *  user agrees, then "removed" (or "nothing" when there was nothing to do).
+ *  `refused` maps a transaction id to the reason it was kept -- a restorable
+ *  folder or an unreadable journal, never a silent omission. */
+export interface ReclaimData {
+  phase?: string;
+  accepted?: string[];
+  removed?: string[];
+  failed?: Record<string, string>;
+  refused?: Record<string, string>;
+  bytes?: number;
+}
+
 
 /** Round 50: whether the game is running, read from /proc.
  *  `unknown` means the check could not be performed -- it is never a
@@ -398,6 +416,13 @@ export interface OpResultData {
   recovered?: boolean;
   rollback_hint?: string;
   log_path?: string;
+  /** Round 54: reclaim_quarantine's commit report. */
+  phase?: string;
+  removed?: string[];
+  accepted?: string[];
+  failed?: Record<string, string>;
+  refused?: Record<string, string>;
+  bytes?: number;
 }
 
 export interface HistoryItem {

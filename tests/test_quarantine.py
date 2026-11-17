@@ -218,27 +218,40 @@ class TestModuleShape(unittest.TestCase):
         for word in ("stardew", "413150", "smapi", "stardewvalley"):
             self.assertNotIn(word, low)
 
-    def test_module_never_writes_or_deletes(self):
-        # The whole point: report, never clean. A plugin that deletes folders
-        # it did not create is one bug away from deleting a wanted mod.
+    def test_only_reclaim_may_write_or_delete(self):
+        # Round 48's rule was "this module never deletes anything". Round 54
+        # added the one path that does -- ``reclaim()`` -- because a folder the
+        # journal can no longer restore is a folder the user may legitimately
+        # want gone. So the claim narrows rather than disappears: every OTHER
+        # function in the module is still read-only, and reclaim() is the only
+        # name allowed to touch the filesystem destructively.
+        #
+        # A plugin that deletes folders it did not create is one bug away from
+        # deleting a wanted mod; the point of this test is that the set of such
+        # functions is exactly one, and that nobody grew a second one silently.
         import ast
         tree = ast.parse(self._src())
         banned = {"makedirs", "mkdir", "remove", "unlink", "rmtree", "rename",
                   "replace", "chmod", "symlink", "copy", "copy2", "move",
                   "write", "write_text", "write_bytes", "fsync", "truncate"}
-        called = set()
-        attrs = set()
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
+        offenders = {}
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef):
                 continue
-            f = node.func
-            if isinstance(f, ast.Name):
-                called.add(f.id)
-            elif isinstance(f, ast.Attribute):
-                attrs.add(f.attr)
-        self.assertEqual(banned & called, set())
-        self.assertEqual(banned & attrs, set())
-        self.assertNotIn("open", called, "read-only: opens files through os.walk/getsize only")
+            hits = set()
+            for inner in ast.walk(node):
+                if not isinstance(inner, ast.Call):
+                    continue
+                f = inner.func
+                if isinstance(f, ast.Name) and f.id in banned:
+                    hits.add(f.id)
+                elif isinstance(f, ast.Attribute) and f.attr in banned:
+                    hits.add(f.attr)
+            if hits:
+                offenders[node.name] = hits
+        self.assertEqual(sorted(offenders), ["reclaim"],
+                         "only reclaim() may delete: %r" % offenders)
+        self.assertNotIn("open", offenders.get("reclaim", set()))
 
 
 class TestStatusWiring(unittest.TestCase):

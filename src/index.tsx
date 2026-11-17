@@ -65,6 +65,7 @@ import {
   nexusDownloadLink,
   openModPage,
   openSearchPage,
+  reclaimQuarantine,
 } from "./api";
 import type {
   Envelope,
@@ -1872,6 +1873,33 @@ function Content() {
     return text;
   };
 
+  /**
+   * Round 54: delete the quarantine folders nothing can restore any more.
+   *
+   * The list comes from the status the panel is already showing, and only
+   * entries the backend called "orphan" with bytes in them: a restorable folder
+   * still holds a mod the user can bring back, and an "unknown" one means the
+   * journal could not be read. Sending those would be spending "I cannot tell"
+   * as "nobody owns it", which is the exact mistake the audit exists to avoid.
+   */
+  const doReclaim = () => {
+    const q = status?.state?.quarantine;
+    const txns = ((q && q.entries) || [])
+      .filter((e) => e.state === "orphan" && (e.bytes || 0) > 0)
+      .map((e) => e.txn);
+    if (!txns.length) {
+      setLastResult(t("QUAR_RECLAIM_NONE"));
+      return;
+    }
+    runTwoPhase(
+      (afterConfirm) => reclaimQuarantine(txns, afterConfirm),
+      (d) => t("QUAR_RECLAIM_DONE", "Deleted {n} folder(s), freed {kb} KB.", {
+        n: String((d.removed || []).length),
+        kb: String(Math.round((d.bytes || 0) / 1024)),
+      }),
+    );
+  };
+
   const conflictLine = (): string => {
     const c = status?.state?.conflicts;
     if (!c || !c.checked || !c.total) return "";
@@ -1972,6 +2000,17 @@ function Content() {
             <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
               {quarantineLine()}
             </div>
+          </PanelSectionRow>
+        ) : null}
+        {!readOnly && quarantineLine() ? (
+          <PanelSectionRow>
+            <ButtonItem
+              layout="below"
+              label={t("QUAR_RECLAIM_BTN")}
+              description={t("QUAR_RECLAIM_DESC")}
+              disabled={busy}
+              onClick={() => doReclaim()}
+            />
           </PanelSectionRow>
         ) : null}
         {runningLine() ? (

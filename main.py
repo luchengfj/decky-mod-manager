@@ -434,6 +434,27 @@ class Plugin:
             return r
         return _guard(_run)
 
+    async def reclaim_quarantine(self, txns: list, after_confirm: bool):
+        """Delete quarantine folders the journal can no longer restore.
+
+        Round 54. ``status().state.quarantine`` has been telling the user that
+        N folders are unreachable since Round 48, and there was no way to act on
+        it. The ids are positional here for the same reason every other RPC
+        uses positional args, and the confirmation is a real second call
+        because deleting is not undoable.
+
+        Deliberately an explicit list, never "all of them": the caller must say
+        which folders, so a bug in a UI loop cannot empty the quarantine. The
+        engine re-checks every id against a fresh survey and refuses
+        ``restorable`` and ``unknown`` ones by name.
+        """
+        def _run():
+            _progress("reclaim:start", op="reclaim")
+            r = self._engine().reclaim_quarantine(txns, after_confirm=bool(after_confirm))
+            _progress("reclaim:done", op="reclaim", pct=100 if r.get("ok") else 0)
+            return r
+        return _guard(_run)
+
     # ------------------------------------------------------- download RPCs (round 19)
     # Four positional-args async methods, each returning the SAME JSON-safe
     # Envelope via _guard. No credentials exist any more: every request is an

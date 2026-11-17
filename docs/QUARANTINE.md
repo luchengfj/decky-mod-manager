@@ -42,20 +42,49 @@ Sixteen folders hold real files and can never be restored. Four of them hold a
 `docs/NEXT_FEATURES.md` P1 #7 was written assuming it would be. The actual
 problem is unresolvable data the user believes is safe.
 
-## Why it is reported and not cleaned
+## Why it was reported and not cleaned (Rounds 48–53)
 
-The obvious "fix" — delete orphaned folders — is the one thing this plugin must
-not do. A folder in the quarantine was put there by *this* plugin, but the
-question "nobody claims this any more" is answered by the journal, and a journal
-that has been truncated, rotated, or restored from a backup looks exactly like
-"nothing claims any of these". Acting on that answer means deleting mods the
-user wanted. So:
+The obvious "fix" — delete orphaned folders automatically — is the one thing this
+plugin must not do. A folder in the quarantine was put there by *this* plugin,
+but the question "nobody claims this any more" is answered by the journal, and a
+journal that has been truncated, rotated, or restored from a backup looks exactly
+like "nothing claims any of these". Acting on that answer means deleting mods the
+user wanted. So for six rounds the module only reported:
 
-* **Nothing is ever created, moved or deleted** by this module.
+* **Nothing is ever created, moved or deleted** by `survey()` / `describe()`.
 * The panel prints a line, and the line exists only when a folder actually
   holds bytes — an empty orphan is clutter, not a warning.
 * The reason is spelled out (`no longer restorable`), not softened, because a
   vague warning is indistinguishable from noise.
+
+That left the disk filling up with folders nobody could remove. Round 48 ended
+with the sentence *"Remaining gap: there is still no way for the user to say
+'yes, drop these'"*, and Round 54 closed it.
+
+## Round 54: the one path that deletes
+
+`reclaim()` exists, and it is deliberately the narrowest destructive operation in
+the plugin. Every one of these is required, and each one is a test:
+
+| requirement | what it rules out |
+| --- | --- |
+| the caller names the transaction ids | a sweep of the directory looking for things to delete |
+| at least one id (an empty list is `E_PATH_INVALID`) | "delete everything" as a default |
+| `after_confirm=True` from the second phase | a single mis-click |
+| the entry's state is exactly `orphan` | `restorable` (a mod the user can still get back) and `unknown` (the journal could not be read) |
+| the descriptor says `allow_reclaim` | a game whose install must never be touched |
+| `max_reclaim` ids per call | one call emptying a large quarantine |
+| the same three write gates as `uninstall` | writing while the game runs, while a transaction is unfinished, or into someone else's tree |
+| a re-check per folder before removal | the survey being stale — a directory that became a symlink is refused with that reason |
+
+The two-phase shape means the confirm dialog also tells the truth: it names the
+count and the size, and it says *"Rollback cannot bring them back"* rather than
+"cleanup".
+
+What reclaim does **not** do: it never touches `restorable` folders (the
+`refused` map names them and the reason, so nothing is silently dropped), it
+never recurses outside the quarantine root, it never follows a symlink, and one
+failure does not stop the rest — `failed[txn]` says why, per folder.
 
 ## The distinction that matters most: unknown ≠ orphan
 

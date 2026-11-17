@@ -456,5 +456,11 @@
   "QUAR_NONE": "隔离区为空。",
   "MODDETAIL_KEYS": "声明的更新键：{v}",
   "RUNNING_LINE": "游戏正在运行——修改 MOD 前请先关闭游戏。",
-  "RUNNING_UNKNOWN": "无法检查游戏是否正在运行。"
+  "RUNNING_UNKNOWN": "无法检查游戏是否正在运行。",
+  "QUAR_RECLAIM_BTN": "删除无法恢复的目录…",
+  "QUAR_RECLAIM_DESC": "永久删除已没有日志记录的隔离目录。",
+  "CONFIRM_RECLAIM": "永久删除 {n} 个隔离目录（{kb} KB）？回滚无法将它们恢复。",
+  "QUAR_RECLAIM_DONE": "已删除 {n} 个目录，释放 {kb} KB。",
+  "QUAR_RECLAIM_NONE": "没有需要删除的目录。",
+  "QUAR_RECLAIM_KEPT": "保留了 {n} 个仍可恢复的目录。"
 }

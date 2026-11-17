@@ -1,4 +1,4 @@
-"""Audit the quarantine: what is in it, and what can still be restored (read-only).
+"""Audit the quarantine, and reclaim folders nothing can restore.
 
 Uninstalling a mod moves its folder to ``GAME_ROOT/.decky-quarantine/<txn>/``
 rather than deleting it, so "uninstall" is really "keep it, out of the way".
@@ -15,19 +15,25 @@ back. Measured on the device, that is not hypothetical:
     ORPHANS 29          (13 of them empty)
     ORPHAN 20261115T144322-65429fcd children=1 bytes=114308
 
-One orphan held a real mod. The honest response is to *report* this, not to
-silently delete anything: a plugin that cleans up folders it did not create is
-one bug away from deleting a mod the user wanted.
+One orphan held a real mod. Round 48's response was to *report* this and
+delete nothing: a plugin that cleans up folders it did not create is one bug
+away from deleting a mod the user wanted.
+
+Round 54 adds the other half, because reporting alone left the user holding
+data they could never get rid of. ``reclaim()`` deletes orphans -- only
+orphans, only ones the caller names, and only after ``after_confirm``.
 
 Design constraints, same as the rest of the read path:
 
-* **Read-only.** Nothing is created, moved or deleted here. Ever.
+* **Survey is read-only.** ``survey()`` creates, moves and deletes nothing.
+  ``reclaim()`` is the single deliberate exception; nothing else writes.
 * **Bounded.** At most ``MAX_DIRS`` transaction folders are walked, and the
   per-folder walk stops at ``MAX_FILES``. A quarantine is not worth a slow
   status() call.
 * **Never guesses.** If the journal cannot be read, every folder is reported as
   ``unknown`` rather than as an orphan -- "I cannot tell" and "nobody claims
-  this" are different answers and only one of them is safe.
+  this" are different answers and only one of them is safe. ``reclaim()``
+  inherits that rule and refuses ``unknown`` outright.
 * **Symlinks are not followed** when sizing, for the same reason the rest of
   the read path refuses them: a link points at data this scan does not own.
 """
@@ -35,10 +41,14 @@ Design constraints, same as the rest of the read path:
 from __future__ import annotations
 
 import os
+import shutil
 from typing import Dict, List, Optional
 
 MAX_DIRS = 200
 MAX_FILES = 5000
+# How many child names one entry reports. Enough to recognise a mod, few enough
+# that a 200-folder quarantine is still a small JSON payload.
+NAME_PREVIEW = 5
 
 RESTORABLE = "restorable"
 ORPHAN = "orphan"
@@ -156,6 +166,12 @@ def survey(quarantine_root: str, journal=None, cfg: dict | None = None) -> dict:
             "files": n_files,
             "bytes": n_bytes,
             "restorable": state == RESTORABLE,
+            # Round 54: the first few names inside, so a confirm dialog can say
+            # "this folder holds X" instead of only quoting a byte count. An
+            # orphan with 114308 B is abstract; an orphan holding
+            # `esca.destroyablebushes` is a decision a person can actually make.
+            # Bounded, and never the whole listing.
+            "names": sorted(str(c) for c in children)[:NAME_PREVIEW],
         })
 
     # Orphans that actually hold something first: an empty orphan is clutter,
@@ -188,3 +204,135 @@ def describe(result: dict, limit: int = 2) -> str:
     if len(held) > limit:
         text += " (+%d more)" % (len(held) - limit)
     return text
+
+
+# --------------------------------------------------------------------- reclaim
+def _reclaimable(result: dict) -> Dict[str, dict]:
+    """The entries a caller may ask to delete, keyed by txn.
+
+    Round 54: this is the whole safety argument of the reclaim path in one
+    function. Only ``orphan`` qualifies. ``restorable`` would throw away a mod
+    the user can still get back; ``unknown`` means the journal could not be
+    read, and "I cannot tell" must never be spent as "nobody owns this" -- the
+    same distinction the audit was built around.
+    """
+    out: Dict[str, dict] = {}
+    for d in result.get("entries") or []:
+        if d.get("state") == ORPHAN:
+            out[str(d.get("txn"))] = d
+    return out
+
+
+def plan_reclaim(result: dict, txns: List[str]) -> dict:
+    """Decide what a reclaim request would do, without touching anything.
+
+    Returns ``{ok, refused, accepted, bytes, files}``. ``refused`` maps txn ->
+    reason so the caller can say exactly why a folder was kept instead of
+    silently dropping it from the list.
+    """
+    candidates = _reclaimable(result)
+    accepted: List[str] = []
+    refused: Dict[str, str] = {}
+    total_bytes = 0
+    total_files = 0
+    seen = set()
+    for raw in txns or []:
+        txn = str(raw)
+        if txn in seen:
+            continue
+        seen.add(txn)
+        if txn not in candidates:
+            # Ask why, so the message is the real reason and not "not found".
+            hit = next((d for d in result.get("entries") or []
+                        if str(d.get("txn")) == txn), None)
+            if hit is None:
+                refused[txn] = "no such quarantine folder"
+            elif hit.get("state") == RESTORABLE:
+                refused[txn] = "still restorable with Rollback"
+            elif hit.get("state") == UNKNOWN:
+                refused[txn] = "journal unreadable, ownership unknown"
+            else:
+                refused[txn] = "not eligible"
+            continue
+        accepted.append(txn)
+        total_bytes += int(candidates[txn].get("bytes") or 0)
+        total_files += int(candidates[txn].get("files") or 0)
+    return {
+        "ok": True,
+        "accepted": accepted,
+        "refused": refused,
+        "bytes": total_bytes,
+        "files": total_files,
+    }
+
+
+def reclaim(quarantine_root: str, txns: List[str], result: dict,
+            *, after_confirm: bool = False) -> dict:
+    """Delete orphaned quarantine folders, two-phase and never by guess.
+
+    The audit says which folders are unreachable; this is the only way to get
+    the disk space back, and it is deliberately the narrowest destructive
+    operation in the plugin:
+
+    * the caller must name the transaction ids -- nothing sweeps the directory
+      looking for things to delete;
+    * ``after_confirm`` must be true, so a single mis-click cannot delete;
+    * only ``orphan`` entries qualify (see ``_reclaimable``);
+    * symlinked folders and anything that is not a plain directory inside the
+      quarantine root are skipped, because this scan does not own what a link
+      points at;
+    * one failure does not stop the rest, and the result reports both lists.
+    """
+    plan = plan_reclaim(result, txns)
+    if not plan["accepted"]:
+        return {
+            "ok": True,
+            "phase": "nothing",
+            "accepted": [],
+            "removed": [],
+            "failed": {},
+            "refused": plan["refused"],
+            "bytes": 0,
+        }
+    if not after_confirm:
+        return {
+            "ok": True,
+            "phase": "confirm",
+            "accepted": plan["accepted"],
+            "refused": plan["refused"],
+            "bytes": plan["bytes"],
+            "files": plan["files"],
+        }
+
+    removed: List[str] = []
+    failed: Dict[str, str] = {}
+    freed = 0
+    by_txn = _reclaimable(result)
+    for txn in plan["accepted"]:
+        full = os.path.join(quarantine_root, txn)
+        # Re-check the ground under our feet: the survey is a snapshot and the
+        # filesystem may have changed since. A link now where a directory was
+        # means somebody else is involved.
+        if os.path.islink(full):
+            failed[txn] = "became a symbolic link; refusing"
+            continue
+        if not os.path.isdir(full):
+            failed[txn] = "already gone"
+            continue
+        try:
+            shutil.rmtree(full)
+        except OSError as exc:
+            failed[txn] = "%s: %s" % (exc.__class__.__name__, exc)
+            continue
+        removed.append(txn)
+        freed += int(by_txn.get(txn, {}).get("bytes") or 0)
+
+    return {
+        "ok": True,
+        "phase": "removed",
+        "accepted": plan["accepted"],
+        "removed": removed,
+        "failed": failed,
+        "refused": plan["refused"],
+        "bytes": freed,
+    }

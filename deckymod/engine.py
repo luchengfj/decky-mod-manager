@@ -23,7 +23,7 @@ import shutil
 import time
 from typing import Optional
 
-from . import archive, paths, state_mutator
+from . import archive, paths, quarantine, state_mutator
 from .envelope import envelope, err, ok
 from .errors import ModError
 from .fsops import (
@@ -567,6 +567,75 @@ class Engine:
                 self.journal.rollback_failed(txn, {"reason": str(rb)})
                 return err("E_ROLLBACK_FAILED", detail=str(rb))
         raise ModError("E_UNKNOWN", detail=f"nothing to roll back for txn {txn} (state={state})")
+
+    # ------------------------------------------------------------------ reclaim (round 54)
+    def reclaim_quarantine(self, txns, *, after_confirm: bool = False) -> dict:
+        """Delete quarantine folders the journal can no longer restore.
+
+        The plan is identical to the file_drop engine's, on purpose: the
+        quarantine is a filesystem fact about this GAME_ROOT, not about how the
+        game reads mods. What differs is only the write gate order, which is
+        this engine's own.
+        """
+        try:
+            return self._reclaim_inner(txns, after_confirm)
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        except OSError as e:
+            return err(map_oserror(e).code, detail=e.strerror)
+        except Exception as e:
+            self.journal.log(f"reclaim unexpected: {type(e).__name__}: {e}")
+            return err("E_UNKNOWN", detail=f"{type(e).__name__}: {e}")
+
+    def _reclaim_inner(self, txns, after_confirm: bool) -> dict:
+        self._gate("uninstall_quarantine")
+        self._check_not_running()
+        self._check_no_pending()
+        r = self._resolve()
+        cfg = (self.registry.get_game(self.game_id).get("mod_package", {})
+               .get("quarantine") or {})
+        if cfg.get("allow_reclaim") is False:
+            raise ModError("E_CAPABILITY_DISABLED",
+                           detail="reclaim is disabled in the descriptor")
+        if isinstance(txns, str):
+            txns = [txns]
+        wanted = [str(t) for t in (txns or []) if str(t)]
+        if not wanted:
+            raise ModError("E_PATH_INVALID", detail="no transaction ids were given")
+        limit = int(cfg.get("max_reclaim") or quarantine.MAX_DIRS)
+        if len(wanted) > limit:
+            raise ModError("E_PATH_INVALID",
+                           detail=f"at most {limit} folders per call; %d were given"
+                                  % len(wanted))
+        survey = quarantine.survey(r.quarantine_root, self.journal, cfg)
+        out = quarantine.reclaim(r.quarantine_root, wanted, survey,
+                                 after_confirm=after_confirm)
+        if out.get("phase") == "confirm":
+            # Same payload as the file_drop engine: runTwoPhase() reads
+            # phase=="confirm" and needs a confirm_text to show.
+            n = len(out.get("accepted") or [])
+            out.update({
+                "phase": "confirm",
+                "plan": {"op": "reclaim",
+                         "txns": list(out.get("accepted") or []),
+                         "bytes": out.get("bytes"),
+                         "files": out.get("files"),
+                         "refused": dict(out.get("refused") or {})},
+                "confirm_text": "Delete %d quarantine folder(s) permanently? "
+                                "Rollback cannot bring them back." % n,
+                "confirm_key": "CONFIRM_RECLAIM",
+                "confirm_vars": {"n": str(n),
+                                 "kb": str(int((out.get("bytes") or 0) / 1024))},
+                "targets": {"w1_state_file": r.state_file,
+                            "w2_quarantine": r.quarantine_root},
+            })
+        if out.get("phase") == "removed" and out.get("removed"):
+            self.journal.record("QUARANTINE_RECLAIMED", new_txn_id(),
+                                removed=out.get("removed"),
+                                failed=sorted((out.get("failed") or {}).keys()),
+                                bytes=out.get("bytes"))
+        out["log_path"] = _log_path(self.journal)
+        return ok(out)
 
     # ------------------------------------------------------------------ history / refresh
     def history(self, limit: int = 50) -> dict:

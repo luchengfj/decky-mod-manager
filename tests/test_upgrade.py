@@ -220,17 +220,32 @@ class TestUpgradeThroughTheEngine(_Base, unittest.TestCase):
                          "rollback of an upgrade must put the old version back")
         self.assertEqual(got["data"]["restored"], self.uid)
 
-    def test_the_displaced_copy_is_no_longer_an_orphan(self):
+    def test_the_displaced_copy_is_restorable_not_an_orphan(self):
+        """Round 68: this used to REQUIRE the opposite, and that was the bug.
+
+        The old version asserted `before["orphans"] >= 1` with the message "the
+        old copy is unreachable before". It was true, and it should not have
+        been: `rollback(txn)` restores that exact folder on the device (measured
+        round 56 / round 68), so calling it unreachable -- orphan -- told the
+        user it was litter and let reclaim_quarantine delete the one thing the
+        undo still needs. A test that requires a defect is worse than no test,
+        because it makes the fix look like a regression.
+        """
         from deckymod import quarantine
         self.eng.install(self._zip("1.0.0"), after_confirm=True)
         r56 = self.eng.install(self._zip("2.0.0"), after_confirm=True)["data"]["txn"]
         before = quarantine.survey(self.eng._resolve().quarantine_root, self.eng.journal)
-        self.assertGreaterEqual(before["orphans"], 1, "the old copy is unreachable before")
+        self.assertEqual(before["orphans"], 0,
+                         "a copy the rollback can still use must not be offered for deletion")
+        self.assertGreaterEqual(before["restorable"], 1,
+                                "the displaced copy is exactly what rollback restores")
 
         self.assertTrue(self.eng.rollback(r56)["ok"])
         after = quarantine.survey(self.eng._resolve().quarantine_root, self.eng.journal)
         self.assertEqual(after["orphans"], 0,
                          "after the rollback the quarantine must hold nothing unreachable")
+        self.assertEqual(after["restorable"], 0,
+                         "and nothing left to restore either")
 
     def test_a_second_rollback_is_refused_not_faked(self):
         self.eng.install(self._zip("1.0.0"), after_confirm=True)

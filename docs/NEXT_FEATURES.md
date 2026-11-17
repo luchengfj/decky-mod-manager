@@ -137,6 +137,30 @@ real `deps.run()` and asserts no fetch is attempted at all. Details:
     this state is currently unreachable on the real tree.
     See docs/OUTDATED_DEPENDENCIES.md.
 
+0l. An interrupted install is now undoable (Round 68).
+
+    `_install_inner` moves the previous copy into the transaction's quarantine
+    folder and only then unpacks the new one. A crash between those two renames
+    leaves `Mods/<dir>` absent and the user's only copy at
+    `<quarantine>/<txn>/<dir>.replaced`, with nothing in the journal but
+    `PREPARED`/`APPLYING`.
+
+    Measured on the deployed build: the write gate was right
+    (`E_RECOVERY_PENDING`), `recovery()` listed the transaction, and
+    `rollback(txn)` answered `{"recovered": true}` -- while
+    `MOD_BACK_AFTER_ROLLBACK` stayed `False`. The quarantine then classified
+    that copy `orphan` / `restorable: false`, and orphans are what
+    `reclaim_quarantine` may delete. A second probe showed the same folder
+    called an orphan after a *successful* upgrade, while `rollback(txn)`
+    restored it (`VERSION_AFTER_ROLLBACK 1.0.0`).
+
+    Both halves now read one record: the pending branch goes through
+    `upgrade.undo_install()` with `_replaced_copy_for(txn)`, and
+    `quarantine.referenced_txns()` counts `MOD_INSTALLED` rows that displaced
+    something plus pending transactions. `tests/test_crash_recovery.py` (9
+    cases) pins it; one round-56 test that *required* the defect was rewritten
+    rather than deleted. See `docs/CRASH_RECOVERY.md`.
+
 ## Closed since this page was written
 
 - **The import surface could only see its own inbox.** The plugin read

@@ -122,7 +122,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        53 modules, 785 cases (`Ran 785 tests ... OK (skipped=15)`)
+tests/                        54 modules, 794 cases (`Ran 794 tests ... OK (skipped=15)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -157,6 +157,7 @@ test_entry_dll.py          a declared EntryDll must exist in the archive, or the
 test_rollback_undo.py      an undo that could not undo says so, and leaves no litter in the quarantine
 test_parked_dependencies.py  a disabled dependency is not a missing one, and the fetcher never sees it
 test_outdated_dependencies.py  installed and readable but older than the host asks for
+test_crash_recovery.py        an install interrupted between its two renames can still be undone
   _verify.py                  compileall + registry JSON validation helper
 docs/                         see the index below
 .github/workflows/build.yml   CI: backend selftest + frontend build
@@ -322,6 +323,7 @@ Reading order for a newcomer, and what each file is for:
 | [MOD_FOLDER_OWNERSHIP.md](MOD_FOLDER_OWNERSHIP.md) | who owns the Mods folder, and why a filename list can never answer that |
 | [PARKED_DEPENDENCIES.md](PARKED_DEPENDENCIES.md) | why a dependency the user disabled is reported apart from one that is absent, and the download that used to overwrite it |
 | [OUTDATED_DEPENDENCIES.md](OUTDATED_DEPENDENCIES.md) | installed, readable, and older than the mod asks for — the third state |
+| [CRASH_RECOVERY.md](CRASH_RECOVERY.md) | what a crash between the two renames leaves behind, and why the audit called that copy litter |
 | [NEXT_FEATURES.md](NEXT_FEATURES.md) | what is still missing, ranked by whether it can corrupt user data or fail silently — not a wish list |
 
 ## Windows portability note

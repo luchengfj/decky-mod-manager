@@ -91,14 +91,39 @@ def referenced_txns(journal) -> Optional[set]:
     if not isinstance(records, list):
         return None
     out = set()
+    states = {}
     for r in records:
         if not isinstance(r, dict):
             continue
-        if r.get("event") != "MOD_UNINSTALLED":
+        event = r.get("event")
+        # Round 68: an install that displaced a previous copy keeps that copy at
+        # <quarantine>/<txn>/<dir>.replaced and can put it back -- measured, not
+        # assumed: rollback(txn) restores the old version. Counting only
+        # MOD_UNINSTALLED made every such folder an "orphan", and orphans are
+        # what reclaim_quarantine is allowed to delete, so the audit was
+        # offering to delete the one thing the rollback still needs.
+        if event in ("PREPARED", "APPLYING", "COMMITTED", "ROLLED_BACK",
+                     "ROLLBACK_FAILED"):
+            # An install that crashed between its two renames never reached
+            # MOD_INSTALLED, so no record names its displaced copy -- but the
+            # copy is sitting in that transaction's folder and rollback() puts it
+            # back (round 68). A pending transaction therefore claims its folder
+            # until it is finished one way or the other.
+            txn = r.get("txn")
+            if txn:
+                states[str(txn)] = event
+            continue
+        if event == "MOD_UNINSTALLED":
+            pass
+        elif event == "MOD_INSTALLED":
+            if not r.get("replaced_old"):
+                continue
+        else:
             continue
         txn = r.get("txn")
         if txn:
             out.add(str(txn))
+    out.update(t for t, s in states.items() if s in ("PREPARED", "APPLYING"))
     return out
 
 

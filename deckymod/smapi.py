@@ -1047,6 +1047,23 @@ class FileDropEngine:
             self.journal.log(f"rollback unexpected: {type(e).__name__}: {e}")
             return err("E_UNKNOWN", detail=f"{type(e).__name__}: {e}")
 
+    def _replaced_copy_for(self, txn: str):
+        """The copy an interrupted install moved aside, if it is still there.
+
+        Returns the absolute path of the single ``<name>.replaced`` entry inside
+        this transaction's quarantine folder, or None. Only that exact suffix is
+        accepted, and only one: guessing between two candidates would be picking
+        which version of the user's mod to put back.
+        """
+        try:
+            root = os.path.join(self._resolve().quarantine_root, txn)
+            names = sorted(os.listdir(root))
+        except (OSError, ModError):
+            return None
+        cands = [os.path.join(root, n) for n in names if n.endswith(".replaced")]
+        cands = [c for c in cands if os.path.isdir(c) and not os.path.islink(c)]
+        return cands[0] if len(cands) == 1 else None
+
     def _rollback_inner(self, txn: str) -> dict:
         self._gate("rollback")
         self._check_not_running()
@@ -1155,6 +1172,39 @@ class FileDropEngine:
                        "removed_new": bool(got.get("removed_new")), "txn": txn,
                        "log_path": _log_path(self.journal)})
         if state in ("PREPARED", "APPLYING"):
+            # Round 68: an install that was interrupted between its two renames
+            # (old copy moved aside, new copy not yet in place) leaves the mod
+            # ABSENT and its only copy inside the transaction's quarantine
+            # folder. This branch used to answer "recovered: True" without
+            # looking: the mod stayed missing, the journal said the transaction
+            # was undone, and the quarantine copy stopped being referenced by
+            # anything -- which is what reclaim_quarantine deletes.
+            #
+            # So an interrupted install is treated exactly like an interrupted
+            # upgrade: find the displaced copy the plan points at, put it back,
+            # and refuse honestly if that cannot be done.
+            plan = next((e.get("plan") for e in events
+                         if e.get("event") == "PREPARED"), None) or {}
+            saved = self._replaced_copy_for(txn)
+            if saved:
+                got = upgrade.undo_install(saved, plan.get("to") or "")
+                if not got.get("ok"):
+                    raise ModError(got.get("code") or "E_OP_FAILED",
+                                   detail=got.get("detail")
+                                   or "could not restore the interrupted install")
+                self.journal.record("MOD_ROLLBACK_RESTORED", txn,
+                                    packageId=plan.get("packageId"),
+                                    mod={"name": plan.get("packageId"),
+                                         "dir": plan.get("to")},
+                                    restored_from=saved,
+                                    removed_new=bool(got.get("removed_new")))
+                self.journal.rolled_back(txn, {"recovered": True,
+                                               "restored_from": saved})
+                return ok({"recovered": True, "txn": txn,
+                           "restored_from": saved,
+                           "dir": plan.get("to"),
+                           "removed_new": bool(got.get("removed_new")),
+                           "log_path": _log_path(self.journal)})
             try:
                 self.journal.rolled_back(txn, {"recovered": True})
                 return ok({"recovered": True, "txn": txn, "log_path": _log_path(self.journal)})

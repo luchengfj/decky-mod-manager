@@ -96,6 +96,22 @@ class FileDropEngine:
             return {"state": "unknown", "pid": "", "match": "", "scanned": 0,
                     "detail": "%s: %s" % (type(exc).__name__, exc)}
 
+    def _external_markers(self):
+        """Marker names for another mod manager, from the descriptor.
+
+        Round 53: ``loader_detection.external_manager_markers`` declared
+        ``[".mm_deployed", "Mods_Core"]`` while ``file_drop.py`` hard-coded the
+        same two strings, so the key was decoration. Passing it through means a
+        descriptor for a different game can name its own marker and actually be
+        honoured -- and ``None`` still falls back to the historical pair, so the
+        Stardew behaviour is byte-identical.
+        """
+        det = self._descriptor().get("loader_detection", {}) or {}
+        markers = det.get("external_manager_markers")
+        if not markers:
+            return None
+        return [str(m) for m in markers if str(m)]
+
     def _check_not_running(self):
         """Refuse a write while the game has the mod files open.
 
@@ -164,7 +180,14 @@ class FileDropEngine:
         if d.get("force_read_only"):
             raise ModError("E_CAPABILITY_DISABLED",
                            detail="descriptor is read-only; writes are disabled (detection_only)")
-        if file_drop.detect_external_manager(r.game_root, r.mod_root):
+        # Round 53: ``safety.refuse_if_external_manager`` is NOT read here on
+        # purpose. The check below runs unconditionally, which is strictly
+        # stricter than the descriptor's ``true``; honouring a descriptor that
+        # said ``false`` would turn an unconditional refuse into a switch that
+        # silently permits writing into another manager's tree. Leaving it
+        # unread means the flag can only ever be a no-op, never a size.
+        if file_drop.detect_external_manager(r.game_root, r.mod_root,
+                                             self._external_markers()):
             raise ModError("E_EXTERNAL_MANAGER",
                            detail=f"external mod manager markers in {r.mod_root}; read-only mode")
         # Round 44: markers only ever recognise the tools somebody thought of.
@@ -308,7 +331,8 @@ class FileDropEngine:
         """
         d = self._descriptor()
         det = d.get("loader_detection", {}) or {}
-        external = file_drop.detect_external_manager(r.game_root, r.mod_root)
+        external = file_drop.detect_external_manager(r.game_root, r.mod_root,
+                                                     self._external_markers())
         patterns = det.get("patterns") or []
         loader = file_drop.detect_loader(r.game_root, patterns) if patterns else True
         lo = "n/a"

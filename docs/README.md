@@ -119,7 +119,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        37 modules, 620 cases (`Ran 620 tests ... OK (skipped=9)`)
+tests/                        38 modules, 634 cases (`Ran 634 tests ... OK (skipped=9)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -137,6 +137,7 @@ tests/                        37 modules, 620 cases (`Ran 620 tests ... OK (skip
 test_procs.py               faked /proc: marker, path, unknown-is-not-stopped
 test_running_gate.py        every destructive op refuses while the game runs
 test_first_run.py           a fresh game has no Mods/ folder; not-found is not duplicate
+test_external_markers.py    marker WHERE matters: a Mods_Core mod folder is not a marker
 test_pending_gate.py        an unfinished txn blocks install/enable/uninstall, never rollback
   _verify.py                  compileall + registry JSON validation helper
 docs/                         see the index below
@@ -230,7 +231,7 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 620 tests ... OK (skipped=9)  (LASTEXITCODE=0)
+python -m unittest discover -s tests -v  -> Ran 634 tests ... OK (skipped=9)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_i18n.py            -> EN 458 / ZH 458, parity [] , EXIT=0
 .decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 26, ALL_STATIC_CHECKS True
@@ -238,7 +239,7 @@ python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_api_arity.py       -> BACKEND_RPCS 26 / FRONTEND_CALLS 26 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
-.decky-probe/r4_tar_drift.py             -> TAR_COUNT 100 / CUR_COUNT 100, drift 0
+.decky-probe/r4_tar_drift.py             -> TAR_COUNT 101 / CUR_COUNT 101, drift 0
 ```
 
 Backend is stdlib-only and **runs** on this box (the Windows-portability fix in
@@ -287,6 +288,7 @@ Reading order for a newcomer, and what each file is for:
 | [NEXUS_ROADMAP.md](NEXUS_ROADMAP.md) | historical round notes, incl. §6.7 the Nexus metadata surface and why download links stay premium-only; snapshots are never backfilled |
 | [QUARANTINE.md](QUARANTINE.md) | what "uninstall" keeps, and when a kept folder can no longer be restored |
 | [RUNNING_GAME.md](RUNNING_GAME.md) | is the game running right now, and why that used to be an environment variable nobody set |
+| [DECLARED_VS_READ.md](DECLARED_VS_READ.md) | which descriptor keys the code actually reads, and the one that was decoration |
 | [FIRST_RUN.md](FIRST_RUN.md) | what the very first install does on a game that has never had a mod, and why "not found" needed its own answer |
  what happens when a transaction did not finish, and why rollback is the one thing that must stay open |
 | [UPDATE_KEYS.md](UPDATE_KEYS.md) | where a mod's Nexus id comes from, and why a guessed one would open someone else's mod |

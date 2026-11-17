@@ -30,11 +30,37 @@ SMAPI_ALLOW_RELAXED = {".dll", ".so", ".dylib"}
 SMAPI_FORBIDDEN_EXT = archive.FORBIDDEN_EXT - SMAPI_ALLOW_RELAXED
 
 
-def detect_external_manager(game_root: str, mod_root: str) -> bool:
-    """Amethyst ModManager deploys Mods/ via symlinks + a sibling Mods_Core/."""
-    marker = os.path.join(mod_root, ".mm_deployed")
-    core = os.path.join(game_root, "Mods_Core")
-    return os.path.exists(marker) or os.path.isdir(core)
+DEFAULT_EXTERNAL_MARKERS = (".mm_deployed", "Mods_Core")
+"""Fallback marker names, used only when the descriptor declares none.
+
+Round 53: these two names were hard-coded here, in a module whose whole point
+is being game-agnostic, while ``loader_detection.external_manager_markers`` in
+the descriptor declared exactly the same two strings -- and nothing read that
+key. A second game whose third-party manager leaves a different marker would
+have been silently unprotected, and the descriptor would have looked like it
+covered the case.
+"""
+
+
+def detect_external_manager(game_root: str, mod_root: str, markers=None) -> bool:
+    """True when another mod manager's marker is present.
+
+    The WHERE is part of the evidence, not a detail: a marker is a FILE inside
+    ``Mods/`` or a DIRECTORY beside it in the game root. Checking a bare name
+    in both places would flag an ordinary mod folder that happens to be called
+    ``Mods_Core`` and silently turn the whole plugin read-only.
+
+    ``markers`` comes from ``loader_detection.external_manager_markers``. With
+    none declared the historical pair is used, so behaviour is unchanged for
+    descriptors that do not declare them.
+    """
+    names = [str(m) for m in (markers or DEFAULT_EXTERNAL_MARKERS) if str(m)]
+    for name in names:
+        if os.path.isfile(os.path.join(mod_root, name)):
+            return True
+        if os.path.isdir(os.path.join(game_root, name)):
+            return True
+    return False
 
 
 def detect_loader(game_root: str, patterns=None) -> bool:

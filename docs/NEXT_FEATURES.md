@@ -25,6 +25,7 @@ features are deliberately excluded.
 | Know whether the game actually loaded a mod (not just that it is on disk) | works, read-only (Round 40, docs/LOADER_LOG.md) |
 | Refuse writes when Mods/ belongs to another manager, and say why | works, structural (Round 44, docs/MOD_FOLDER_OWNERSHIP.md) |
 | Chinese / English UI | works, 455 keys each, parity enforced |
+| Let a descriptor name its own third-party-manager marker | works (Round 53, docs/DECLARED_VS_READ.md) |
 
 ## Closed since this page was written
 

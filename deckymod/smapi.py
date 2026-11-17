@@ -30,7 +30,7 @@ import os
 import shutil
 import time
 
-from . import archive, file_drop, fomod, manifest, paths
+from . import archive, file_drop, fomod, loaderlog, manifest, paths
 from .envelope import err, ok
 from .errors import ModError
 from .fsops import ensure_dir, map_oserror, preflight_root, same_filesystem
@@ -248,6 +248,26 @@ class FileDropEngine:
         # ids. A single bad manifest is isolated to parse_error, never aborts
         # the whole status. NO writes, NO journal.begin -> safe in read_only.
         scanned = manifest.scan_installed_mods(r.mod_root, self._mod_package())
+        # Round 40: ask the loader's own log what it actually accepted. This is the
+        # only place in the plugin that can tell "in Mods/" from "in the game" --
+        # the device showed 30 folders against 22 loaded mods and 3 content packs.
+        # Read-only, and a missing log is the NORMAL state before the first launch,
+        # so any failure here degrades to `available: False` and never fails status.
+        try:
+            load_cfg = (d.get("loader_detection", {}) or {}).get("loader_log", {}) or {}
+            log_info = loaderlog.inspect(r.game_root, r.user_home, r.xdg_config,
+                                         load_cfg, scanned["mods"])
+        except Exception as exc:                      # noqa: BLE001 - status must survive
+            log_info = {"ok": False, "reason": "log_unreadable",
+                        "detail": "%s: %s" % (exc.__class__.__name__, exc)}
+        # Parked mods are deliberately NOT annotated: a disabled mod is absent from
+        # the log by construction, and reporting it as "unknown" would read as a
+        # fault when it is the user's own choice.
+        active_mods = log_info.get("mods") if log_info.get("ok") else scanned["mods"]
+        log_block = (log_info.get("summary") if log_info.get("ok")
+                     else {"available": False,
+                           "reason": log_info.get("reason") or "unavailable",
+                           "detail": log_info.get("detail") or ""})
         # Round 25: mods parked in .decky-disabled/ are still the user's mods and
         # must stay visible, otherwise disabling one makes it vanish from the UI
         # with no way back.
@@ -265,7 +285,7 @@ class FileDropEngine:
             },
             "state": {
                 "strategy": "file_drop",
-                "mods": scanned["mods"],
+                "mods": active_mods,
                 "disabled_mods": disabled_scan["mods"],
                 "duplicate_ids": scanned["duplicate_ids"],
                 "missing_dependencies": scanned["missing_dependencies"],
@@ -280,6 +300,8 @@ class FileDropEngine:
             "capabilities": d.get("capabilities", {}),
             "known_limitations": d.get("known_limitations", []),
             "known_limitation_keys": d.get("known_limitation_keys", []),
+            # Round 40: what the game actually loaded, not just what is on disk.
+            "loader_log": log_block,
             "log_path": _log_path(self.journal),
         }
         return ok(data)

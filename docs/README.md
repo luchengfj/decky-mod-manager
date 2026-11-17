@@ -73,7 +73,7 @@ src/
   api.ts                      @decky/api call/callable bridge, invoke() guard
   types.ts                    TS mirror of the JSON-safe envelope + per-RPC payload types
   i18n.ts                     t() / errorText() / categoryText(), zh-CN via navigator.language
-  i18n/en.json, zh-CN.json    409 keys each, parity enforced by validate_i18n.py
+  i18n/en.json, zh-CN.json    422 keys each, parity enforced by validate_i18n.py
   components/
     Modal.tsx                 gamepad-first showInfo / showListModal / showErrorModal / showFomodModal
     ConfirmModal.tsx          two-phase confirm (A=confirm, B=cancel)
@@ -104,6 +104,7 @@ deckymod/                     stdlib-only Python backend (no third-party deps)
   auto_import.py              download -> inbox -> inspect -> confirm -> install coordinator
   credentials.py              Nexus API key at rest: 0o600, O_EXCL, atomic replace, never echoed
   nexus.py                    Nexus v1 metadata client (browse only -- download links are premium-only)
+  loaderlog.py                reads the loader's own log: what actually LOADED vs merely installed
 registry/
   registry.json               master registry (active_game, schema, write roots, capability gate)
   games/stardew.json          the enabled descriptor (file_drop + SMAPI detect-only)
@@ -111,9 +112,10 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        24 modules, 388 cases (`Ran 388 tests ... OK (skipped=6)`)
+tests/                        24 modules, 424 cases (`Ran 424 tests ... OK (skipped=6)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
-  test_stardew.py             file_drop engine round trip
+  test_stardew.py             file_drop engine round trip + loader-log wiring through status()
+  test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
   test_steamlib.py            library enumeration incl. both SD-card layouts
   test_download*.py           download core, integrity checks, wiring
   test_fomod.py / test_templates.py / test_toggle.py / test_duplicate_guard.py ...
@@ -209,15 +211,15 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 388 tests ... OK (skipped=6)  (LASTEXITCODE=0)
+python -m unittest discover -s tests -v  -> Ran 424 tests ... OK (skipped=6)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
-.decky-probe/validate_i18n.py            -> EN 409 / ZH 409, parity [] , EXIT=0
+.decky-probe/validate_i18n.py            -> EN 422 / ZH 422, parity [] , EXIT=0
 .decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 24, ALL_STATIC_CHECKS True
 .decky-probe/validate_download_wiring.py -> DOWNLOAD_WIRING_ALL_OK=True, EXIT=0
 .decky-probe/validate_api_arity.py       -> BACKEND_RPCS 24 / FRONTEND_CALLS 24 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
-.decky-probe/r4_tar_drift.py             -> TAR_COUNT 78 / CUR_COUNT 78, drift 0
+.decky-probe/r4_tar_drift.py             -> TAR_COUNT 80 / CUR_COUNT 80, drift 0
 ```
 
 Backend is stdlib-only and **runs** on this box (the Windows-portability fix in
@@ -253,6 +255,7 @@ Reading order for a newcomer, and what each file is for:
 | [STEAM_LIBRARY.md](STEAM_LIBRARY.md) | Steam library enumeration, both SD-card layouts, and the SD blocker |
 | [DOWNLOAD_SOURCES.md](DOWNLOAD_SOURCES.md) | GitHub Releases two-hop download, direct-URL guards, size/hash verification |
 | [DEPENDENCIES.md](DEPENDENCIES.md) | downloading a mod's required dependencies, and why only the manifest can authorise one |
+| [LOADER_LOG.md](LOADER_LOG.md) | what the game actually loaded on its last launch, and why an installed mod is not the same as a working one |
 | [GOAL_RECORD_DOWNLOAD_SOURCE.md](GOAL_RECORD_DOWNLOAD_SOURCE.md) | the Nexus → GitHub change record and why 403 is not rate limiting |
 | [ENABLE_DISABLE.md](ENABLE_DISABLE.md) | why disable parks the folder instead of reusing uninstall |
 | [MOD_CONFLICTS.md](MOD_CONFLICTS.md) | the duplicate-UniqueID guard and why it cannot be confirmed away |

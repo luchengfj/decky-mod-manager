@@ -407,5 +407,18 @@
   "NEXUS_BROWSER_URL": "页面：{url}",
   "NEXUS_LOADING": "正在请求 Nexus…",
   "NEXUS_BAD_ID": "这不是一个整数编号。",
-  "NEXUS_KEY_HINT_MISSING": "Please provide an authentication method"
+  "NEXUS_KEY_HINT_MISSING": "Please provide an authentication method",
+  "LOAD_STATUS_LOADED": "已加载",
+  "LOAD_STATUS_PACK": "内容包",
+  "LOAD_STATUS_SKIPPED": "已跳过",
+  "LOAD_STATUS_PATCHED": "已修改游戏代码",
+  "LOAD_STATUS_UNKNOWN": "日志中未出现",
+  "LOAD_DETAIL_STATUS": "上次启动:{status}",
+  "LOAD_DETAIL_VERSION": "日志版本:{v}",
+  "LOAD_DETAIL_REASON": "被跳过的原因:{v}",
+  "LOAD_DETAIL_MISSING": "它需要:{v}",
+  "LOADER_LOG_LINE": "上次启动:加载 {loaded} 个 MOD、{packs} 个内容包、跳过 {skipped} 个",
+  "LOADER_LOG_NONE": "自装上本插件后游戏还没启动过,所以暂时没有加载日志。",
+  "LOADER_LOG_BAD": "加载日志不可用:{reason}",
+  "LOADER_LOG_TRUNCATED": "日志超过 4 MB 上限,只读了开头部分。"
 }

@@ -407,5 +407,18 @@
   "NEXUS_BROWSER_URL": "Page: {url}",
   "NEXUS_LOADING": "Asking Nexus…",
   "NEXUS_BAD_ID": "That is not a whole number.",
-  "NEXUS_KEY_HINT_MISSING": "Please provide an authentication method"
+  "NEXUS_KEY_HINT_MISSING": "Please provide an authentication method",
+  "LOAD_STATUS_LOADED": "Loaded",
+  "LOAD_STATUS_PACK": "Content pack",
+  "LOAD_STATUS_SKIPPED": "Skipped",
+  "LOAD_STATUS_PATCHED": "Patched game code",
+  "LOAD_STATUS_UNKNOWN": "Not in the log",
+  "LOAD_DETAIL_STATUS": "Last launch: {status}",
+  "LOAD_DETAIL_VERSION": "Log version: {v}",
+  "LOAD_DETAIL_REASON": "Why it was skipped: {v}",
+  "LOAD_DETAIL_MISSING": "It needs: {v}",
+  "LOADER_LOG_LINE": "Last launch: {loaded} mods, {packs} content packs, {skipped} skipped",
+  "LOADER_LOG_NONE": "The game has not been launched since this plugin was installed, so there is no loader log yet.",
+  "LOADER_LOG_BAD": "Loader log not usable: {reason}",
+  "LOADER_LOG_TRUNCATED": "The log was larger than the 4 MB cap; only the beginning was read."
 }

@@ -39,7 +39,7 @@ features are deliberately excluded.
    broken. A guided "hand ownership over" flow — which parks the deployed mods
    into `.decky-disabled/`, never deletes them — is the missing piece. It must
    stay a user action with a confirm, never something the plugin decides.
-4. **Nothing verifies what the game actually loaded.** The plugin knows what is
+4. ~~**Nothing verifies what the game actually loaded.**~~ **SHIPPED in Round 40** (`deckymod/loaderlog.py`, see `docs/LOADER_LOG.md`). The plugin knows what is
    in `Mods/`; it cannot know what SMAPI accepted. The one real proof we have
    (`[18:57:19 TRACE SMAPI] SDV-HD2D ... Patches: 12 groups installed.`) was
    read by hand from a log file. Reading `${GAME_ROOT}/SMAPI-latest.txt` and

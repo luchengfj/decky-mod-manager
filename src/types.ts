@@ -54,7 +54,37 @@ export interface ModListEntry {
   dependencies?: string[];
   missing_dependencies?: string[];
   parse_error?: string;
+  /**
+   * Round 40: what the loader said about THIS mod on its last launch.
+   * "unknown" means installed but not mentioned in the log -- which is NOT the
+   * same as "working", so the UI must never render it as a success.
+   */
+  load_status?: "loaded" | "content_pack" | "skipped" | "patched" | "unknown";
+  load_version?: string;
+  load_author?: string;
+  load_note?: string;
+  load_reason?: string;
+  load_missing_ids?: string[];
 }
+
+/**
+ * Round 40 summary. `available:false` is a normal state (the game has never
+ * been launched since this plugin was installed), so the UI shows a quiet line
+ * rather than an error.
+ */
+export interface LoaderLogData {
+  available: boolean;
+  reason?: string;
+  detail?: string;
+  path?: string;
+  loaded?: number;
+  content_packs?: number;
+  skipped?: number;
+  patched?: number;
+  counts?: Record<string, number>;
+  truncated?: boolean;
+}
+
 
 export interface StateInfo {
   // RimWorld (xml_list)
@@ -124,6 +154,8 @@ export interface StatusData {
   known_limitations: string[];
   /** Stable i18n keys (LIMIT_*) for the localized known-limitations lines. */
   known_limitation_keys?: string[];
+  /** Round 40: what the game actually loaded on its last launch. */
+  loader_log?: LoaderLogData;
   log_path: string;
   /** Optional: older backends omit it; UI degrades gracefully (no catalog button). */
   catalog?: CatalogEntry[];

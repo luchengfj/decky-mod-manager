@@ -955,6 +955,21 @@ function Content() {
     }
   };
 
+  /* -------------------------------------------------------------- Round 40 loader log */
+  // The log tells us what the SMAPI loader actually did last launch. A missing
+  // entry means "installed but the game never reported it" -- which is NOT the
+  // same as working, so the label says so and never claims success.
+  const loadStatusLabel = (s0?: ModListEntry["load_status"]): string => {
+    if (s0 === "loaded") return t("LOAD_STATUS_LOADED");
+    if (s0 === "content_pack") return t("LOAD_STATUS_PACK");
+    if (s0 === "skipped") return t("LOAD_STATUS_SKIPPED");
+    if (s0 === "patched") return t("LOAD_STATUS_PATCHED");
+    if (s0 === "unknown") return t("LOAD_STATUS_UNKNOWN");
+    return "";
+  };
+  const loadStatusNote = (m: ModListEntry): string =>
+    t("LOAD_DETAIL_STATUS", "Last launch: {status}", { status: loadStatusLabel(m.load_status) });
+
   /* -------------------------------------------------------------- §Step 2 read-only mod list */
   const openModList = () => {
     // Round 25: enabled mods live in Mods/, disabled ones are parked in the
@@ -990,6 +1005,13 @@ function Content() {
             isParked ? t("MODDETAIL_DISABLED", "State: disabled (parked in .decky-disabled/, not loaded by the game)") : "",
             m.uniqueId ? t("MODDETAIL_UID", "UniqueID:  {v}", { v: m.uniqueId }) : "",
             t("MODDETAIL_DIR", "Directory:  {v}", { v: m.dir }),
+            ...(!isParked && m.load_status ? [loadStatusNote(m)] : []),
+            ...(!isParked && m.load_version
+              ? [t("LOAD_DETAIL_VERSION", "Log version: {v}", { v: m.load_version })] : []),
+            ...(!isParked && m.load_missing_ids && m.load_missing_ids.length
+              ? [t("LOAD_DETAIL_MISSING", "It needs: {v}", { v: m.load_missing_ids.join(", ") })] : []),
+            ...(!isParked && m.load_reason
+              ? [t("LOAD_DETAIL_REASON", "Why it was skipped: {v}", { v: m.load_reason })] : []),
             ...(m.dependencies && m.dependencies.length
               ? [t("MODLIST_DEPS", "Dependencies: {v}", { v: m.dependencies.join(", ") })] : []),
             ...(m.missing_dependencies && m.missing_dependencies.length
@@ -1037,6 +1059,10 @@ function Content() {
       }
       const notes: string[] = [];
       if (isParked) notes.push(t("MODLIST_BADGE_DISABLED"));
+      // Round 40: parked mods are deliberately absent from the log, so only an
+      // ACTIVE mod gets a load badge (a parked one would read as "not loaded"
+      // when that is exactly what the user asked for).
+      if (!isParked && m.load_status) notes.push(loadStatusLabel(m.load_status));
       if (m.missing_dependencies && m.missing_dependencies.length) {
         notes.push(t("MODLIST_MISSING_DEPS", "Missing dependencies: {v}", {
           v: m.missing_dependencies.join(", "),
@@ -1622,6 +1648,8 @@ function Content() {
   const canToggle = fd ? !!caps.enable_disable : true;
   const readOnly = fd ? !!status?.state?.read_only : false;
   const st = status?.state;
+  // Round 40: absent on older backends, so every use is optional.
+  const ll = status?.loader_log;
   // Round 19: localized progress line (the key-status line is gone with the
   // retired credential surface).
   const progressLine = progress
@@ -1661,6 +1689,22 @@ function Content() {
             <div style={{ opacity: 0.6, fontSize: "11px", wordBreak: "break-word" }}>
               {t("W2_LINE", "W2 (mods): {v}", { v: paths?.w2_mod_root || "\u2026" })}
             </div>
+            {ll && ll.available ? (
+              <div style={{ opacity: 0.75, fontSize: "11px", wordBreak: "break-word" }}>
+                {t("LOADER_LOG_LINE", "Last launch: {loaded} mods, {packs} content packs, {skipped} skipped", {
+                  loaded: ll.loaded ?? 0, packs: ll.content_packs ?? 0, skipped: ll.skipped ?? 0,
+                })}
+                {ll.truncated ? " " + t("LOADER_LOG_TRUNCATED") : ""}
+              </div>
+            ) : ll ? (
+              <div style={{ opacity: 0.55, fontSize: "11px", wordBreak: "break-word" }}>
+                {ll.reason === "log_missing"
+                  ? t("LOADER_LOG_NONE")
+                  : t("LOADER_LOG_BAD", "Loader log not usable: {reason}", {
+                      reason: ll.reason || "\u2014",
+                    })}
+              </div>
+            ) : null}
           </div>
         </PanelSectionRow>
         {fd && readOnly ? (

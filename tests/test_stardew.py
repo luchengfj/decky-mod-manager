@@ -315,5 +315,109 @@ class TestStardewPluginRPC(unittest.TestCase):
         self.assertEqual(st["data"]["game"]["appid"], 413150)
 
 
+class TestLoaderLogInStatus(unittest.TestCase):
+    """The point of Round 40 is that status() TELLS you what loaded.
+
+    unit-testing deckymod/loaderlog.py alone would not prove the wiring: the
+    plugin could parse a log perfectly and never put the result in the envelope.
+    These tests go through Engine.status(), which is what the panel actually reads.
+    """
+
+    LOG = (
+        "[18:42:08 INFO  SMAPI] Loaded 2 mods:\n"
+        "[18:42:08 INFO  SMAPI]    Test Automate 2.6.1 by Pathoschild | automates things\n"
+        "[18:42:08 INFO  SMAPI]    Collide Mod 1.0.0 by Someone | collides\n"
+        "[18:42:08 INFO  SMAPI] Loaded 0 content packs:\n"
+        "[18:42:08 ERROR SMAPI]    Skipped mods\n"
+        "[18:42:08 ERROR SMAPI]       - Broken Thing 1.0.0 because it requires mods which"
+        " aren't installed (Missing.Dep).\n"
+    )
+
+    def setUp(self):
+        self.t = StardewTree(); self.t.env()
+        self.eng = StardewEngine(journal=Journal(self.t.data, self.t.logs, "stardew"))
+        self.logdir = os.path.join(self.t.home, ".config", "StardewValley", "ErrorLogs")
+        os.makedirs(self.logdir, exist_ok=True)
+        self.logfile = os.path.join(self.logdir, "SMAPI-latest.txt")
+
+    def tearDown(self):
+        self.t.cleanup()
+
+    def _install(self, uid, name):
+        zp = os.path.join(self.t.inbox, uid.replace(".", "_") + ".zip")
+        _zip(zp, {"manifest.json": json.dumps({
+            "Name": name, "Author": "x", "Version": "1.0.0",
+            "UniqueID": uid, "EntryDll": uid.split(".")[-1] + ".dll"}),
+            "x.dll": b"MZ"}, wrapper=uid.replace(".", "_"))
+        self.eng.install(zp, after_confirm=True)
+
+    def test_no_log_yet_is_reported_not_failed(self):
+        st = self.eng.status()
+        self.assertTrue(st["ok"], "a missing log must never fail status()")
+        block = st["data"]["loader_log"]
+        self.assertFalse(block["available"])
+        self.assertEqual(block["reason"], "log_missing")
+        # and the plain on-disk view still works
+        self.assertEqual(st["data"]["state"]["mods"], [])
+
+    def test_loaded_mod_is_marked_loaded(self):
+        self._install("TestCo.Automate", "Test Automate")
+        with open(self.logfile, "w", encoding="utf-8") as f:
+            f.write(self.LOG)
+        st = self.eng.status()["data"]
+        mod = st["state"]["mods"][0]
+        self.assertEqual(mod["load_status"], "loaded")
+        self.assertEqual(mod["load_version"], "2.6.1")
+        self.assertEqual(st["loader_log"]["loaded"], 2)
+
+    def test_installed_but_absent_from_log_is_unknown(self):
+        """The whole feature: 'in Mods/' must not silently look like 'working'."""
+        self._install("Ghost.Absent", "Ghost Absent")
+        with open(self.logfile, "w", encoding="utf-8") as f:
+            f.write(self.LOG)
+        mod = self.eng.status()["data"]["state"]["mods"][0]
+        self.assertEqual(mod["load_status"], "unknown")
+        self.assertIn("not listed", mod["load_note"])
+
+    def test_skipped_mod_surfaces_its_missing_dependency(self):
+        self._install("Broken.Thing", "Broken Thing")
+        with open(self.logfile, "w", encoding="utf-8") as f:
+            f.write(self.LOG)
+        mod = self.eng.status()["data"]["state"]["mods"][0]
+        self.assertEqual(mod["load_status"], "skipped")
+        self.assertIn("Missing.Dep", mod["load_missing_ids"])
+
+    def test_parked_mod_is_not_annotated_as_unknown(self):
+        """A disabled mod is absent from the log BY CONSTRUCTION.
+
+        Reporting it as 'unknown' would look like a fault when it is the user's
+        own choice, so disabled_mods keep the plain on-disk shape.
+        """
+        self._install("TestCo.Automate", "Test Automate")
+        self.eng.set_enabled("TestCo.Automate", False, after_confirm=True)
+        with open(self.logfile, "w", encoding="utf-8") as f:
+            f.write(self.LOG)
+        st = self.eng.status()["data"]
+        parked = st["state"]["disabled_mods"][0]
+        self.assertNotIn("load_status", parked)
+        self.assertEqual(st["state"]["mods"], [])
+
+    def test_corrupt_log_degrades_to_a_reason(self):
+        with open(self.logfile, "wb") as f:
+            f.write(b"\xff\xfe\x00 not text\n")
+        st = self.eng.status()
+        self.assertTrue(st["ok"], "an unreadable log must not fail status()")
+        self.assertFalse(st["data"]["loader_log"]["available"])
+
+    def test_giant_log_is_capped(self):
+        with open(self.logfile, "w", encoding="utf-8") as f:
+            f.write(self.LOG)
+            f.write("[18:42:09 TRACE SMAPI] padding\n" * 40000)
+        st = self.eng.status()
+        self.assertTrue(st["ok"])
+        self.assertTrue(st["data"]["loader_log"]["available"])
+
+
+
 if __name__ == "__main__":
     unittest.main()

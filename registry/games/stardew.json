@@ -5,7 +5,6 @@
   "engine": "file_drop",
   "display_label": "Stardew Valley / SMAPI (detect-only)",
   "engine_note": "engine selects the backend class via main.py ENGINE_FACTORY; display_label is the descriptor-driven QAM/log label. Neither requires an if game==\"stardew\" branch. Adding a game = descriptor JSON only (plus a parser class only if the manifest FORMAT differs).",
-
   "identity": {
     "appid": 413150,
     "name": "Stardew Valley",
@@ -13,7 +12,6 @@
     "status": "enabled",
     "note": "AppID 413150, native Linux build (no Proton prefix). SMAPI is an EXTERNAL launcher that the user has already installed and wired into Steam launch options. This plugin is DETECT-ONLY: it never installs SMAPI, never edits Steam launch options, never writes a Proton pfx, never uses a DLL override."
   },
-
   "paths": {
     "game_root": "${GAME_ROOT}",
     "mod_root": "${GAME_ROOT}/Mods",
@@ -30,31 +28,61 @@
       "COEXISTENCE (highest risk): a third-party Flatpak mod manager (io.github.Amethyst.ModManager) may deploy this Mods/ tree via symlinks, marked by Mods/.mm_deployed and a sibling Mods_Core/ directory. When either marker is present the plugin MUST run in READ-ONLY / DETECTION mode: status/list_inbox/inspect stay available, but install/set_enabled/uninstall/rollback return E_EXTERNAL_MANAGER. It must never move, rewrite, or unpack over symlinked mods or the Mods_Core/ tree."
     ]
   },
-
-  "loaders": ["smapi"],
+  "loaders": [
+    "smapi"
+  ],
   "loaders_note": "SMAPI is detected, NEVER installed. detect.patterns / launch_requirements come from registry/loaders/smapi.json and are CHECKED (not applied). If the launcher is missing the plugin reports E_LOADER_MISSING; it does not install it, does not set launch options, does not request root.",
   "loader_detection": {
-    "patterns": ["StardewModdingAPI", "smapi-internal/"],
-    "external_manager_markers": [".mm_deployed", "Mods_Core"],
+    "patterns": [
+      "StardewModdingAPI",
+      "smapi-internal/"
+    ],
+    "external_manager_markers": [
+      ".mm_deployed",
+      "Mods_Core"
+    ],
     "launch_options_must_already_be_set": true,
     "appid": 413150,
     "launcher_token": "StardewModdingAPI",
     "on_missing_launcher": "E_LOADER_MISSING",
-    "on_external_manager": "E_EXTERNAL_MANAGER (read-only mode)"
+    "on_external_manager": "E_EXTERNAL_MANAGER (read-only mode)",
+    "loader_log": {
+      "enabled": true,
+      "format": "text",
+      "candidates": [
+        "${USER_HOME}/.config/StardewValley/ErrorLogs/SMAPI-latest.txt",
+        "${XDG_CONFIG}/StardewValley/ErrorLogs/SMAPI-latest.txt",
+        "${GAME_ROOT}/SMAPI-latest.txt",
+        "${GAME_ROOT}/smapi-internal/SMAPI-latest.txt"
+      ],
+      "loaded_header": "\\]\\s+Loaded (\\d+) mods:",
+      "content_pack_header": "\\]\\s+Loaded (\\d+) content packs:",
+      "skipped_header": "\\]\\s+Skipped mods",
+      "patched_header": "\\]\\s+Patched game code",
+      "loaded_row": "\\]\\s+(?P<name>.+?) (?P<version>\\d+(?:\\.\\d+)*(?:-[A-Za-z0-9.]+)?) by (?P<author>[^|]+?)(?: \\| (?P<summary>.*))?$",
+      "skipped_row": "\\]\\s+-\\s+(?P<name>.+?)(?: (?P<version>\\d+(?:\\.\\d+)*))? because (?P<reason>.+)$",
+      "skipped_missing_ids": "aren't installed \\(([^)]+)\\)",
+      "patched_row": "\\]\\s+-\\s+(?P<name>.+?)$",
+      "notes": "READ-ONLY. The loader's summary block is the only evidence that a mod was actually accepted by the game rather than merely sitting in Mods/. Nothing here writes, fixes or reorders anything: a skipped mod is reported, never repaired. Patterns were transcribed from a real 150-line log; a log written in another dialect yields a reason string, never a guessed result."
+    }
   },
-
   "mod_package": {
     "archive_format": "zip",
     "magic": "504b0304",
     "parser": "json_map",
-    "manifest_globs": ["manifest.json", "*/manifest.json"],
+    "manifest_globs": [
+      "manifest.json",
+      "*/manifest.json"
+    ],
     "manifest_format": "json",
     "json_dialect": "jsonc",
     "json_dialect_note": "Real SMAPI community manifests are JSONC: ModManifestBuilder emits /* */ header comments, and several ship arrays with trailing commas. The parser tolerates comments/trailing commas generically (no game field names); opted in per-descriptor here.",
     "strip_single_root": true,
     "install_relpath_prefix": "Mods/",
     "field_aliases": {
-      "UniqueID": ["UniqueId"]
+      "UniqueID": [
+        "UniqueId"
+      ]
     },
     "field_aliases_note": "SMAPI built-in mods (Console Commands, Save Backup) use the UniqueId casing variant. Aliases are copied onto the canonical key before required-field validation. Zero field names in .py code.",
     "field_map": {
@@ -64,8 +92,17 @@
       "author": "Author",
       "minimum_api_version": "MinimumApiVersion",
       "entry_dll": "EntryDll",
-      "dependencies": ["Dependencies", "ContentPackFor"],
-      "dependency_id_keys": ["UniqueID", "UniqueId", "Id", "ID", "id"],
+      "dependencies": [
+        "Dependencies",
+        "ContentPackFor"
+      ],
+      "dependency_id_keys": [
+        "UniqueID",
+        "UniqueId",
+        "Id",
+        "ID",
+        "id"
+      ],
       "dependency_optional_key": "IsRequired"
     },
     "id_regex": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
@@ -85,8 +122,16 @@
       "json": "MinimumApiVersion",
       "note": "Informational badge only. No version gating."
     },
-    "metadata_badges": ["Author", "MinimumApiVersion", "EntryDll"],
-    "required_manifest_fields": ["UniqueID", "Name", "Version"],
+    "metadata_badges": [
+      "Author",
+      "MinimumApiVersion",
+      "EntryDll"
+    ],
+    "required_manifest_fields": [
+      "UniqueID",
+      "Name",
+      "Version"
+    ],
     "install_filename_template": "${id}",
     "install_is_directory": true,
     "limits": {
@@ -106,12 +151,24 @@
       "duplicate_entries",
       "encrypted_entries"
     ],
-    "reject_extensions": [".exe", ".msi", ".bat", ".cmd", ".ps1", ".scr", ".com", ".jar"],
-    "allow_extensions": [".dll", ".so", ".dylib"],
+    "reject_extensions": [
+      ".exe",
+      ".msi",
+      ".bat",
+      ".cmd",
+      ".ps1",
+      ".scr",
+      ".com",
+      ".jar"
+    ],
+    "allow_extensions": [
+      ".dll",
+      ".so",
+      ".dylib"
+    ],
     "allow_extensions_note": "SECURITY POSTURE CHANGE (approved 2026-11-14): SMAPI mods are .NET assemblies, so .dll/.so/.dylib MUST be accepted. ONLY these three are relaxed. .exe/.msi/.bat/.cmd/.ps1/.scr/.com/.jar remain refused, and ALL structural guards (symlink/device/hardlink, path traversal, backslash, absolute path, duplicate, encrypted, zip-bomb ratio, entry/depth caps) remain in force. The archive is unpacked, never executed.",
     "notes": "SMAPI mods ship as a directory with manifest.json. The plugin never executes archive contents."
   },
-
   "state_mutator": {
     "strategy": "file_drop",
     "write_impl": "directory_presence",
@@ -123,7 +180,6 @@
       "Because there is no state file, verify-on-open drift detection (RimWorld's E_STATE_EXTERNAL / V15) does not apply here."
     ]
   },
-
   "conflict_policy": {
     "duplicate": "reject_with_replace_option",
     "duplicate_key": "UniqueID",
@@ -132,7 +188,6 @@
     "dependency": "metadata_only",
     "load_order": "not_applicable"
   },
-
   "capabilities": {
     "local_import": true,
     "detection_only": true,
@@ -142,7 +197,6 @@
     "atomic_state_write": false,
     "gamepad_only": true,
     "history_refresh": true,
-
     "loader_install": false,
     "launch_option_edit": false,
     "dll_override": false,
@@ -157,7 +211,6 @@
     "universal_one_click": false
   },
   "capabilities_note": "network_download=true is the round-19 source wiring. Round 18 used a third-party mod-site API with a personal key; round 19 RETIRES that source (its free-tier download links answer HTTP 403, and the credential RPCs are gone) and replaces it with GitHub Releases plus a plain-https URL fallback. What is enabled is only the download-to-inbox half-chain (gh_search/gh_releases/gh_download/download_url). It does NOT lift the write posture. detection_only=true remains the approved read-only posture: on the real Deck an external mod manager owns the Mods/ tree, so the final engine.install() still returns E_EXTERNAL_MANAGER until the user completes the B prerequisite (remove Amethyst .mm_deployed/Mods_Core, migrate the 27 real MODs, authorize lifting read-only). enable_disable=true since round 25: a disabled mod is moved OUT of Mods/ into the sibling .decky-disabled/ directory (same filesystem, os.replace, nothing deleted) and moved back on enable; this is NOT uninstall, which parks the folder in .decky-quarantine.  No Workshop, no loaders install, no Proton prefix, no .exe installers, no root, no SteamOS read-only toggle, no universal one-click.",
-
   "download_sources": {
     "github": {
       "enabled": true,
@@ -182,7 +235,6 @@
       "notes": "METADATA ONLY. Measured on this device with a real free-account key: mod info, file lists and the latest_added/latest_updated/trending listings answer 200, but download_link.json answers 403 for every free account ('this is for premium users only'), the API has no keyword-search endpoint (mods/search.json parses 'search' as a mod id -> 422), and every website page is behind a Cloudflare challenge. So this source browses and inspects, prints the mod page URL for the user to download in a browser, and imports the ZIP they get. It never claims to download a mod it cannot. Requires a key the user supplies in the panel; state is kept at ${DECKY_PLUGIN_RUNTIME_DIR}/nexus_api_key mode 0600 and is never returned to the UI."
     }
   },
-
   "safety": {
     "refuse_if_game_running": true,
     "recheck_before_commit": true,
@@ -190,7 +242,6 @@
     "verify_on_open": false,
     "refuse_if_external_manager": true
   },
-
   "known_limitations": [
     "DETECT-ONLY: depends on the user's ALREADY-CONFIGURED SMAPI install and Steam launch options. If SMAPI is missing or launch options are not set, the plugin reports an error; it does NOT install SMAPI or edit launch options.",
     "COEXISTENCE: if Mods/.mm_deployed or a sibling Mods_Core/ is detected (Amethyst ModManager VFS deployment), the plugin switches to READ-ONLY mode and refuses every write with E_EXTERNAL_MANAGER. It never touches symlinks or Mods_Core/.",
@@ -199,5 +250,12 @@
     "DIRECT URL: a user-supplied https link is downloaded as-is. There is no repository trust anchor and no catalog entry, so the manifest still decides whether the ZIP is acceptable.",
     "No universal one-click install, no Workshop, no loaders install, no Proton prefix access, no .exe installers, no root, no SteamOS read-only toggle."
   ],
-  "known_limitation_keys": ["LIMIT_DETECT_ONLY", "LIMIT_COEXISTENCE", "LIMIT_FILEDROP_NO_ORDER", "LIMIT_NO_UNIVERSAL", "LIMIT_GH_COVERAGE", "LIMIT_DIRECT_URL"]
+  "known_limitation_keys": [
+    "LIMIT_DETECT_ONLY",
+    "LIMIT_COEXISTENCE",
+    "LIMIT_FILEDROP_NO_ORDER",
+    "LIMIT_NO_UNIVERSAL",
+    "LIMIT_GH_COVERAGE",
+    "LIMIT_DIRECT_URL"
+  ]
 }

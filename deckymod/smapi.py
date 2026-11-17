@@ -736,11 +736,23 @@ class FileDropEngine:
         self.journal.begin(txn, "install", plan)
         self.journal.applying(txn)
         staged = os.path.join(r.staging, txn)
+        # Round 69: initialised BEFORE the try. If extract_to() fails, the name
+        # would otherwise never be bound, and the handler cannot tell "we moved a
+        # previous copy aside and must put it back" from "there was nothing to
+        # lose" -- which is the difference between an honest failure and a silent
+        # upgrade.
+        replaced_qdir = None
+        # Round 69b: `placed` records that OUR bytes reached
+        # install_at. Cleanup must not ask the journal whether we
+        # own the mod -- the journal can name a folder the disk no
+        # longer has, and then a first install looks like an
+        # upgrade and its failure leaves the half-written folder
+        # behind (measured on the device, r69f).
+        placed = False
         try:
             ensure_dir(r.staging)
             stage_dest = os.path.join(staged, dn)
             archive.extract_to(info, zip_path, stage_dest, member_override=fomod_override)
-            replaced_qdir = None
             if os.path.isdir(install_at):
                 replaced_qdir = os.path.join(r.quarantine_root, txn, dn + ".replaced")
                 ensure_dir(os.path.dirname(replaced_qdir))
@@ -755,6 +767,7 @@ class FileDropEngine:
             # failure above still leaves no half-made folder.
             ensure_dir(os.path.dirname(install_at))
             os.replace(stage_dest, install_at)
+            placed = True
             self.journal.record("MOD_INSTALLED", txn, packageId=uid, uniqueId=uid,
                                 name=info["name"], version=info["version"], dir=install_at,
                                 dir_name=dn, replaced_old=replaced_qdir, ts=time.time(),
@@ -778,12 +791,60 @@ class FileDropEngine:
             return ok(result)
         except Exception as e:
             try:
-                if os.path.isdir(install_at) and not managed:
+                # Round 69 (measured on the device): this handler only cleaned up
+                # a FIRST install, where the incomplete copy is all there is. For
+                # an upgrade it skipped the case that matters.
+                # an upgrade it skipped the case that matters -- a previous copy
+                # had already been moved into the quarantine and the new one was
+                # already in place. The transaction was then recorded as
+                # ROLLED_BACK while the disk held the NEW version, status()
+                # reported it as installed, and rollback() answered "nothing to
+                # roll back": the user was told the upgrade failed and silently
+                # got an upgrade. Put the displaced copy back before saying
+                # anything, so "failed" means the old version is still there.
+                restored = None
+                removed_new = False
+                if replaced_qdir and os.path.isdir(replaced_qdir):
+                    undo = upgrade.undo_install(replaced_qdir, install_at)
+                    if not undo.get("ok"):
+                        # Restoring is the only honest outcome here. If it cannot
+                        # be done, say so and leave both copies where they are --
+                        # a half-undone upgrade leaves the user with neither
+                        # version (round 56's rule, applied to the failure path).
+                        self.journal.rollback_failed(
+                            txn, {"reason": str(e),
+                                  "restore_error": undo.get("detail") or ""})
+                        return err("E_ROLLBACK_FAILED",
+                                   detail=("install failed (%s) and the previous copy could "
+                                           "not be restored: %s"
+                                           % (str(e), undo.get("detail") or "")))
+                    restored = replaced_qdir
+                    removed_new = bool(undo.get("removed_new"))
+                elif placed and os.path.isdir(install_at):
+                    # Nothing was displaced, so whatever is here is
+                    # the copy this transaction wrote.
                     shutil.rmtree(install_at, ignore_errors=True)
-                self.journal.rolled_back(txn, {"reason": str(e)})
+                    removed_new = True
+                self.journal.record("MOD_ROLLBACK_RESTORED", txn,
+                                    packageId=uid,
+                                    # The version now on disk is the one the
+                                    # journal held before this install -- the
+                                    # entry being displaced. Without it the
+                                    # restored row cannot answer "which version
+                                    # is installed?", and status() would show a
+                                    # managed mod with no version at all.
+                                    mod={"name": info["name"], "dir": install_at,
+                                         "version": (managed or {}).get("version")},
+                                    restored_from=restored, removed_new=removed_new,
+                                    enabled=not parked_managed,
+                                    reason="install_failed")
+                self.journal.rolled_back(txn, {"reason": str(e),
+                                               "restored_from": restored})
                 code = e.code if isinstance(e, ModError) else (
                     map_oserror(e).code if isinstance(e, OSError) else "E_OP_FAILED")
-                return err(code, detail=str(e), rollback_available=False)
+                return err(code, detail=str(e), rollback_available=False,
+                           data={"restored_old": bool(restored),
+                                 "removed_new": removed_new})
             except Exception as rb:
                 self.journal.rollback_failed(txn, {"reason": str(rb)})
                 return err("E_ROLLBACK_FAILED", detail=str(rb))
@@ -1155,7 +1216,13 @@ class FileDropEngine:
         # became an orphan that reclaim_quarantine is allowed to delete.
         inst = next((e for e in events
                      if e.get("event") == "MOD_INSTALLED" and e.get("replaced_old")), None)
-        if inst and state in ("COMMITTED", "APPLYING", "PREPARED"):
+        # Round 69: ROLLED_BACK belongs here. An upgrade that failed AFTER the two
+        # renames had already run recorded MOD_INSTALLED (with replaced_old) and
+        # then failed on the commit, so the transaction is ROLLED_BACK while the
+        # replacement is still in place. Excluding that state is what made
+        # rollback answer "nothing to roll back for txn ... (state=ROLLED_BACK)"
+        # for a transaction that had everything needed to undo it.
+        if inst and state in ("COMMITTED", "APPLYING", "PREPARED", "ROLLED_BACK"):
             got = upgrade.undo_install(inst.get("replaced_old"), inst.get("dir"))
             if not got.get("ok"):
                 raise ModError(got.get("code") or "E_OP_FAILED",
@@ -1194,8 +1261,9 @@ class FileDropEngine:
                                    or "could not restore the interrupted install")
                 self.journal.record("MOD_ROLLBACK_RESTORED", txn,
                                     packageId=plan.get("packageId"),
-                                    mod={"name": plan.get("packageId"),
-                                         "dir": plan.get("to")},
+                                    mod={"name": plan.get("name") or plan.get("packageId"),
+                                         "dir": plan.get("to"),
+                                         "version": plan.get("version")},
                                     restored_from=saved,
                                     removed_new=bool(got.get("removed_new")))
                 self.journal.rolled_back(txn, {"recovered": True,

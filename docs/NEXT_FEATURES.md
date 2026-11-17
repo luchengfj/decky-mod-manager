@@ -35,6 +35,7 @@ features are deliberately excluded.
 | Refuse a mod whose manifest names an `EntryDll` it does not ship | works on both ZIP and `.7z` (Round 64, docs/ENTRY_DLL.md) |
 | Make an undo that cannot undo say so | `rollback` of an uninstall refuses instead of reporting a restore that did not happen (Round 65, docs/ROLLBACK.md) |
 | Report a dependency that is installed but too old | global + per-row `outdated_dependencies`; no update performed (Round 67, docs/OUTDATED_DEPENDENCIES.md) |
+| Make a failed install or upgrade say what actually happened | the old version stays or the leftover goes, and the answer matches the disk (Round 69, docs/FAILED_INSTALL.md) |
 | Report a disabled dependency as disabled, not as missing | the fetcher is no longer handed an id the user parked, so a download cannot overwrite it (Round 66, docs/PARKED_DEPENDENCIES.md) |
 
 0g. **Multi-mod archives, and any archive nested more than one folder deep.**
@@ -160,6 +161,28 @@ real `deps.run()` and asserts no fetch is attempted at all. Details:
     something plus pending transactions. `tests/test_crash_recovery.py` (9
     cases) pins it; one round-56 test that *required* the defect was rewritten
     rather than deleted. See `docs/CRASH_RECOVERY.md`.
+
+0m. A failed install or upgrade says what actually happened (Round 69)
+
+Measured on the device, then fixed in two steps.
+
+* A failed **upgrade** left the NEW version on disk, kept the old one in the
+  quarantine, and answered `E_UNKNOWN nothing to roll back for txn ... (state=ROLLED_BACK)`
+  if the user tried to undo it. The handler had only one branch -- "this was a
+  first install, delete the leftover" -- so an upgrade fell through it. It now
+  puts the displaced copy back before it reports anything, and if that restore
+  fails it says `E_ROLLBACK_FAILED` instead of pretending (`docs/FAILED_INSTALL.md`).
+* The same handler asked `_existing_managed()` before cleaning up, i.e. it asked
+  the journal whether we own the mod instead of asking what this transaction did.
+  A journal row whose folder is gone (deleted by hand, library not mounted, a
+  different tree active) made a first install look like an upgrade, and its
+  failure left the half-written folder inside `Mods/`. Cleanup is now guarded by
+  a `placed` flag that only the write path sets.
+
+Evidence: `tests/test_failed_install.py` (14 cases, one of them seeding a
+journal row with no folder), a mutation run that flips the cleanup back and
+fails exactly the new case, and 21/21 device checks including
+`E2_NOTHING_LEFT_BEHIND ['probe.upgradefail']`.
 
 ## Closed since this page was written
 

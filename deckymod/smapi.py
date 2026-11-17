@@ -183,6 +183,39 @@ class FileDropEngine:
             detail="%d unfinished transaction(s): %s -- use Recover / Rollback "
                    "before starting a new one" % (len(pending), shown))
 
+    def _locate(self, r, dn: str, managed) -> dict:
+        """Where a mod directory for ``dn`` lives, and why.
+
+        Round 60. In this engine "disabled" is a LOCATION: a mod with a folder in
+        Mods/ is loaded, and disabling it moves the folder to .decky-disabled/.
+        Three separate code paths used to compute that answer themselves (rounds
+        57-59), and each got it wrong in its own way before being fixed. Keeping
+        one expression is not tidiness -- a second copy is a second chance to
+        disagree with the first, and the disagreement is user-visible because
+        inspect()'s answer becomes the sentence the user agrees to.
+
+        Returns a dict rather than a tuple so call sites read as what they mean:
+
+          install_at  where the bytes live / will live
+          parked      True when the journal manages this mod AND a real
+                      directory is parked for it -- i.e. the user disabled it
+          parked_at   the parked path, whether or not it is the live one
+          target      the Mods/ path, always
+
+        ``parked`` deliberately requires ``managed``: a folder that merely shares
+        the name is not ours to treat as our own copy, and install/uninstall both
+        refuse it separately rather than silently adopting it.
+        """
+        target = os.path.join(r.mod_root, dn)
+        parked_at = os.path.join(r.disabled_root, dn)
+        parked = bool(managed) and os.path.isdir(parked_at) and not os.path.islink(parked_at)
+        return {
+            "target": target,
+            "parked_at": parked_at,
+            "parked": bool(parked),
+            "install_at": parked_at if parked else target,
+        }
+
     def _check_write_allowed(self, r: paths.ResolvedPaths):
         """DETECT-ONLY gate for EVERY mutating op. Order matters: the descriptor
         and external-manager read-only switches are highest priority (zero
@@ -536,10 +569,12 @@ class FileDropEngine:
         # different operation than the one that ran.
         #
         # A preview that disagrees with its execute is worse than no preview: the
-        # user's consent was given for the text on screen.
-        parked_target = os.path.join(r.disabled_root, dn)
-        parked_managed = bool(managed) and os.path.isdir(parked_target) and not os.path.islink(parked_target)
-        install_at = parked_target if parked_managed else os.path.join(r.mod_root, dn)
+        # user's consent was given for the text on screen. Round 60 moved the
+        # destination decision into _locate(), so this preview and the install
+        # that follows it cannot drift apart again.
+        where = self._locate(r, dn, managed)
+        parked_managed = where["parked"]
+        install_at = where["install_at"]
         collision = os.path.exists(install_at)
         # Round 27: a same-UniqueID mod may already sit under a DIFFERENT folder
         # name (that is exactly what a hand-installed mod looks like). Report it
@@ -592,7 +627,13 @@ class FileDropEngine:
                                     reject_extensions=self._reject_extensions(),
                                     mod_package=self._mod_package())
         uid, dn = info["uniqueId"], info["dir_name"]
-        target = os.path.join(r.mod_root, dn)
+        # Round 60: both paths come from _locate(), one expression. `target` is
+        # the Mods/ path specifically (the "a non-managed folder already sits
+        # there" check below must stay about Mods/); `install_at` is where the
+        # bytes actually go.
+        managed = self._existing_managed(uid)
+        where = self._locate(r, dn, managed)
+        target = where["target"]
         # Round 28 (criterion 3): if the archive has a FOMOD descriptor and the
         # user supplied choices, compute the reduced/renamed member map. A bad
         # or empty selection is NOT fatal — we warn and fall back to a plain
@@ -624,13 +665,10 @@ class FileDropEngine:
         # Mods/ (which silently re-enables it) while the old one stayed parked.
         # The directory's location IS the state in this engine, so the new bytes
         # must go where the old bytes are.
-        parked_target = os.path.join(r.disabled_root, dn)
-        managed = self._existing_managed(uid)
-        # Only a copy this plugin parked counts: an unrelated folder that happens
-        # to share the name must not be overwritten by an install.
-        parked_managed = bool(managed) and os.path.isdir(parked_target) \
-            and not os.path.islink(parked_target)
-        install_at = parked_target if parked_managed else target
+        # Round 60: `where` was computed above; only the parked view is new here.
+        parked_target = where["parked_at"]
+        parked_managed = where["parked"]
+        install_at = where["install_at"]
         if managed and not after_confirm:
             raise ModError("E_DUPLICATE", detail=f"{uid} already managed", context={"packageId": uid})
         # Round 27: a second copy of a mod that already sits on disk under a
@@ -916,7 +954,11 @@ class FileDropEngine:
         #
         # Two corrections: resolve the parked path when the recorded dir is not
         # on disk, and refuse rather than report success when neither exists.
-        parked_src = os.path.join(r.disabled_root, os.path.basename(src))
+        # Round 60: _locate() answers "where does this live", including the case
+        # where the recorded dir is stale because the mod was parked after the
+        # journal last wrote it.
+        _where = self._locate(r, os.path.basename(src), managed)
+        parked_src = _where["parked_at"]
         if not os.path.isdir(src) and os.path.isdir(parked_src) and not os.path.islink(parked_src):
             src = parked_src
             if managed.get("dir"):

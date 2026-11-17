@@ -79,6 +79,13 @@ So the plugin forgot a mod it had not removed: `journal.installed()` dropped the
 
 The user agreed to one sentence and a different operation ran. A preview that disagrees with its execute is worse than no preview, because consent was given for the text on screen. The preview now resolves the same target install does, carries `conflict.parked`, says "(this mod is disabled, the new version stays disabled)" when that applies, and counts parked copies in `same_unique_id_dirs` so the warning appears before the refusal rather than after it.
 
+0f. **Three rounds, one shape (round 60).** Rounds 57, 58 and 59 each fixed
+a different consequence of the same fact: in the file_drop engine "disabled" is
+a location, and three code paths computed it separately. One helper now answers
+it and `tests/test_single_path_decision.py` asserts the structure, with a
+negative proof that reintroducing the duplication fails the suite. See
+`docs/PATH_DECISION.md`.
+
 ## P0 — must exist before this is safe to hand to a stranger
 
 0b. ~~**The first install on a fresh game failed, and "not found" said the

@@ -122,7 +122,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        45 modules, 714 cases (`Ran 714 tests ... OK (skipped=14)`)
+tests/                        46 modules, 720 cases (`Ran 720 tests ... OK (skipped=14)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -142,6 +142,7 @@ tests/                        45 modules, 714 cases (`Ran 714 tests ... OK (skip
   test_upgrade.py             upgrading then rolling back must restore the OLD version, not refuse
 test_parked_uninstall.py    a disabled mod is uninstallable; a missing one is refused, not faked
 test_preview_agreement.py   the import preview must name the path the install will use
+  test_single_path_decision.py  one helper decides where a mod lives; the structure cannot drift back
   test_reclaim.py             plan refuses restorable and unknown; two-phase; symlink recheck
   test_reclaim_gate.py        reclaim through the real engine, behind every write gate
 test_procs.py               faked /proc: marker, path, unknown-is-not-stopped
@@ -249,7 +250,7 @@ python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_api_arity.py       -> BACKEND_RPCS 26 / FRONTEND_CALLS 26 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
-.decky-probe/r4_tar_drift.py             -> TAR_COUNT 108 / CUR_COUNT 108, drift 0
+.decky-probe/r4_tar_drift.py             -> TAR_COUNT 111 / CUR_COUNT 111, drift 0
 ```
 
 Backend is stdlib-only and **runs** on this box (the Windows-portability fix in
@@ -298,6 +299,7 @@ Reading order for a newcomer, and what each file is for:
 | [NEXUS_ROADMAP.md](NEXUS_ROADMAP.md) | historical round notes, incl. §6.7 the Nexus metadata surface and why download links stay premium-only; snapshots are never backfilled |
 | [QUARANTINE.md](QUARANTINE.md) | what "uninstall" keeps, and when a kept folder can no longer be restored |
 | [UPGRADE.md](UPGRADE.md) | what happens to the version an install overwrote, and why rollback used to answer "nothing to roll back" |
+| [PATH_DECISION.md](PATH_DECISION.md) | why "disabled" is a location, and what went wrong three rounds in a row because three places computed it |
 | [PREVIEW_AGREEMENT.md](PREVIEW_AGREEMENT.md) | why the confirm dialog must be generated from the same computation the write uses |
 | [RUNNING_GAME.md](RUNNING_GAME.md) | is the game running right now, and why that used to be an environment variable nobody set |
 | [DECLARED_VS_READ.md](DECLARED_VS_READ.md) | which descriptor keys the code actually reads, and the one that was decoration |

@@ -180,11 +180,22 @@ negative proof that reintroducing the duplication fails the suite. See
 
 ## P2 — needed for a real release, not for correctness
 
-8. **No update check, and nothing pins what `_uninstall` may delete.**
-   The lifecycle hooks are real (`main.py` `_unload` / `_uninstall` /
-   `_migration`), and the plugin removes only its own data directory, but no
-   test asserts that about the user's `Mods/`. What is genuinely missing is an
-   update check: a stale plugin has no way to tell its user it is stale.
+8. **No update check. The hooks are now pinned (Round 61).**
+   The lifecycle hooks (`main.py` `_unload` / `_uninstall` / `_migration`) only
+   drop in-memory state; they do not touch the game folder. That used to be an
+   untested promise, and it is now asserted from two directions:
+   `tests/test_lifecycle_hooks.py` fingerprints every file under the synthetic
+   game tree (size, mtime, sha256) before and after each hook, and an AST check
+   forbids the hooks from naming any write primitive at all. Both were proven
+   to fire by injecting a plausible "cleanup" line into `_uninstall`.
+
+   `tests/test_import_order.py` pins a neighbouring trap: unittest imports every
+   module before running any of them, so a module-level
+   `os.environ.pop("DECKYMOD_GAME_ID")` silently unpins the 33 historical
+   RimWorld cases. That had been fixed by hand three times (rounds 47, 50, 61).
+
+   What is genuinely still missing is an update check: a stale plugin has no way
+   to tell its user it is stale.
 9. **The panel has never been seen by a human in Game Mode.** Every claim
    about layout comes from DOM text captured over CDP. Reading text is not the
    same as looking at it, and it cannot prove the D-pad reaches every control.

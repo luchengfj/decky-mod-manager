@@ -12,8 +12,6 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-os.environ.pop("DECKYMOD_GAME_ID", None)
-
 # test_mvp.py pins DECKYMOD_GAME_ID=rimworld with setdefault at import time, and
 # unittest discovery imports every module BEFORE running any of them -- so a
 # pop at import time here runs too early and the pin is back by the time a test

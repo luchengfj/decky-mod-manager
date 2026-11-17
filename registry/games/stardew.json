@@ -103,7 +103,8 @@
         "ID",
         "id"
       ],
-      "dependency_optional_key": "IsRequired"
+      "dependency_optional_key": "IsRequired",
+      "update_keys": "UpdateKeys"
     },
     "id_regex": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
     "id_normalize": "lowercase_for_directory",

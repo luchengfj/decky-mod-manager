@@ -65,6 +65,19 @@ export interface ModListEntry {
   load_note?: string;
   load_reason?: string;
   load_missing_ids?: string[];
+  /**
+   * Round 49: the mod's own UpdateKeys, parsed. An empty or absent list means
+   * the manifest declared nothing -- never a guess, because a wrong id opens
+   * someone else's mod page.
+   */
+  update_keys?: ModUpdateKey[];
+}
+
+/** One `site:id@channel` declaration from a mod manifest. */
+export interface ModUpdateKey {
+  site: string;
+  id: string;
+  channel?: string;
 }
 
 /**

@@ -24,7 +24,7 @@ import zipfile
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Protocol
 
-from . import archive
+from . import archive, updatekeys
 from .errors import ModError
 
 _MAX_MANIFEST_BYTES = 1_000_000
@@ -42,6 +42,10 @@ class ParsedManifest:
     entry_dll: object = None
     dependencies: List[str] = field(default_factory=list)
     badges: Dict[str, object] = field(default_factory=dict)
+    # Round 49: the places this mod says it publishes itself, parsed from
+    # whatever field the descriptor names. Empty for manifests that declare
+    # none, which is a fact about the mod, not an error.
+    update_keys: List[Dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -281,6 +285,7 @@ class JsonMapParser:
         author = self._get(obj, "author")
         min_api = self._get(obj, "minimum_api_version")
         entry_dll = self._get(obj, "entry_dll")
+        self_declared = self._get(obj, "update_keys")
         return ParsedManifest(
             uid=uid,
             dir_name=dir_name,
@@ -295,6 +300,7 @@ class JsonMapParser:
                 "minimumApiVersion": min_api,
                 "entryDll": entry_dll,
             },
+            update_keys=updatekeys.parse(self_declared),
         )
 
 
@@ -422,6 +428,10 @@ def scan_installed_mods(mod_root: str, mod_package: dict) -> dict:
             "author": pm.author,
             "dependencies": pm.dependencies,
             "badges": pm.badges,
+            # Round 49: where this mod publishes itself. Absent means the
+            # manifest declared nothing -- reported as an empty list, never as
+            # a guess, because a wrong id opens someone else's mod page.
+            "update_keys": list(pm.update_keys),
         })
         id_to_dirs.setdefault(uid.lower(), []).append(name)
         mods.append(entry)

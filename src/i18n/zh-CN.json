@@ -452,5 +452,6 @@
   "QUAR_BYTES": "{kb} KB",
   "QUAR_RESTORABLE": "{n} 个目录仍可通过回滚恢复。",
   "QUAR_UNKNOWN": "日志无法读取，因此这些目录状态未知——不等于无人认领。",
-  "QUAR_NONE": "隔离区为空。"
+  "QUAR_NONE": "隔离区为空。",
+  "MODDETAIL_KEYS": "声明的更新键：{v}"
 }

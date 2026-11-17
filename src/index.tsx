@@ -1005,6 +1005,12 @@ function Content() {
     const disabledDirs = new Set(disabled.map((d) => d.dir));
     const rows: ListRow[] = mods.map((m) => {
       const isParked = disabledDirs.has(m.dir);
+      // Round 49: the mod's own UpdateKeys are the only trustworthy source for
+      // "which Nexus page is this?". Guessing from the name would open someone
+      // else's mod, so an absent key yields no button at all.
+      const keys = m.update_keys || [];
+      const nx = keys.filter((k) => (k.site || "").toLowerCase() === "nexus" && k.id)[0];
+      const nxId = nx ? Number(nx.id) : NaN;
       const onActivate = () =>
         showInfo(
           m.name || m.dir,
@@ -1030,6 +1036,10 @@ function Content() {
               ? [t("MODLIST_MISSING_DEPS", "Missing dependencies: {v}", { v: m.missing_dependencies.join(", ") })] : []),
             ...(m.parse_error
               ? [t("MODLIST_PARSE_ERR", "Manifest error: {v}", { v: m.parse_error })] : []),
+            ...(keys.length
+              ? [t("MODDETAIL_KEYS", "Declared update keys: {v}", {
+                  v: keys.map((k) => `${k.site}:${k.id}${k.channel ? "@" + k.channel : ""}`).join(", "),
+                })] : []),
           ].filter((x) => x !== ""),
           [
             ...(isParked && canToggleDisabled
@@ -1056,6 +1066,15 @@ function Content() {
                   onClick: (close: () => void) => {
                     close();
                     doUninstallDir(m.dir);
+                  },
+                }]
+              : []),
+            ...(Number.isInteger(nxId) && nxId > 0
+              ? [{
+                  label: t("OPEN_PAGE_BTN", "Open mod page"),
+                  onClick: (close: () => void) => {
+                    close();
+                    doOpenPage(nxId);
                   },
                 }]
               : []),

@@ -53,6 +53,11 @@ class ParsedManifest:
     # whatever field the descriptor names. Empty for manifests that declare
     # none, which is a fact about the mod, not an error.
     update_keys: List[Dict[str, str]] = field(default_factory=list)
+    # Round 67: {dependency id (lowercased): declared minimum version}. A mod
+    # may be INSTALLED and still too old for the mod that needs it; SMAPI skips
+    # the dependent one and the panel used to say nothing was wrong. Kept apart
+    # from ``dependencies`` so no existing caller changes shape.
+    dependency_minimums: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -98,6 +103,50 @@ def _match_member(entries: List[str], globs: List[str]) -> Optional[ManifestHit]
                        mapping=loc.mapping)
 
 
+def _coerce_dep_specs(value, id_keys: List[str], optional_key: str = "",
+                      minimum_key: str = ""):
+    """Extract (dependency id, declared minimum version) pairs.
+
+    Round 67: the minimum version is part of the same declaration as the id, so
+    it is read here rather than by re-walking the field somewhere else. A
+    missing ``minimum_key`` (descriptor did not declare one) yields an empty
+    string, which the scanner reads as "no minimum stated" -- never as "no
+    minimum required", because only the mod author knows that.
+    """
+    out = []
+    if value is None:
+        return out
+    items = value if isinstance(value, list) else [value]
+    for it in items:
+        if isinstance(it, str):
+            out.append((it, ""))
+            continue
+        if not isinstance(it, dict):
+            continue
+        if optional_key and it.get(optional_key) is False:
+            continue
+        picked = None
+        for k in id_keys:
+            v = it.get(k)
+            if isinstance(v, str):
+                picked = v
+                break
+        if picked is None:
+            for k, v in it.items():
+                if isinstance(v, str):
+                    picked = v
+                    break
+        if picked is None:
+            continue
+        minimum = ""
+        if minimum_key:
+            raw_min = it.get(minimum_key)
+            if raw_min not in (None, ""):
+                minimum = str(raw_min).strip()
+        out.append((picked, minimum))
+    return out
+
+
 def _coerce_dep_ids(value, id_keys: List[str],
                     optional_key: str = "") -> List[str]:
     """Extract REQUIRED dependency ids from a manifest field of unknown shape.
@@ -113,30 +162,8 @@ def _coerce_dep_ids(value, id_keys: List[str],
     field names; when unset, every dependency counts as required (old
     behaviour, unchanged for descriptors that do not declare the key).
     """
-    out: List[str] = []
-    if value is None:
-        return out
-    items = value if isinstance(value, list) else [value]
-    for it in items:
-        if isinstance(it, str):
-            out.append(it)
-        elif isinstance(it, dict):
-            if optional_key and it.get(optional_key) is False:
-                continue
-            picked = None
-            for k in id_keys:
-                v = it.get(k)
-                if isinstance(v, str):
-                    picked = v
-                    break
-            if picked is None:
-                for k, v in it.items():
-                    if isinstance(v, str):
-                        picked = v
-                        break
-            if picked is not None:
-                out.append(picked)
-    return out
+    return [pid for pid, _minimum in
+            _coerce_dep_specs(value, id_keys, optional_key)]
 
 
 def _strip_jsonc_text(text: str) -> str:
@@ -291,6 +318,13 @@ class JsonMapParser:
         self.dependency_optional_key: str = str(
             self.field_map.get("dependency_optional_key") or ""
         )
+        # Round 67: descriptor-declared key carrying the minimum version the
+        # dependent mod needs. A dependency that is present but older than this
+        # makes SMAPI skip the dependent mod entirely, so the absence of the id
+        # was never the whole question.
+        self.dependency_minimum_key: str = str(
+            self.field_map.get("dependency_minimum_key") or ""
+        )
 
     def find_member(self, entries: List[str]) -> Optional[ManifestHit]:
         return _match_member(entries, self.globs)
@@ -328,12 +362,23 @@ class JsonMapParser:
             raise ModError("E_MANIFEST_UNSAFE", detail=f"id={uid!r} fails validation")
         dir_name = uid.lower() if self.id_normalize == "lowercase_for_directory" else uid
         deps: List[str] = []
+        dep_minimums: Dict[str, str] = {}
         dep_roles = self.field_map.get("dependencies") or []
         if isinstance(dep_roles, str):
             dep_roles = [dep_roles]
         for role in dep_roles:
-            deps.extend(_coerce_dep_ids(obj.get(role), self.dependency_id_keys,
-                                        self.dependency_optional_key))
+            for pid, minimum in _coerce_dep_specs(
+                    obj.get(role), self.dependency_id_keys,
+                    self.dependency_optional_key, self.dependency_minimum_key):
+                deps.append(pid)
+                if not minimum:
+                    continue
+                # A mod can be named twice (Dependencies + ContentPackFor); keep
+                # the strictest minimum rather than whichever came last.
+                key = pid.strip().lower()
+                prev = dep_minimums.get(key)
+                if prev is None or _version_tuple(minimum) > _version_tuple(prev):
+                    dep_minimums[key] = minimum
         author = self._get(obj, "author")
         min_api = self._get(obj, "minimum_api_version")
         entry_dll = self._get(obj, "entry_dll")
@@ -353,6 +398,7 @@ class JsonMapParser:
                 "entryDll": entry_dll,
             },
             update_keys=updatekeys.parse(self_declared),
+            dependency_minimums=dep_minimums,
         )
 
 
@@ -413,6 +459,24 @@ def parser_for(mod_package: dict) -> ManifestParser:
     return cls(mod_package or {})
 
 
+def _version_tuple(value) -> Tuple[int, ...]:
+    """Numeric components of a version string, for comparison only.
+
+    "1.2" and "1.2.0" compare equal (padded), which is what a mod author means.
+    A string with no digits at all yields an empty tuple, and callers must treat
+    that as "cannot tell" rather than "older" -- the same rule the tree scanner
+    uses for an unreadable /proc (round 50) and the quarantine audit used for an
+    unreadable journal (round 48).
+    """
+    parts = re.findall(r"\d+", str(value or ""))
+    if not parts:
+        return ()
+    nums = [int(p) for p in parts[:4]]
+    while len(nums) < 4:
+        nums.append(0)
+    return tuple(nums)
+
+
 def _find_manifest_in_dir(dir_path: str, globs: List[str]) -> Optional[str]:
     try:
         files = os.listdir(dir_path)
@@ -454,7 +518,7 @@ def scan_installed_mods(mod_root: str, mod_package: dict,
         parser = parser_for(mod_package)
     except ModError:
         return {"mods": [], "duplicate_ids": [], "missing_dependencies": [],
-                "parked_dependencies": []}
+                "parked_dependencies": [], "outdated_dependencies": []}
     globs = list(mod_package.get("manifest_globs") or [])
     parked = {str(x).strip().lower() for x in (parked_ids or []) if str(x).strip()}
     mods: List[dict] = []
@@ -497,15 +561,34 @@ def scan_installed_mods(mod_root: str, mod_package: dict,
             # manifest declared nothing -- reported as an empty list, never as
             # a guess, because a wrong id opens someone else's mod page.
             "update_keys": list(pm.update_keys),
+            # Round 67: what this mod SAYS it needs, so the comparison below
+            # happens against a declaration rather than a guess. Absent for
+            # manifests that state no minimum -- that is a fact about the mod.
+            "dependency_minimums": dict(pm.dependency_minimums or {}),
         })
         id_to_dirs.setdefault(uid.lower(), []).append(name)
         mods.append(entry)
 
     present = set(id_to_dirs.keys())
+    # Round 67: what version each present id actually has, so "installed" can be
+    # followed by "but not new enough". An id with no readable version is left
+    # out: unknown must never read as outdated.
+    id_version: Dict[str, str] = {}
+    for m in mods:
+        uid = str(m.get("uniqueId") or "").lower()
+        ver = str(m.get("version") or "")
+        if uid and ver:
+            id_version.setdefault(uid, ver)
+    minimums: Dict[str, str] = {}
+    for m in mods:
+        for dep_id, minimum in (m.get("dependency_minimums") or {}).items():
+            minimums.setdefault(dep_id, minimum)
     missing: set = set()
     parked_gaps: set = set()
+    outdated: List[dict] = []
     for m in mods:
         deps = m.get("dependencies") or []
+        mins = m.get("dependency_minimums") or {}
         absent = [d for d in deps if d.lower() not in present]
         # Round 66: split "absent" into "present but disabled" and "truly not
         # here". Only the second is a download problem.
@@ -517,13 +600,43 @@ def scan_installed_mods(mod_root: str, mod_package: dict,
             missing.add(d)
         for d in parked_here:
             parked_gaps.add(d)
+        # Round 67: present, not parked, and older than the dependent mod asks
+        # for. SMAPI skips the dependent mod in this state, so "nothing is
+        # missing" was a half-truth: the remedy is "update it", not "download
+        # it", and not "enable it" either. Reported as its own list.
+        stale: List[dict] = []
+        for d in deps:
+            key = d.lower()
+            if key in parked or key not in present:
+                continue
+            need = mins.get(key) or ""
+            have = id_version.get(key) or ""
+            if not need or not have:
+                continue
+            want_t, have_t = _version_tuple(need), _version_tuple(have)
+            if not want_t or not have_t:
+                continue
+            if have_t < want_t:
+                stale.append({"id": d, "required": need, "installed": have})
+        m["outdated_dependencies"] = stale
+        for row in stale:
+            outdated.append({
+                "from": str(m.get("uniqueId") or m.get("dir") or ""),
+                "id": row["id"],
+                "required": row["required"],
+                "installed": row["installed"],
+            })
     duplicate_ids = [
         [uid, dirs] for uid, dirs in sorted(id_to_dirs.items()) if len(dirs) > 1
     ]
+    outdated.sort(key=lambda r: (r["id"].lower(), r["from"].lower()))
     return {
         "mods": mods,
         "duplicate_ids": duplicate_ids,
         "missing_dependencies": sorted(missing),
+        # Round 67: dependencies that are installed but older than the mod that
+        # needs them. Separate from ``missing`` because the remedy differs.
+        "outdated_dependencies": outdated,
         # Round 66: dependencies the user owns but has disabled. Kept apart
         # from ``missing_dependencies`` on purpose -- the panel can offer
         # "enable it" and the fetcher must not touch it.

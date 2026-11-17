@@ -60,6 +60,8 @@ export interface ModListEntry {
    * dependency download never replaces a mod the user parked on purpose.
    */
   parked_dependencies?: string[];
+  /** Round 67: dependencies that are installed but too old for this mod. */
+  outdated_dependencies?: OutdatedDependency[];
   parse_error?: string;
   /**
    * Round 40: what the loader said about THIS mod on its last launch.
@@ -243,6 +245,22 @@ export interface StateInfo {
   missing_dependencies?: string[];
   /** Round 66: dependency ids that are installed but parked (disabled). */
   parked_dependencies?: string[];
+  /**
+   * Round 67: dependencies that are installed but OLDER than the mod
+   * needing them. SMAPI skips the dependent mod in this state, so staying
+   * silent meant the panel called a refused mod healthy. A third list
+   * because the remedy is a third verb: update it -- not download it (it
+   * is here) and not enable it (it is running).
+   */
+  outdated_dependencies?: OutdatedDependency[];
+}
+
+/** Round 67: one "installed but too old" dependency fact. */
+export interface OutdatedDependency {
+  from: string;
+  id: string;
+  required: string;
+  installed: string;
 }
 
 export interface ManagedMod {

@@ -118,6 +118,7 @@
         "id"
       ],
       "dependency_optional_key": "IsRequired",
+      "dependency_minimum_key": "MinimumVersion",
       "update_keys": "UpdateKeys"
     },
     "id_regex": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",

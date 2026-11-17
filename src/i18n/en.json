@@ -191,6 +191,8 @@
   "MODLIST_MISSING_DEPS": "Missing dependencies: {v}",
   "MODLIST_PARKED_DEPS": "Installed but disabled: {v} (enable them)",
   "MODLIST_SUMMARY_PARKED_DEPS": "Installed but disabled: {v}",
+  "MODLIST_OUTDATED_DEPS": "Dependencies too old: {v} (update them)",
+  "MODLIST_SUMMARY_OUTDATED_DEPS": "Dependencies too old: {v}",
   "MODLIST_DUP_ID": "Duplicate UniqueID also in: {v}",
   "MODLIST_PARSE_ERR": "Manifest error: {v}",
   "MODLIST_DEPS": "Dependencies: {v}",

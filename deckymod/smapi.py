@@ -495,6 +495,12 @@ class FileDropEngine:
                 # apart from missing ones: the remedy is "enable it", and the
                 # fetcher reads the missing list only.
                 "parked_dependencies": scanned["parked_dependencies"],
+                # Round 67: dependencies that are installed but older than the
+                # mod needing them. A third list, because the remedy is a third
+                # verb: not "download it" (missing) nor "enable it" (parked) but
+                # "update it". SMAPI skips the dependent mod in this state, so
+                # staying silent meant the panel called a refused mod healthy.
+                "outdated_dependencies": scanned["outdated_dependencies"],
                 "external_manager": probe["external_manager"],
                 "loader_detected": probe["loader_detected"],
                 "launch_options": probe["launch_options"],

@@ -34,6 +34,7 @@ features are deliberately excluded.
 | Let a descriptor name its own third-party-manager marker | works (Round 53, docs/DECLARED_VS_READ.md) |
 | Refuse a mod whose manifest names an `EntryDll` it does not ship | works on both ZIP and `.7z` (Round 64, docs/ENTRY_DLL.md) |
 | Make an undo that cannot undo say so | `rollback` of an uninstall refuses instead of reporting a restore that did not happen (Round 65, docs/ROLLBACK.md) |
+| Report a dependency that is installed but too old | global + per-row `outdated_dependencies`; no update performed (Round 67, docs/OUTDATED_DEPENDENCIES.md) |
 | Report a disabled dependency as disabled, not as missing | the fetcher is no longer handed an id the user parked, so a download cannot overwrite it (Round 66, docs/PARKED_DEPENDENCIES.md) |
 
 0g. **Multi-mod archives, and any archive nested more than one folder deep.**
@@ -117,6 +118,24 @@ fetcher keeps its contract and simply stops being handed ids it must not touch.
 Tests: `tests/test_parked_dependencies.py` (9 cases) including one that runs the
 real `deps.run()` and asserts no fetch is attempted at all. Details:
 `docs/PARKED_DEPENDENCIES.md`.
+
+0k. A dependency that is present but too old used to be invisible (Round 67).
+
+    `ParsedManifest` read `{"UniqueID": "...", "MinimumVersion": "2.0.0"}` and
+    kept only the id; the version half was discarded in the same expression.
+    `scan_installed_mods()` now compares it against the version it already reads
+    from the dependency's manifest and reports
+    `outdated_dependencies: [{from, id, required, installed}]`, both globally and
+    per row. On the deployed build a synthetic host requiring `>= 2.0.0` of an
+    installed `1.0.0` dependency is now reported 12/12; the previous build said
+    "nothing missing". Three deliberate limits: a version with no digits is
+    "unknown" not "too old"; comparison is numeric (`2.0 == 2.0.0.0`); only
+    declared minimums are compared and the field name comes from the descriptor.
+    No update is performed and the fetcher was NOT taught about this state --
+    the same one-decision-one-place rule as round 66. All 28 real mods were
+    surveyed: 18 declarations, 10 satisfied, 8 absent, 0 present-but-too-old, so
+    this state is currently unreachable on the real tree.
+    See docs/OUTDATED_DEPENDENCIES.md.
 
 ## Closed since this page was written
 

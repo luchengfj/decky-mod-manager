@@ -1119,6 +1119,17 @@ function Content() {
             v: m.parked_dependencies.join(", "),
           }));
       }
+      // Round 67: installed but older than this mod asks for. SMAPI skips
+      // the whole mod in that state, so it is stated with the version it
+      // needs -- "update it", which is neither a download nor an enable.
+      if (m.outdated_dependencies && m.outdated_dependencies.length) {
+        notes.push(t("MODLIST_OUTDATED_DEPS",
+          "Dependencies too old: {v} (update them)", {
+            v: m.outdated_dependencies
+              .map((d) => `${d.id} ${d.installed} < ${d.required}`)
+              .join(", "),
+          }));
+      }
       const others = dupMap.get(m.dir) || [];
       if (others.length) {
         notes.push(t("MODLIST_DUP_ID", "Duplicate UniqueID also in: {v}", { v: others.join(", ") }));
@@ -1141,6 +1152,14 @@ function Content() {
       summary.push(t("MODLIST_SUMMARY_PARKED_DEPS",
         "Dependencies installed but disabled: {v}", {
           v: st.parked_dependencies.join(", "),
+        }));
+    }
+    if (st?.outdated_dependencies && st.outdated_dependencies.length) {
+      summary.push(t("MODLIST_SUMMARY_OUTDATED_DEPS",
+        "Dependencies too old: {v}", {
+          v: st.outdated_dependencies
+            .map((d) => `${d.id} ${d.installed} < ${d.required}`)
+            .join(", "),
         }));
     }
     if (st?.duplicate_ids && st.duplicate_ids.length) {

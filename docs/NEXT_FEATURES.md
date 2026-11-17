@@ -45,6 +45,15 @@ features are deliberately excluded.
 
    Found by Round 62; see `docs/ARCHIVE_LAYOUT.md`.
 
+   Round 63 checked the other half. `.7z` has its own extractor
+   (`file_drop._inspect_7z`) written in parallel with the ZIP one, so the ZIP
+   fix proved nothing about it by itself. A device probe that built seven
+   archives with the console's own `/usr/bin/7z` ran them through the deployed
+   plugin: 41/41 checks pass, including the deep-wrapper case landing at
+   `Mods/probe.twice/` with `manifest.json` on top and all three multi-mod
+   shapes refused with nothing written. No product code changed for it -- the
+   round existed to stop assuming.
+
 ## Closed since this page was written
 
 - **The import surface could only see its own inbox.** The plugin read

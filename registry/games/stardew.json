@@ -74,6 +74,10 @@
       "enabled": true,
       "note": "Read from /proc argv[0] only. The plugin matches an executable whose basename is one of running_process_markers, or whose path lies inside GAME_ROOT. It never matches a substring of a later argument, so a terminal sitting in Mods/ is not mistaken for the game. Running is reported as 'unknown', never as 'not running', when /proc cannot be listed. See deckymod/procs.py.",
       "markers": "running_process_markers"
+    },
+    "handover": {
+      "enabled": true,
+      "note": "Round 55. Lets the user hand Mods/ over from another manager without deleting anything: symlinked entries and marker files move into the quarantine under one transaction and rollback restores them. Refused as a whole when the obstacle is a symlinked Mods/, a marker directory beside the game, or a folder on another filesystem. Never runs on a schedule and never during status()."
     }
   },
   "mod_package": {

@@ -262,4 +262,8 @@ class TestStatusWiring(unittest.TestCase):
             src = f.read()
         self.assertIn("quarantine.survey", src)
         self.assertIn('"quarantine": quar_info', src)
-        self.assertIn("quarantine", src.split("from . import")[1].split("\n")[0])
+        # The import is wrapped over several lines since Round 55, so read the
+        # whole statement instead of its first physical line.
+        block = src.split("from . import")[1]
+        block = block[:block.index(")")] if "(" in block[:40] else block[:block.index("\n")]
+        self.assertIn("quarantine", block)

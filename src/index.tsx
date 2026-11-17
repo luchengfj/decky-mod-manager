@@ -65,6 +65,7 @@ import {
   nexusDownloadLink,
   openModPage,
   openSearchPage,
+  handoverMods,
   reclaimQuarantine,
 } from "./api";
 import type {
@@ -387,6 +388,10 @@ function Content() {
   const runTwoPhase = (
     phase: (afterConfirm: boolean) => Promise<OpEnvelope>,
     successMsg: (d: OpResultData) => string,
+    /* Round 55: a refusal that carries its own reason (handover's blocking
+     * obstacles) gets to speak for itself instead of the generic error text.
+     * Returns true when handled, so the caller's message is not overwritten. */
+    onRefuse?: (r: OpEnvelope) => boolean,
   ) => {
     setBusySafe(true);
     const g = generation.current;
@@ -397,6 +402,10 @@ function Content() {
         return;
       }
       if (!first.ok) {
+        if (onRefuse && onRefuse(first)) {
+          setBusySafe(false);
+          return;
+        }
         applyResult(first as Envelope<unknown>, "");
         setBusySafe(false);
         return;
@@ -1882,6 +1891,35 @@ function Content() {
    * journal could not be read. Sending those would be spending "I cannot tell"
    * as "nobody owns it", which is the exact mistake the audit exists to avoid.
    */
+  // Only offered where the panel already says somebody else owns the folder.
+  // A handover that is not needed would just move files around for no reason.
+  const doHandover = () => {
+    runTwoPhase(
+      (afterConfirm) => handoverMods(afterConfirm),
+      (d) => t("HANDOVER_DONE", "Moved {n} entr(y/ies) into the quarantine.", {
+        n: String((d.moved || []).length),
+      }),
+      (r) => {
+        const d = (r.data || {}) as OpResultData;
+        const why = d.explain || (d.blocking || []).join(", ");
+        if (why) {
+          // "nothing to hand over" is not an obstacle the user can clear; it
+          // means there was never anything here to take over.
+          const key = /nothing to hand over/i.test(r.detail || "")
+            ? "HANDOVER_NONE"
+            : "HANDOVER_BLOCKED";
+          setError(r);
+          setLastResult(key === "HANDOVER_NONE"
+            ? t("HANDOVER_NONE")
+            : t("HANDOVER_BLOCKED", "This cannot be undone in one step, so "
+                + "nothing was moved: {why}", { why }));
+          return true;
+        }
+        return false;
+      },
+    );
+  };
+
   const doReclaim = () => {
     const q = status?.state?.quarantine;
     const txns = ((q && q.entries) || [])
@@ -1979,6 +2017,17 @@ function Content() {
             <div style={{ fontSize: "12px", opacity: 0.95, wordBreak: "break-word", fontWeight: 600 }}>
               {t("READ_ONLY_BANNER")}
             </div>
+          </PanelSectionRow>
+        ) : null}
+        {fd && readOnly ? (
+          <PanelSectionRow>
+            <ButtonItem
+              layout="below"
+              label={t("HANDOVER_BTN")}
+              description={t("HANDOVER_DESC")}
+              disabled={busy}
+              onClick={() => doHandover()}
+            />
           </PanelSectionRow>
         ) : null}
         {fd && readOnly && foreignWhy() ? (

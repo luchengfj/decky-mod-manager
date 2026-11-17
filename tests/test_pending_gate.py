@@ -164,7 +164,7 @@ class TestRimworldEngineHasTheSameGate(unittest.TestCase):
             os.path.abspath(__file__))), "deckymod", "engine.py")
         with io.open(path, encoding="utf-8") as f:
             src = f.read()
-        self.assertEqual(src.count("self._check_no_pending()"), 4)
+        self.assertEqual(src.count("self._check_no_pending()"), 5)
         self.assertIn("def _check_no_pending", src)
 
     def test_rollback_is_the_only_write_path_without_it(self):
@@ -185,7 +185,7 @@ class TestRimworldEngineHasTheSameGate(unittest.TestCase):
                     guarded.add(node.name)
         self.assertEqual(guarded,
                          {"_install_inner", "_set_enabled_inner",
-                          "_uninstall_inner", "_reclaim_inner"})
+                          "_uninstall_inner", "_reclaim_inner", "_handover_inner"})
         self.assertNotIn("_rollback_inner", guarded)
 
 

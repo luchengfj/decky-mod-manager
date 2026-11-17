@@ -23,7 +23,7 @@ import shutil
 import time
 from typing import Optional
 
-from . import archive, paths, quarantine, state_mutator
+from . import archive, handover, paths, quarantine, state_mutator
 from .envelope import envelope, err, ok
 from .errors import ModError
 from .fsops import (
@@ -554,6 +554,21 @@ class Engine:
             return ok({"restored": pid, "dir": src, "txn": txn,
                        "log_path": _log_path(self.journal)})
 
+        # Round 55: a handover transaction moved entries to the quarantine; the
+        # confirm dialog promised Rollback would put them back, so it must.
+        hand = next((e for e in events if e.get("event") == "MODS_HANDOVER"), None)
+        if hand and state in ("COMMITTED", "APPLYING", "PREPARED"):
+            got = handover.restore(hand.get("quarantine") or "",
+                                   hand.get("from_path") or "",
+                                   hand.get("moved") or [])
+            self.journal.record("MOD_ROLLBACK_RESTORED", txn,
+                                mod={"name": "handover", "dir": hand.get("from_path")},
+                                moved=got["moved"], failed=sorted(got["failed"]))
+            self.journal.committed(txn, {"rollback_of": "handover"})
+            return ok({"restored": "handover", "moved": got["moved"],
+                       "failed": got["failed"], "txn": txn,
+                       "log_path": _log_path(self.journal)})
+
         # generic: restore the pre-op state snapshot for enable/disable
         st = self.journal.state(txn)
         if st in ("PREPARED", "APPLYING"):
@@ -634,6 +649,87 @@ class Engine:
                                 removed=out.get("removed"),
                                 failed=sorted((out.get("failed") or {}).keys()),
                                 bytes=out.get("bytes"))
+        out["log_path"] = _log_path(self.journal)
+        return ok(out)
+
+    # ------------------------------------------------------------------ handover (round 55)
+    def handover_mods(self, *, after_confirm: bool = False) -> dict:
+        """Take ownership of ``Mods/`` away from another mod manager.
+
+        Mirrors ``FileDropEngine.handover_mods``. It deliberately does not call
+        ``_check_write_allowed``: that gate refuses exactly when this operation
+        is needed. See ``deckymod/handover.py`` for what it will and will not
+        move.
+        """
+        try:
+            return self._handover_inner(after_confirm)
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        except OSError as e:
+            return err(map_oserror(e).code, detail=e.strerror)
+        except Exception as e:
+            self.journal.log(f"handover unexpected: {type(e).__name__}: {e}")
+            return err("E_UNKNOWN", detail=f"{type(e).__name__}: {e}")
+
+    def _handover_inner(self, after_confirm: bool) -> dict:
+        self._check_not_running()
+        self._check_no_pending()
+        r = self._resolve()
+        d = self.registry.get_game(self.game_id)
+        cfg = (d.get("loader_detection") or {}).get("handover") or {}
+        if cfg.get("enabled") is False:
+            raise ModError("E_CAPABILITY_DISABLED",
+                           detail="handing the mod folder over is disabled in the descriptor")
+        markers = (d.get("loader_detection") or {}).get("external_manager_markers") or None
+
+        survey = handover.survey(r.game_root, r.mod_root, markers)
+        txn = new_txn_id()
+        planned = handover.plan(survey, os.path.join(r.quarantine_root, txn))
+        if not planned.get("ok"):
+            return err(planned.get("code") or "E_CAPABILITY_DISABLED",
+                       detail=planned.get("detail") or "",
+                       data={"blocking": planned.get("blocking") or [],
+                             "explain": planned.get("explain") or "",
+                             "movable": planned.get("movable") or []})
+
+        if after_confirm:
+            # Same reason as the file_drop engine: rollback needs a state.
+            self.journal.begin(txn, "handover",
+                               {"quarantine": os.path.join(r.quarantine_root, txn),
+                                "count": len(planned.get("movable") or [])})
+            self.journal.applying(txn)
+
+        out = handover.execute(planned, after_confirm=after_confirm,
+                               quarantine_root=r.quarantine_root, txn=txn)
+        if out.get("phase") == "confirm":
+            n = int(out.get("count") or 0)
+            out.update({
+                "plan": {"op": "handover", "txn": txn,
+                         "moved": [row.get("name") for row in planned.get("movable") or []],
+                         "quarantine": out.get("quarantine")},
+                "confirm_text": "Move %d deployment entr(y/ies) out of Mods/ into "
+                                "the quarantine? This plugin will then own the "
+                                "folder; Rollback puts them back." % n,
+                "confirm_key": "CONFIRM_HANDOVER",
+                "confirm_vars": {"n": str(n), "what": planned.get("describe")
+                                 or handover.describe(planned)},
+                "targets": {"w1_state_file": r.state_file,
+                            "w2_quarantine": r.quarantine_root},
+            })
+            out["log_path"] = _log_path(self.journal)
+            return ok(out)
+
+        moved = out.get("moved") or []
+        if moved:
+            self.journal.record("MODS_HANDOVER", txn,
+                                moved=moved,
+                                failed=sorted((out.get("failed") or {}).keys()),
+                                quarantine=out.get("quarantine"),
+                                from_path=r.mod_root)
+            self.journal.committed(txn, {"handover": True, "moved": len(moved)})
+        else:
+            self.journal.rolled_back(txn, {"handover": True, "moved": 0})
+        out["txn"] = txn
         out["log_path"] = _log_path(self.journal)
         return ok(out)
 

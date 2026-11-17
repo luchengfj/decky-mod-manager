@@ -30,7 +30,8 @@ import os
 import shutil
 import time
 
-from . import archive, conflicts, file_drop, fomod, import_root, loaderlog, manifest, modwatch, paths, procs, quarantine
+from . import (archive, conflicts, file_drop, fomod, handover, import_root, loaderlog,
+               manifest, modwatch, paths, procs, quarantine)
 from .envelope import err, ok
 from .errors import ModError
 from .fsops import ensure_dir, map_oserror, preflight_root, same_filesystem
@@ -909,8 +910,23 @@ class FileDropEngine:
         self._gate("rollback")
         self._check_not_running()
         r = self._resolve()
-        self._check_write_allowed(r)
         events = self.journal.events(txn)
+        # Round 55: undoing a handover puts the entries BACK into a folder that
+        # is somebody else's again, so the external-manager refusal would block
+        # the one operation that must always be possible. Swallow exactly that
+        # one code, exactly for handover transactions; every other refusal
+        # (force_read_only, a missing loader, unset launch options) still fires.
+        #
+        # The gate runs BEFORE the "unknown txn" error so a foreign tree keeps
+        # answering every write with E_EXTERNAL_MANAGER -- the panel explains one
+        # reason, not three, and a typo in a transaction id must not look like a
+        # different class of problem on one device than another.
+        undoing_handover = any(e.get("event") == "MODS_HANDOVER" for e in events)
+        try:
+            self._check_write_allowed(r)
+        except ModError as gate:
+            if not (undoing_handover and gate.code == "E_EXTERNAL_MANAGER"):
+                raise
         if not events:
             raise ModError("E_UNKNOWN", detail=f"unknown txn {txn}")
         state = self.journal.state(txn)
@@ -933,6 +949,20 @@ class FileDropEngine:
                                 unmanaged=bool(uninst.get("unmanaged")))
             self.journal.committed(txn, {"rollback_of": "uninstall", "packageId": pid})
             return ok({"restored": pid, "dir": src, "txn": txn, "log_path": _log_path(self.journal)})
+        # Round 55: a handover transaction moved entries to the quarantine; the
+        # confirm dialog promised Rollback would put them back, so it must.
+        hand = next((e for e in events if e.get("event") == "MODS_HANDOVER"), None)
+        if hand and state in ("COMMITTED", "APPLYING", "PREPARED"):
+            got = handover.restore(hand.get("quarantine") or "",
+                                   hand.get("from_path") or "",
+                                   hand.get("moved") or [])
+            self.journal.record("MOD_ROLLBACK_RESTORED", txn,
+                                mod={"name": "handover", "dir": hand.get("from_path")},
+                                moved=got["moved"], failed=sorted(got["failed"]))
+            self.journal.committed(txn, {"rollback_of": "handover"})
+            return ok({"restored": "handover", "moved": got["moved"],
+                       "failed": got["failed"], "txn": txn,
+                       "log_path": _log_path(self.journal)})
         if state in ("PREPARED", "APPLYING"):
             try:
                 self.journal.rolled_back(txn, {"recovered": True})
@@ -1016,6 +1046,99 @@ class FileDropEngine:
                                 removed=out.get("removed"),
                                 failed=sorted((out.get("failed") or {}).keys()),
                                 bytes=out.get("bytes"))
+        out["log_path"] = _log_path(self.journal)
+        return ok(out)
+
+    # ------------------------------------------------------------------ handover (round 55)
+    def handover_mods(self, *, after_confirm: bool = False) -> dict:
+        """Take ownership of ``Mods/`` away from another mod manager.
+
+        This is the only write path that does NOT call ``_check_write_allowed``,
+        and that is deliberate: the external-manager refusal is exactly what
+        this operation exists to clear, so gating it on that refusal would make
+        it unreachable in every situation it is needed. Everything narrower is
+        still enforced -- the game must not be running, no transaction may be
+        pending, and ``handover.py`` refuses anything it cannot move back.
+
+        Nothing is deleted: entries move into the quarantine under one journal
+        transaction, so ``rollback`` restores them byte for byte.
+        """
+        try:
+            return self._handover_inner(after_confirm)
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        except OSError as e:
+            return err(map_oserror(e).code, detail=e.strerror)
+        except Exception as e:
+            self.journal.log(f"handover unexpected: {type(e).__name__}: {e}")
+            return err("E_UNKNOWN", detail=f"{type(e).__name__}: {e}")
+
+    def _handover_inner(self, after_confirm: bool) -> dict:
+        self._gate("local_import")
+        self._check_not_running()
+        self._check_no_pending()
+        r = self._resolve()
+        d = self._descriptor()
+        cfg = (d.get("loader_detection") or {}).get("handover") or {}
+        if cfg.get("enabled") is False:
+            raise ModError("E_CAPABILITY_DISABLED",
+                           detail="handing the mod folder over is disabled in the descriptor")
+
+        survey = handover.survey(r.game_root, r.mod_root, self._external_markers())
+        txn = new_txn_id()
+        planned = handover.plan(survey, os.path.join(r.quarantine_root, txn))
+        if not planned.get("ok"):
+            # Refusing as a whole is the point: doing half of it and then
+            # stopping would leave the other manager's deployment partly
+            # dismantled with nothing gained.
+            return err(planned.get("code") or "E_CAPABILITY_DISABLED",
+                       detail=planned.get("detail") or "",
+                       data={"blocking": planned.get("blocking") or [],
+                             "explain": planned.get("explain") or "",
+                             "movable": planned.get("movable") or []})
+
+        if after_confirm:
+            # Round 55: without these two events ``journal.state(txn)`` stays
+            # None and rollback refuses the transaction as unknown -- the moved
+            # entries would sit in the quarantine with no way back.
+            self.journal.begin(txn, "handover",
+                               {"quarantine": os.path.join(r.quarantine_root, txn),
+                                "count": len(planned.get("movable") or [])})
+            self.journal.applying(txn)
+
+        out = handover.execute(planned, after_confirm=after_confirm,
+                               quarantine_root=r.quarantine_root, txn=txn)
+        if out.get("phase") == "confirm":
+            n = int(out.get("count") or 0)
+            out.update({
+                "plan": {"op": "handover", "txn": txn,
+                         "moved": [row.get("name") for row in planned.get("movable") or []],
+                         "quarantine": out.get("quarantine")},
+                "confirm_text": "Move %d deployment entr(y/ies) out of Mods/ into "
+                                "the quarantine? This plugin will then own the "
+                                "folder; Rollback puts them back." % n,
+                "confirm_key": "CONFIRM_HANDOVER",
+                "confirm_vars": {"n": str(n), "what": planned.get("describe")
+                                 or handover.describe(planned)},
+                "targets": {"w1_state_file": None,
+                            "w2_quarantine": r.quarantine_root},
+            })
+            out["log_path"] = _log_path(self.journal)
+            return ok(out)
+
+        moved = out.get("moved") or []
+        if moved:
+            self.journal.record("MODS_HANDOVER", txn,
+                                moved=moved,
+                                failed=sorted((out.get("failed") or {}).keys()),
+                                quarantine=out.get("quarantine"),
+                                from_path=r.mod_root)
+            self.journal.committed(txn, {"handover": True, "moved": len(moved)})
+        else:
+            # Nothing moved: close it rather than leaving a pending transaction
+            # that would block every later write behind E_RECOVERY_PENDING.
+            self.journal.rolled_back(txn, {"handover": True, "moved": 0})
+        out["txn"] = txn
         out["log_path"] = _log_path(self.journal)
         return ok(out)
 

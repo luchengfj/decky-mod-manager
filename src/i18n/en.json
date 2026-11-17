@@ -462,5 +462,11 @@
   "CONFIRM_RECLAIM": "Permanently delete {n} quarantine folder(s) ({kb} KB)? Rollback cannot bring them back.",
   "QUAR_RECLAIM_DONE": "Deleted {n} folder(s), freed {kb} KB.",
   "QUAR_RECLAIM_NONE": "Nothing to delete.",
-  "QUAR_RECLAIM_KEPT": "Kept {n} folder(s) that can still be restored."
+  "QUAR_RECLAIM_KEPT": "Kept {n} folder(s) that can still be restored.",
+  "HANDOVER_BTN": "Hand this folder over…",
+  "HANDOVER_DESC": "Another mod manager owns Mods/. Move its symlinks and marker files into the quarantine so this plugin can manage the folder. Nothing is deleted and Rollback puts them back.",
+  "CONFIRM_HANDOVER": "Move {n} deployment entr(y/ies) into the quarantine? Nothing is deleted, and Rollback puts them back.",
+  "HANDOVER_DONE": "Moved {n} entr(y/ies) into the quarantine.",
+  "HANDOVER_NONE": "Nothing to hand over: no symlinked entries and no marker files were found.",
+  "HANDOVER_BLOCKED": "This cannot be undone in one step, so nothing was moved: {why}"
 }

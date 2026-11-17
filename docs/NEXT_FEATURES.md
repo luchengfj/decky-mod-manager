@@ -16,6 +16,7 @@ features are deliberately excluded.
 | See which mods ship the same file, without pretending to fix load order | works, read-only (Round 47) |
 | Tell you which quarantined mods can still come back, and which cannot | works, read-only (Round 48) |
 | Delete the quarantine folders that can no longer be restored | works, two-phase + all write gates (Round 54) |
+| Take Mods/ over from another mod manager without deleting anything | works, two-phase, reversible (Round 55) |
 | Know which Nexus page a mod you already installed came from | works, read-only (Round 49) |
 | Refuse to change mods while the game is actually running | works, read-only check (Round 50, docs/RUNNING_GAME.md) |
 | Refuse to start a new operation while a previous one never finished | works (Round 51, docs/RECOVERY.md) |
@@ -87,12 +88,18 @@ features are deliberately excluded.
    honest the moment someone "fixes" it by accepting the first plausible ZIP —
    see `DEPENDENCIES.md` for why only the downloaded manifest can authorise an
    install.
-3. **`E_EXTERNAL_MANAGER` makes the whole write surface unreachable on this
-   device.** The plugin is correct to refuse. But a user who does not know what
-   Amethyst is will see "read-only" everywhere and conclude the plugin is
-   broken. A guided "hand ownership over" flow — which parks the deployed mods
-   into `.decky-disabled/`, never deletes them — is the missing piece. It must
-   stay a user action with a confirm, never something the plugin decides.
+3. ~~**`E_EXTERNAL_MANAGER` makes the whole write surface unreachable on this
+   device.**~~ **SHIPPED in Round 55** (`deckymod/handover.py`, see
+   `docs/HANDOVER.md`). A user whose `Mods/` is deployed by another manager now
+   gets one guided action instead of a dead end: symlinked entries inside
+   `Mods/` and the marker file the descriptor names are moved into the
+   quarantine under a single transaction, and Rollback puts them back. It
+   refuses as a whole — moving nothing — when the obstacle cannot be undone in
+   one step (`Mods/` itself is a symlink, a marker *directory* sits beside the
+   game, the folder is on another device), because half a handover leaves the
+   other manager's deployment partly dismantled and the folder still unmanaged.
+   Nothing is ever deleted, and it never runs on a schedule or during
+   `status()`: only a user pressing the button and then confirming starts it.
 4. ~~**Nothing verifies what the game actually loaded.**~~ **SHIPPED in Round 40** (`deckymod/loaderlog.py`, see `docs/LOADER_LOG.md`). The plugin knows what is
    in `Mods/`; it cannot know what SMAPI accepted. The one real proof we have
    (`[18:57:19 TRACE SMAPI] SDV-HD2D ... Patches: 12 groups installed.`) was

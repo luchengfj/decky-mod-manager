@@ -140,7 +140,7 @@ class TestCatalogInStatusEnvelope(unittest.TestCase):
         # existing status keys intact (per-key assertions elsewhere)
         self.assertEqual(env["data"]["game"]["appid"], 413150)
 
-    def test_rpc_count_is_24_after_round39_nexus_metadata(self):
+    def test_rpc_count_is_28_after_round55_handover(self):
         # P0 itself added no RPC (catalog rides inside status()).
         # Round 18 added 6 Download RPCs (11 + 6 = 17); round 38 added
         # fetch_dependencies (18); round 39 added the credential surface and
@@ -154,7 +154,7 @@ class TestCatalogInStatusEnvelope(unittest.TestCase):
             if not name.startswith("_") and callable(getattr(main.Plugin, name))
             and asyncio.iscoroutinefunction(getattr(main.Plugin, name))
         )
-        self.assertEqual(len(rpc), 27, rpc)
+        self.assertEqual(len(rpc), 28, rpc)
         for name in ("gh_search", "gh_releases", "gh_download", "download_url",
                      "list_games"):
             self.assertIn(name, rpc)

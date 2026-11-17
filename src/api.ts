@@ -43,6 +43,7 @@ import type {
   NexusDownloadLinkData,
   OpenModPageData,
   SearchPageData,
+  HandoverData,
   ReclaimData,
 } from "./types";
 
@@ -247,6 +248,22 @@ export const openSearchPage = (query: string) =>
  * Two-phase like installMod: confirm returns the confirm payload (phase
  * "confirm" + confirm_key CONFIRM_RECLAIM), commit returns the removal report.
  */
+/**
+ * Hand the Mods/ folder over from another mod manager.
+ *
+ * Only two kinds of thing move: symlinked entries inside Mods/ and marker
+ * files the descriptor names. The backend refuses the whole operation when the
+ * obstacle cannot be undone in one step (Mods/ itself is a symlink, a marker
+ * directory sits beside the game, the folder is on another device), because
+ * half a handover leaves the other manager's deployment partly dismantled and
+ * the folder still unmanaged. Nothing is ever deleted: the entries move into
+ * the quarantine under one transaction and rollback puts them back.
+ */
+export const handoverMods = (afterConfirm: boolean) =>
+  invoke<ConfirmData | OpResultData>(
+    "handover_mods", afterConfirm,
+  ) as Promise<OpEnvelope>;
+
 export const reclaimQuarantine = (txns: string[], afterConfirm: boolean) =>
   invoke<ConfirmData | OpResultData>(
     "reclaim_quarantine", txns, afterConfirm,
@@ -286,6 +303,7 @@ export const callableHandles = {
   nexus_download_link: callable<[number, number], Envelope<NexusDownloadLinkData>>("nexus_download_link"),
   open_mod_page: callable<[number], Envelope<OpenModPageData>>("open_mod_page"),
   open_search_page: callable<[string], Envelope<SearchPageData>>("open_search_page"),
+  handover_mods: callable<[boolean], Envelope<HandoverData>>("handover_mods"),
   reclaim_quarantine: callable<[string[], boolean], Envelope<ReclaimData>>("reclaim_quarantine"),
 };
 

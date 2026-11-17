@@ -455,6 +455,31 @@ class Plugin:
             return r
         return _guard(_run)
 
+    async def handover_mods(self, after_confirm: bool):
+        """Take ownership of ``Mods/`` away from another mod manager (Round 55).
+
+        ``status().state.read_only`` has been telling the user that somebody
+        else owns the folder since Round 44, and the panel offered no way
+        forward, so "read-only" read as "broken". This is the exit, and it is
+        deliberately the narrowest one available:
+
+        * it moves symlinked entries and marker FILES into the quarantine under
+          one journal transaction, so ``rollback`` restores them;
+        * it refuses as a whole -- moving nothing -- when the obstacle is a
+          symlinked ``Mods/``, a marker directory beside the game, or a folder
+          on another filesystem, because those cannot be undone in one step;
+        * the confirmation is a real second call, and nothing is ever deleted.
+
+        This is the one write path that does not consult the external-manager
+        gate, because that gate is exactly what it exists to clear.
+        """
+        def _run():
+            _progress("handover:start", op="handover")
+            r = self._engine().handover_mods(after_confirm=bool(after_confirm))
+            _progress("handover:done", op="handover", pct=100 if r.get("ok") else 0)
+            return r
+        return _guard(_run)
+
     # ------------------------------------------------------- download RPCs (round 19)
     # Four positional-args async methods, each returning the SAME JSON-safe
     # Envelope via _guard. No credentials exist any more: every request is an

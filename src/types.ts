@@ -104,6 +104,16 @@ export interface QuarantineEntry {
  *  user agrees, then "removed" (or "nothing" when there was nothing to do).
  *  `refused` maps a transaction id to the reason it was kept -- a restorable
  *  folder or an unreadable journal, never a silent omission. */
+/** What a handover moved, refused, or could not move. */
+export interface HandoverData {
+  phase?: "confirm" | "moved" | "nothing";
+  count?: number;
+  moved?: string[];
+  failed?: Record<string, string>;
+  quarantine?: string;
+  txn?: string;
+}
+
 export interface ReclaimData {
   phase?: string;
   accepted?: string[];
@@ -423,6 +433,13 @@ export interface OpResultData {
   failed?: Record<string, string>;
   refused?: Record<string, string>;
   bytes?: number;
+  /** Round 55: handover's report -- moved names, or why it refused.
+   * quarantine/txn already exist above; only the new fields belong here. */
+  count?: number;
+  moved?: string[];
+  blocking?: string[];
+  explain?: string;
+  movable?: Array<{ kind: string; name: string; path: string }>;
 }
 
 export interface HistoryItem {

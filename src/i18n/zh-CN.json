@@ -462,5 +462,11 @@
   "CONFIRM_RECLAIM": "永久删除 {n} 个隔离目录（{kb} KB）？回滚无法将它们恢复。",
   "QUAR_RECLAIM_DONE": "已删除 {n} 个目录，释放 {kb} KB。",
   "QUAR_RECLAIM_NONE": "没有需要删除的目录。",
-  "QUAR_RECLAIM_KEPT": "保留了 {n} 个仍可恢复的目录。"
+  "QUAR_RECLAIM_KEPT": "保留了 {n} 个仍可恢复的目录。",
+  "HANDOVER_BTN": "接管此目录…",
+  "HANDOVER_DESC": "另一个 MOD 管理器拥有 Mods/ 目录。把它的符号链接与标记文件移入隔离区，使本插件能管理这个目录。不会删除任何东西，回滚可以把它们放回去。",
+  "CONFIRM_HANDOVER": "将 {n} 个部署项移入隔离区？不会删除任何东西，回滚可以把它们放回去。",
+  "HANDOVER_DONE": "已将 {n} 个条目移入隔离区。",
+  "HANDOVER_NONE": "没有需要接管的东西：未发现符号链接条目或标记文件。",
+  "HANDOVER_BLOCKED": "这不能一步撤销，因此未移动任何东西：{why}"
 }

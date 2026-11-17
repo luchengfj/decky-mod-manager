@@ -73,7 +73,7 @@ src/
   api.ts                      @decky/api call/callable bridge, invoke() guard
   types.ts                    TS mirror of the JSON-safe envelope + per-RPC payload types
   i18n.ts                     t() / errorText() / categoryText(), zh-CN via navigator.language
-  i18n/en.json, zh-CN.json    464 keys each, parity enforced by validate_i18n.py
+  i18n/en.json, zh-CN.json    470 keys each, parity enforced by validate_i18n.py
   components/
     Modal.tsx                 gamepad-first showInfo / showListModal / showErrorModal / showFomodModal
     ConfirmModal.tsx          two-phase confirm (A=confirm, B=cancel)
@@ -99,6 +99,7 @@ deckymod/                     stdlib-only Python backend (no third-party deps)
   updatekeys.py               parses a mod's own UpdateKeys: the only
                               trustworthy source for its Nexus id
   quarantine.py               what the quarantine still holds, and the one
+  handover.py                 what a handover moves, and the obstacles that make it refuse as a whole
                               path that may delete an unrecoverable folder and what can no longer come back
   procs.py                    is the game running? /proc argv[0], never a name search (Round 50)
   file_drop.py                file_drop engine helpers: presence == enabled, external-manager guard
@@ -120,7 +121,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        40 modules, 661 cases (`Ran 661 tests ... OK (skipped=11)`)
+tests/                        42 modules, 690 cases (`Ran 690 tests ... OK (skipped=11)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -135,6 +136,8 @@ tests/                        40 modules, 661 cases (`Ran 661 tests ... OK (skip
   test_conflicts_status.py    the scan is actually wired through status()
   test_updatekeys.py          site:id@channel shapes real manifests actually use
   test_quarantine.py          restorable vs orphan vs unknown; only reclaim() deletes
+  test_handover.py            survey/plan/execute: nothing moves without a confirm
+  test_handover_gate.py       through the engine: read-only flips, rollback restores
   test_reclaim.py             plan refuses restorable and unknown; two-phase; symlink recheck
   test_reclaim_gate.py        reclaim through the real engine, behind every write gate
 test_procs.py               faked /proc: marker, path, unknown-is-not-stopped
@@ -234,15 +237,15 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 661 tests ... OK (skipped=11)  (LASTEXITCODE=0)
+python -m unittest discover -s tests -v  -> Ran 690 tests ... OK (skipped=11)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
-.decky-probe/validate_i18n.py            -> EN 464 / ZH 464, parity [] , EXIT=0
-.decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 27, ALL_STATIC_CHECKS True
+.decky-probe/validate_i18n.py            -> EN 470 / ZH 470, parity [] , EXIT=0
+.decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 28, ALL_STATIC_CHECKS True
 .decky-probe/validate_download_wiring.py -> DOWNLOAD_WIRING_ALL_OK=True, EXIT=0
 .decky-probe/validate_api_arity.py       -> BACKEND_RPCS 26 / FRONTEND_CALLS 26 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
-.decky-probe/r4_tar_drift.py             -> TAR_COUNT 103 / CUR_COUNT 103, drift 0
+.decky-probe/r4_tar_drift.py             -> TAR_COUNT 106 / CUR_COUNT 106, drift 0
 ```
 
 Backend is stdlib-only and **runs** on this box (the Windows-portability fix in
@@ -296,6 +299,7 @@ Reading order for a newcomer, and what each file is for:
  what happens when a transaction did not finish, and why rollback is the one thing that must stay open |
 | [UPDATE_KEYS.md](UPDATE_KEYS.md) | where a mod's Nexus id comes from, and why a guessed one would open someone else's mod |
 | [MOD_FOLDER_CONFLICTS.md](MOD_FOLDER_CONFLICTS.md) | which mods ship the same file, why scope belongs to the loader, and the 27 false alarms the device found |
+| [HANDOVER.md](HANDOVER.md) | handing Mods/ over from another manager without deleting anything, and what it refuses |
 | [MOD_FOLDER_OWNERSHIP.md](MOD_FOLDER_OWNERSHIP.md) | who owns the Mods folder, and why a filename list can never answer that |
 | [NEXT_FEATURES.md](NEXT_FEATURES.md) | what is still missing, ranked by whether it can corrupt user data or fail silently — not a wish list |
 

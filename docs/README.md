@@ -263,6 +263,7 @@ Reading order for a newcomer, and what each file is for:
 | [ACCEPTANCE.md](ACCEPTANCE.md) | Definition of Done and the 50-code error table |
 | [RUNBOOK.md](RUNBOOK.md) / [ONDEVICE.md](ONDEVICE.md) | offline handover and on-device debugging checklists |
 | [NEXUS_ROADMAP.md](NEXUS_ROADMAP.md) | historical round notes, incl. §6.7 the Nexus metadata surface and why download links stay premium-only; snapshots are never backfilled |
+| [NEXT_FEATURES.md](NEXT_FEATURES.md) | what is still missing, ranked by whether it can corrupt user data or fail silently — not a wish list |
 
 ## Windows portability note
 

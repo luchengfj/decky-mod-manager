@@ -73,7 +73,7 @@ src/
   api.ts                      @decky/api call/callable bridge, invoke() guard
   types.ts                    TS mirror of the JSON-safe envelope + per-RPC payload types
   i18n.ts                     t() / errorText() / categoryText(), zh-CN via navigator.language
-  i18n/en.json, zh-CN.json    422 keys each, parity enforced by validate_i18n.py
+  i18n/en.json, zh-CN.json    427 keys each, parity enforced by validate_i18n.py
   components/
     Modal.tsx                 gamepad-first showInfo / showListModal / showErrorModal / showFomodModal
     ConfirmModal.tsx          two-phase confirm (A=confirm, B=cancel)
@@ -112,7 +112,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        24 modules, 424 cases (`Ran 424 tests ... OK (skipped=6)`)
+tests/                        25 modules, 440 cases (`Ran 440 tests ... OK (skipped=6)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -211,12 +211,12 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 424 tests ... OK (skipped=6)  (LASTEXITCODE=0)
+python -m unittest discover -s tests -v  -> Ran 440 tests ... OK (skipped=6)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
-.decky-probe/validate_i18n.py            -> EN 422 / ZH 422, parity [] , EXIT=0
-.decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 24, ALL_STATIC_CHECKS True
+.decky-probe/validate_i18n.py            -> EN 427 / ZH 427, parity [] , EXIT=0
+.decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 25, ALL_STATIC_CHECKS True
 .decky-probe/validate_download_wiring.py -> DOWNLOAD_WIRING_ALL_OK=True, EXIT=0
-.decky-probe/validate_api_arity.py       -> BACKEND_RPCS 24 / FRONTEND_CALLS 24 / BAD 0
+.decky-probe/validate_api_arity.py       -> BACKEND_RPCS 25 / FRONTEND_CALLS 25 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
 .decky-probe/r4_tar_drift.py             -> TAR_COUNT 80 / CUR_COUNT 80, drift 0

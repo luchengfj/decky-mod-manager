@@ -420,5 +420,10 @@
   "LOADER_LOG_LINE": "上次启动:加载 {loaded} 个 MOD、{packs} 个内容包、跳过 {skipped} 个",
   "LOADER_LOG_NONE": "自装上本插件后游戏还没启动过,所以暂时没有加载日志。",
   "LOADER_LOG_BAD": "加载日志不可用:{reason}",
-  "LOADER_LOG_TRUNCATED": "日志超过 4 MB 上限,只读了开头部分。"
+  "LOADER_LOG_TRUNCATED": "日志超过 4 MB 上限,只读了开头部分。",
+  "OPEN_PAGE_BTN": "在浏览器中打开页面",
+  "OPEN_PAGE_OK": "已打开页面:{url}",
+  "OPEN_PAGE_FAIL": "无法打开页面:{reason}",
+  "OPEN_PAGE_WHY": "这一步把地址交给 Steam 客户端,也就是游戏模式里你真正看得到的浏览器。如果什么都没出现,说明客户端拒绝了请求——请改用下面这个地址。",
+  "OPEN_PAGE_FREE": "免费的 Nexus 账户无法通过 API 取得下载直链,所以请用这个页面:在那里下载,再回到这里导入 ZIP。"
 }

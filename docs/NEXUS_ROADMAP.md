@@ -325,6 +325,60 @@ QAM 里自己填或提供）；QAM 面板形态与中文渲染未目视；`nxm:/
 共存未做交互测试；「按游戏分类浏览 Nexus」只能剥离手写的 `game_domain`（见
 `registry/games/stardew.json` 的 `download_sources.nexus_metadata`）。状态纪律不变。
 
+## §6.8 Round 41 添加段：把「进入相关网页」从一句文案变成一次真实跳转
+
+§6.7 里这一条还写着「仍 OPEN：QAM 面板形态与中文渲染未目视」。真正没做的是另一半 ——
+goal 第二条要求「可以通过已安装游戏进入相关网页下载」，而此前面板只把 URL 渲染成**文本**，
+用户得自己抄到浏览器里。本轮先量出这件事在 Game Mode 到底能不能做，再决定做不做。
+
+### 真机实测：三条路，只有一条通
+
+插件进程的环境与 Steam 客户端不同，这一点决定了全部结论：
+
+| 事实 | 值 |
+|---|---|
+| 插件进程 | `uid=1000 (deck)`；`DISPLAY` **未设置**；`WAYLAND_DISPLAY` **未设置**；有 `XDG_RUNTIME_DIR=/run/user/1000` 与 `DBUS_SESSION_BUS_ADDRESS` |
+| `steamwebhelper` | 每个进程都是 `XDG_SESSION_TYPE=x11 DISPLAY=:0` |
+| gamescope | `--generate-drm-mode fixed --xwayland-count 2 -w 1280 -h 800 ... -O *,eDP-1` |
+| scheme handler | `https → org.mozilla.firefox.desktop`、`steam → steam.desktop` |
+
+三条机制逐一试，每步后读一次 CEF tab 列表判定「是否真的出现」：
+
+| # | 命令 | 结果 |
+|---|---|---|
+| A | `env -u DISPLAY -u WAYLAND_DISPLAY xdg-open <url>`（插件的真实状态） | `www-browser / links2 / elinks / links / lynx` 全部 command not found，**退出码 0，零 tab 变化** |
+| B | `env DISPLAY=:0 xdg-open <url>` | `appstream://org.mozilla.firefox': -c: line 1: unexpected EOF while looking for matching \``（desktop 文件命令被畸形拼接），**零 tab 变化** |
+| C | `env DISPLAY=:0 /usr/bin/steam "steam://openurl/<url>"` | **成功**：tab 列表出现该 URL，主窗口落到 `https://steamloopback.host/routes/externalweb` |
+
+**A 是最坏的失败模式：退出码 0 却什么都没发生。** 这一条直接决定了实现里不能用退出码判断成功。
+
+### 实现
+
+- `C:\ai\SD\deckymod\openurl.py`：`ALLOWED_HOSTS = {"www.nexusmods.com", "nexusmods.com"}`、
+  `STEAM_BIN = "/usr/bin/steam"`、`MAX_URL_LEN = 512`；只接受 https、拒 userinfo、拒空白/控制字符；
+  `subprocess.run(argv, shell=False)`（argv 列表，永不拼字符串）；runner 可注入（同 `sevenzip.py` 模式）。
+- `main.py::open_mod_page(mod_id)`（第 25 个公开 RPC）：**只收整数，不收 URL** —— 地址由描述符的
+  `game_domain` 在本地拼出，所以这个调用不可能被用来显示任意页面。**刻意不走
+  `_network_download_gate()`**：什么都没下载，只是把一个 URI 交给一个已在运行、自有网络的进程；
+  门控它等于宣称「看页面就是下载」。
+- 前端 `src/index.tsx`：mod 详情与 recent 行各加一个「在浏览器中打开」按钮；失败分支**不用通用错误弹窗**，
+  而是明说「页面没有出现」并给出可复制的 URL（5 个 i18n 键：`OPEN_PAGE_BTN/OK/FAIL/WHY/FREE`）。
+
+### 真机证据（本轮，活进程）
+
+- 重载用 Decky 自己的 `utilities/disable_plugin` + `utilities/enable_plugin`（传 plugin.json 的**显示名**
+  `"Decky MOD Manager"`；传目录名报 `Python KeyError`），**未 pkill、未热替换**。
+- `open_mod_page(1915)` → `{"url":"https://www.nexusmods.com/stardewvalley/mods/1915","opened":true}`；
+  tab 列表从 `.../mods/2400` **变成** `.../mods/1915` —— 同一个 tab 真的导航了，不只是返回 ok。
+- 失败路径：`open_mod_page(0)` 与 `open_mod_page(-5)` → `E_PATH_INVALID`，
+  `detail="[open_mod_page] mod_id must be positive"`，**没有启动任何进程**。
+- 构建：`TSC_EXIT=0` / `ROLLUP_EXIT=0` / `DIST_SIZE=204742` /
+  `DIST_SHA=2df9656f7da35eb6a8c98ed3103184826f8c6d7cb375263b52a3f38c78633cba`；
+  `Ran 440 tests OK`；部署 `CHECKED=34 VERIFY_FAIL=0`；ZIP `250361` B / 42 entries。
+
+**仍 OPEN**：面板上这个按钮本身还没有人用手柄按过（本轮证明的是 RPC 与真实跳转，不是焦点可达性）；
+`nxm://` 与 Amethyst 共存仍未做交互测试。
+
 ## §7 仍 OPEN / 不予翻动
 
 - V1 唯一 CLOSED；V2–V20 / F1–F3 全 OPEN；原 G3(RimWorld 294100) OPEN / NOT SHIPPABLE。

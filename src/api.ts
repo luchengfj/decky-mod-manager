@@ -41,6 +41,7 @@ import type {
   NexusRecentData,
   NexusModData,
   NexusDownloadLinkData,
+  OpenModPageData,
 } from "./types";
 
 export const PROGRESS_EVENT = "deckymod:progress";
@@ -210,6 +211,17 @@ export const nexusDownloadLink = (modId: number, fileId: number) =>
   invoke<NexusDownloadLinkData>("nexus_download_link", modId, fileId);
 
 /**
+ * Round 41: show a mod's page in the Game Mode browser.
+ *
+ * Takes a numeric id, never a URL. The address is built in the backend from the
+ * descriptor's game domain, so this call cannot be used to display an arbitrary
+ * page. Measured on the device: `steam://openurl/` is the only mechanism that
+ * actually puts a page on screen (xdg-open exits 0 and opens nothing here).
+ */
+export const openModPage = (modId: number) =>
+  invoke<OpenModPageData>("open_mod_page", modId);
+
+/**
  * `callable` demonstration (§1). These typed handles are equivalent to the
  * wrappers above; they exist to document the callable() shape against the
  * LOCKED template. They are intentionally NOT used by the UI so the code has a
@@ -241,6 +253,7 @@ export const callableHandles = {
   nexus_recent: callable<[string], Envelope<NexusRecentData>>("nexus_recent"),
   nexus_mod: callable<[number], Envelope<NexusModData>>("nexus_mod"),
   nexus_download_link: callable<[number, number], Envelope<NexusDownloadLinkData>>("nexus_download_link"),
+  open_mod_page: callable<[number], Envelope<OpenModPageData>>("open_mod_page"),
 };
 
 /** Convenience: extract a localized, friendly error string for toasts. */

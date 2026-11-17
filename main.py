@@ -46,6 +46,7 @@ from deckymod import deps
 from deckymod import github_source
 from deckymod import download
 from deckymod import nexus
+from deckymod import openurl
 from deckymod import steamlib
 from deckymod import templates
 
@@ -775,4 +776,49 @@ class Plugin:
                            detail="[nexus_download_link] mod_id and file_id must be numbers")
             res = nexus.download_link(download.default_opener, domain, mid, fid, api_key)
             return _core_to_envelope(res, auto_import.DL_TO_E, "nexus_download_link")
+        return _guard(_run)
+
+    async def open_mod_page(self, mod_id: int):
+        """Put a mod's page on the screen the user is looking at.
+
+        Goal item 2 asks to reach a download page from inside the panel. The
+        Nexus API will not hand a free account a download link (measured: 403
+        "this is for premium users only"), so the only honest route is to open
+        the real page and let the signed-in browser session do the download --
+        after which the ZIP is imported through the normal inbox path.
+
+        Two deliberate choices:
+
+        * the caller passes an INTEGER, never a URL. The address is built here
+          from the descriptor's ``game_domain``, so there is no string a caller
+          could use to make the client display an arbitrary page;
+        * no ``_network_download_gate()``. Nothing is downloaded and no request
+          leaves the device: this hands a URI to a process that is already
+          running and already has network access of its own. Gating it would
+          mean "viewing a page is a download", which is not true.
+        """
+        def _run():
+            domain = self._nexus_domain()
+            if domain is None:
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[open_mod_page] nexus_metadata source disabled")
+            try:
+                mid = int(mod_id)
+            except (TypeError, ValueError):
+                return err("E_PATH_INVALID",
+                           detail="[open_mod_page] mod_id must be a number")
+            if mid <= 0:
+                return err("E_PATH_INVALID",
+                           detail="[open_mod_page] mod_id must be positive")
+            url = nexus.mod_page_url(domain, mid)
+            got = openurl.open_url(url)
+            if not got.get("ok"):
+                # Honest failure: the page did NOT appear. Returning ok here
+                # would make the user hunt for a window that was never opened.
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[open_mod_page] %s: %s" % (
+                               got.get("reason"), got.get("detail") or ""),
+                           data={"url": url, "reason": got.get("reason")})
+            _progress("open_mod_page:done")
+            return ok({"url": url, "opened": True})
         return _guard(_run)

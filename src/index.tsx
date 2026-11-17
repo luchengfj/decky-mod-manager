@@ -63,6 +63,7 @@ import {
   nexusRecent,
   nexusMod,
   nexusDownloadLink,
+  openModPage,
 } from "./api";
 import type {
   Envelope,
@@ -1526,12 +1527,25 @@ function Content() {
           author: m.author || t("NEXUS_ROW_NO_AUTHOR"),
         }),
         onActivate: () => {
-          showInfo(m.name || String(m.mod_id), [
-            m.summary || "",
-            t("NEXUS_BROWSER_URL", undefined, { url: m.mod_page_url }),
-            "",
-            t("NEXUS_OPEN_PAGE"),
-          ], [], t("NEXUS_SECTION"));
+          showInfo(
+            m.name || String(m.mod_id),
+            [
+              m.summary || "",
+              t("NEXUS_BROWSER_URL", undefined, { url: m.mod_page_url }),
+              "",
+              t("NEXUS_OPEN_PAGE"),
+            ],
+            [
+              {
+                label: t("OPEN_PAGE_BTN"),
+                onClick: (close) => {
+                  close();
+                  doOpenPage(m.mod_id);
+                },
+              },
+            ],
+            t("NEXUS_SECTION"),
+          );
         },
       }));
       showListModal(t("NEXUS_RECENT_TITLE"), rows, t("NEXUS_RECENT_DESC"));
@@ -1589,17 +1603,72 @@ function Content() {
       }
     }
     lines.push("", t("NEXUS_OPEN_PAGE"));
-    // One action per file, capped so the focus ring stays walkable. Asking for
-    // the link is the only honest way to show that a free account is refused --
-    // a disabled button would look like a plugin bug instead of a Nexus rule.
-    const actions: ModalAction[] = files.slice(0, 5).map((f) => ({
-      label: t("NEXUS_FILE_LINK_BTN", undefined, { id: String(f.file_id) }),
-      onClick: (close) => {
-        close();
-        doNexusLink(d.mod_id, f.file_id, f.name || "");
+    // First action: actually put the page on screen. Asking for a file's link is
+    // the only honest way to show that a free account is refused -- a disabled
+    // button would look like a plugin bug instead of a Nexus rule. Both lists are
+    // capped so the focus ring stays walkable.
+    const actions: ModalAction[] = [
+      {
+        label: t("OPEN_PAGE_BTN"),
+        onClick: (close) => {
+          close();
+          doOpenPage(d.mod_id);
+        },
       },
-    }));
+    ];
+    for (const f of files.slice(0, 5)) {
+      actions.push({
+        label: t("NEXUS_FILE_LINK_BTN", undefined, { id: String(f.file_id) }),
+        onClick: (close) => {
+          close();
+          doNexusLink(d.mod_id, f.file_id, f.name || "");
+        },
+      });
+    }
     showInfo(String(info.name || t("NEXUS_MOD_TITLE")), lines, actions, t("NEXUS_SECTION"));
+  };
+
+  /**
+   * Show a mod's page in the Game Mode browser.
+   *
+   * Round 41 measured three ways to do this on the device and only one works:
+   * `xdg-open` exits 0 while opening nothing (no DISPLAY in the plugin process),
+   * and forcing DISPLAY=:0 makes it choke on the .desktop Exec line, while
+   * `steam steam://openurl/<url>` really lands a tab in the Steam client. So the
+   * failure branch says the page did not appear instead of pretending it did --
+   * a silent success here sends the user hunting for an invisible window.
+   */
+  const doOpenPage = (modId: number) => {
+    setBusySafe(true);
+    const g = generation.current;
+    (async () => {
+      const r = await openModPage(modId);
+      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+      setBusySafe(false);
+      if (!r.ok) {
+        const url = (r.data && r.data.url) || "";
+        const why = r.detail || r.code || "—";
+        setLastResult(t("OPEN_PAGE_FAIL", undefined, { reason: why }));
+        showInfo(
+          t("NEXUS_SECTION"),
+          [
+            t("OPEN_PAGE_FAIL", undefined, { reason: why }),
+            "",
+            t("OPEN_PAGE_WHY"),
+            "",
+            url ? t("NEXUS_BROWSER_URL", undefined, { url }) : "",
+          ],
+          [],
+          t("NEXUS_SECTION"),
+        );
+        return;
+      }
+      setLastResult(t("OPEN_PAGE_OK", undefined, { url: (r.data && r.data.url) || "" }));
+    })().catch((e) => {
+      if (!mounted.current) return;
+      setBusySafe(false);
+      setError(bridgeError(String(e)));
+    });
   };
 
   /**

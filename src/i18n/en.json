@@ -420,5 +420,10 @@
   "LOADER_LOG_LINE": "Last launch: {loaded} mods, {packs} content packs, {skipped} skipped",
   "LOADER_LOG_NONE": "The game has not been launched since this plugin was installed, so there is no loader log yet.",
   "LOADER_LOG_BAD": "Loader log not usable: {reason}",
-  "LOADER_LOG_TRUNCATED": "The log was larger than the 4 MB cap; only the beginning was read."
+  "LOADER_LOG_TRUNCATED": "The log was larger than the 4 MB cap; only the beginning was read.",
+  "OPEN_PAGE_BTN": "Open page in browser",
+  "OPEN_PAGE_OK": "Page opened: {url}",
+  "OPEN_PAGE_FAIL": "Could not open the page: {reason}",
+  "OPEN_PAGE_WHY": "This hands the address to the Steam client, which is the browser you can actually see in Game Mode. If nothing appears, the client refused the request -- copy the URL below instead.",
+  "OPEN_PAGE_FREE": "A free Nexus account cannot get a download link from the API, so use this page: download there, then import the ZIP back here."
 }

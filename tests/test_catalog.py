@@ -145,6 +145,7 @@ class TestCatalogInStatusEnvelope(unittest.TestCase):
         # Round 18 added 6 Download RPCs (11 + 6 = 17); round 38 added
         # fetch_dependencies (18); round 39 added the credential surface and
         # three metadata RPCs (18 + 6 = 24).
+    # Round 41 added open_mod_page (25).
         # Round 19 retired those 6 and added 4 source RPCs: 11 + 4 = 15.
         # Round 23 added list_games() for goal item 2 (Steam library scan): 16.
         # Count Plugin public async methods.
@@ -153,7 +154,7 @@ class TestCatalogInStatusEnvelope(unittest.TestCase):
             if not name.startswith("_") and callable(getattr(main.Plugin, name))
             and asyncio.iscoroutinefunction(getattr(main.Plugin, name))
         )
-        self.assertEqual(len(rpc), 24, rpc)
+        self.assertEqual(len(rpc), 25, rpc)
         for name in ("gh_search", "gh_releases", "gh_download", "download_url",
                      "list_games"):
             self.assertIn(name, rpc)

@@ -578,6 +578,12 @@ export interface NexusModData {
   files_error?: string;
 }
 
+/** Round 41: result of asking the Steam client to display a mod page. */
+export interface OpenModPageData {
+  url: string;
+  opened: boolean;
+}
+
 export interface NexusDownloadLinkData {
   /** True for every free account: the API issues download links to premium only. */
   premium_required: boolean;

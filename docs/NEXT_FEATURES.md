@@ -17,6 +17,7 @@ features are deliberately excluded.
 | Tell you which quarantined mods can still come back, and which cannot | works, read-only (Round 48) |
 | Know which Nexus page a mod you already installed came from | works, read-only (Round 49) |
 | Refuse to change mods while the game is actually running | works, read-only check (Round 50, docs/RUNNING_GAME.md) |
+| Refuse to start a new operation while a previous one never finished | works (Round 51, docs/RECOVERY.md) |
 | Enable / disable / uninstall / roll back | works (folder move in and out of the game's `Mods/`) |
 | See required dependencies and download the ones that are fetchable | works, up to 3 levels deep (Round 45) |
 | Download mods | GitHub Releases + direct HTTPS URL only |

@@ -120,6 +120,39 @@ class FileDropEngine:
         if got.get("state") == "running":
             raise ModError("E_GAME_RUNNING", detail=procs.describe(got))
 
+    def _check_no_pending(self):
+        """Refuse a NEW transaction while an unfinished one is on the books.
+
+        Round 51: ``journal.pending()`` was read by ``status()`` and
+        ``recovery()`` -- the panel could say "recovery needed" -- but no write
+        path consulted it. A device probe confirmed the consequence: with a
+        PREPARED/APPLYING transaction in the journal, ``install()`` happily
+        started a second one, so the journal ended up interleaved and a later
+        rollback would have undone states in the wrong order.
+
+        ``E_RECOVERY_PENDING`` already existed (``errors.py``, rollback=True) and
+        ``journal.py``'s own docstring said an unfinished transaction must
+        surface as it -- it was simply never raised. Using it keeps
+        ``error_codes()`` at 50.
+
+        NOT called from ``rollback()``: rollback IS the recovery, so gating it
+        here would leave a stuck journal unfixable.
+        """
+        try:
+            pending = self.journal.pending()
+        except Exception as exc:                     # noqa: BLE001 - never fail closed on a read
+            self.journal.log("pending check could not read the journal: %s" % exc)
+            return
+        if not pending:
+            return
+        shown = ", ".join(pending[:3])
+        if len(pending) > 3:
+            shown += " (+%d more)" % (len(pending) - 3)
+        raise ModError(
+            "E_RECOVERY_PENDING",
+            detail="%d unfinished transaction(s): %s -- use Recover / Rollback "
+                   "before starting a new one" % (len(pending), shown))
+
     def _check_write_allowed(self, r: paths.ResolvedPaths):
         """DETECT-ONLY gate for EVERY mutating op. Order matters: the descriptor
         and external-manager read-only switches are highest priority (zero
@@ -496,6 +529,7 @@ class FileDropEngine:
         self._check_not_running()
         r = self._resolve()
         self._check_write_allowed(r)
+        self._check_no_pending()
         self._validate_import_path(zip_path)
         info = file_drop.inspect_mod(zip_path, self._limits(),
                                     reject_extensions=self._reject_extensions(),
@@ -637,6 +671,7 @@ class FileDropEngine:
         self._check_not_running()
         r = self._resolve()
         self._check_write_allowed(r)
+        self._check_no_pending()
         managed = self._existing_managed(package_id)
         # The identifier may be either a journal packageId or the DIRECTORY NAME
         # that status.state.mods shows. Resolve both directions: a mod to disable
@@ -748,6 +783,7 @@ class FileDropEngine:
         self._check_not_running()
         r = self._resolve()
         self._check_write_allowed(r)
+        self._check_no_pending()
         managed = self._existing_managed(package_id)
         unmanaged = False
         if not managed:

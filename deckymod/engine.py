@@ -85,6 +85,35 @@ class Engine:
         if marker and marker.lower() in ("1", "true", "yes"):
             raise ModError("E_GAME_RUNNING", detail="DECKYMOD_GAME_RUNNING is set")
 
+    def _check_no_pending(self):
+        """Refuse a NEW transaction while an unfinished one is on the books.
+
+        Round 51, same hole as the file_drop engine: ``journal.pending()`` was
+        read by ``status()`` and ``recovery()`` but no write path acted on it, so
+        a half-applied transaction (power loss, crash, or an exception between
+        PREPARED and COMMITTED) could be walked over by the next install.
+
+        ``E_RECOVERY_PENDING`` already existed with rollback=True and
+        ``journal.py``'s docstring already promised it; nothing raised it. Using
+        the existing code keeps ``error_codes()`` at 50.
+
+        Deliberately NOT called from ``rollback()`` -- rollback IS the recovery.
+        """
+        try:
+            pending = self.journal.pending()
+        except Exception as exc:                     # noqa: BLE001 - never fail closed on a read
+            self.journal.log("pending check could not read the journal: %s" % exc)
+            return
+        if not pending:
+            return
+        shown = ", ".join(pending[:3])
+        if len(pending) > 3:
+            shown += " (+%d more)" % (len(pending) - 3)
+        raise ModError(
+            "E_RECOVERY_PENDING",
+            detail="%d unfinished transaction(s): %s -- use Recover / Rollback "
+                   "before starting a new one" % (len(pending), shown))
+
     def _read_state(self, r: paths.ResolvedPaths):
         """Read + validate the state file; enforce verify_on_open drift check."""
         data, parsed, st = state_mutator.read_state_file(r.state_file)
@@ -238,6 +267,7 @@ class Engine:
     def _install_inner(self, zip_path: str, after_confirm: bool) -> dict:
         d = self._gate("local_import")
         self._check_not_running()
+        self._check_no_pending()
         self._validate_import_path(zip_path)
         info = archive.inspect_mod(zip_path, self._limits())
         pid = info["packageId"]
@@ -338,6 +368,7 @@ class Engine:
     def _set_enabled_inner(self, package_id: str, enabled: bool, after_confirm: bool) -> dict:
         self._gate("enable_disable")
         self._check_not_running()
+        self._check_no_pending()
         if not package_id or package_id == state_mutator.CORE_ID:
             raise ModError("E_ID_INVALID", detail="cannot toggle the Core entry")
         managed = self._existing_managed(package_id)
@@ -406,6 +437,7 @@ class Engine:
     def _uninstall_inner(self, package_id: str, after_confirm: bool) -> dict:
         self._gate("uninstall_quarantine")
         self._check_not_running()
+        self._check_no_pending()
         managed = self._existing_managed(package_id)
         if not managed:
             raise ModError("E_DUPLICATE", detail=f"{package_id} is not installed/managed")

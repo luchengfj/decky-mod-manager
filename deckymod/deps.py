@@ -40,6 +40,11 @@ INDEX_HOST = "smapi.io"
 MAX_CANDIDATES_PER_DEP = 4
 MAX_DEPS = 20
 MAX_INDEX_BYTES = 4 * 1024 * 1024
+# How many times the "what is still missing" question may be re-asked after a
+# round of installs. A dependency chain is normally one level; three gives room
+# for a dependency of a dependency without letting a cycle in the index spin
+# forever. The number is reported back so a truncated run is visible.
+MAX_ROUNDS = 3
 USER_AGENT = "decky-mod-manager"
 
 _ZIP_CONTENT_TYPES = frozenset({
@@ -287,7 +292,7 @@ def _inbox_path(engine, filename: str) -> str:
 def run(opener, engine, *, missing_ids, allow_install=False,
         after_confirm=False, max_bytes=download.DEFAULT_MAX_BYTES,
         timeout=download.DEFAULT_TIMEOUT, lookup=None, candidates_for=None,
-        fetch=None) -> dict:
+        fetch=None, rescan=None, max_rounds=MAX_ROUNDS) -> dict:
     """TRI-STATE, same shape as the other download RPCs.
 
     ``allow_install=False`` -> plan only, zero writes.
@@ -298,9 +303,19 @@ def run(opener, engine, *, missing_ids, allow_install=False,
     reported as such; it is never silently skipped and never replaced by a
     wrong file.
 
-    ``lookup`` / ``candidates_for`` / ``fetch`` are injection points for tests:
-    the network calls stay in this module, but every decision is reachable
-    offline.
+    Round 45: the install loop is now DEPTH-AWARE. ``missing_ids`` is what the
+    game reports missing right now, but a dependency that gets installed can
+    itself depend on something else, and that second-level gap is invisible
+    until the scan is re-run. After each round the caller-supplied ``rescan``
+    (by default ``engine.status()``'s own ``missing_dependencies``) is asked
+    again, and anything new is resolved in the next round, bounded by
+    ``max_rounds`` so a dependency cycle cannot spin forever. Every row carries
+    the ``round`` it was resolved in, so the UI can say "two levels deep, then
+    stopped".
+
+    ``lookup`` / ``candidates_for`` / ``fetch`` / ``rescan`` are injection
+    points for tests: the network calls stay in this module, but every decision
+    is reachable offline.
     """
     if lookup is None:
         def lookup(ids):
@@ -311,6 +326,16 @@ def run(opener, engine, *, missing_ids, allow_install=False,
         def candidates_for(repo, uid):
             got = candidate_assets(opener, repo, uid, timeout=timeout)
             return got.get("assets") or []
+
+    if rescan is None:
+        def rescan():
+            try:
+                st = engine.status()
+            except Exception:
+                return []
+            data = st.get("data") or {}
+            state = data.get("state") or {}
+            return [str(x) for x in (state.get("missing_dependencies") or [])]
 
     try:
         made = plan(missing_ids, lookup=lookup,
@@ -340,7 +365,9 @@ def run(opener, engine, *, missing_ids, allow_install=False,
             (made.get("fetchable", 0), made.get("total", 0)))
         out["warnings"] = [
             "a dependency is accepted only when the manifest inside the "
-            "downloaded zip names the same UniqueID"]
+            "downloaded zip names the same UniqueID",
+            "a dependency may itself require others; the scan is re-run after "
+            "each round, up to %d rounds" % max_rounds]
         return to_json_safe(out)
 
     if fetch is None:
@@ -350,62 +377,116 @@ def run(opener, engine, *, missing_ids, allow_install=False,
 
     results = []
     installed = 0
-    for dep in deps:
-        uid = str(dep.get("uniqueId") or "")
-        row = {"uniqueId": uid, "installed": False, "reason": "",
-               "repo": dep.get("repo"), "asset": None, "detail": ""}
-        if not dep.get("resolvable"):
-            row["reason"] = dep.get("reason") or "unresolvable"
-            results.append(row)
-            continue
-        for asset in dep.get("candidates") or []:
-            name = str(asset.get("name") or "")
-            try:
-                got = fetch(dep["repo"], asset["asset_id"], name)
-            except Exception as e:
-                row["detail"] = "%s: %s" % (type(e).__name__, e)
-                continue
-            if not got.get("ok"):
-                row["detail"] = str(got.get("detail") or got.get("code") or "")
-                continue
-            path = str(got.get("path") or "")
-            # A filename is not evidence: open the zip and read its manifest.
-            verdict = verify_candidate(engine, path, uid)
-            if not verdict.get("ok"):
-                row["detail"] = str(verdict.get("detail") or "")
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
-                continue
-            try:
-                inst = engine.install(path, after_confirm=True)
-            except Exception as e:
-                # An engine that raises must not take the whole batch down.
-                row["detail"] = "%s: %s" % (type(e).__name__, e)
-                row["reason"] = "install_raised"
-                break
-            if not inst.get("ok"):
-                row["detail"] = str(
-                    inst.get("detail") or inst.get("code") or "install failed")
-                row["reason"] = "install_refused"
-                break
-            row["installed"] = True
-            row["asset"] = name
-            installed += 1
-            break
-        if not row["installed"] and not row["reason"]:
-            row["reason"] = "candidate_failed" if row["detail"] else "no_candidate_matched"
-        results.append(row)
-        # Keep going: the dependencies are independent, so one that cannot be
-        # obtained must not block the others. A device run proved the cost of
-        # stopping early — selph.ExtraMachineConfig failed and its sibling
-        # selph.FurnitureMachine was never even attempted, even though it was
-        # downloadable. Partial progress is strictly better here, and every
-        # failure is reported by name.
+    seen = set()
+    rounds_run = 0
+    pending = deps
 
-    return to_json_safe(_ok(phase="installed", deps=results,
-                            installed=installed, attempted=len(results)))
+    for round_no in range(1, int(max_rounds) + 1):
+        rounds_run = round_no
+        any_attempted = False
+        for dep in pending:
+            uid = str(dep.get("uniqueId") or "")
+            key = uid.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            any_attempted = True
+            row = {"uniqueId": uid, "installed": False, "reason": "",
+                   "repo": dep.get("repo"), "asset": None, "detail": "",
+                   "round": round_no}
+            if not dep.get("resolvable"):
+                row["reason"] = dep.get("reason") or "unresolvable"
+                results.append(row)
+                continue
+            for asset in dep.get("candidates") or []:
+                name = str(asset.get("name") or "")
+                try:
+                    got = fetch(dep["repo"], asset["asset_id"], name)
+                except Exception as e:
+                    row["detail"] = "%s: %s" % (type(e).__name__, e)
+                    continue
+                if not got.get("ok"):
+                    row["detail"] = str(got.get("detail") or got.get("code") or "")
+                    continue
+                path = str(got.get("path") or "")
+                # A filename is not evidence: open the zip and read its manifest.
+                verdict = verify_candidate(engine, path, uid)
+                if not verdict.get("ok"):
+                    row["detail"] = str(verdict.get("detail") or "")
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                    continue
+                try:
+                    inst = engine.install(path, after_confirm=True)
+                except Exception as e:
+                    # An engine that raises must not take the whole batch down.
+                    row["detail"] = "%s: %s" % (type(e).__name__, e)
+                    row["reason"] = "install_raised"
+                    break
+                if not inst.get("ok"):
+                    row["detail"] = str(
+                        inst.get("detail") or inst.get("code") or "install failed")
+                    row["reason"] = "install_refused"
+                    break
+                row["installed"] = True
+                row["asset"] = name
+                installed += 1
+                break
+            if not row["installed"] and not row["reason"]:
+                row["reason"] = ("candidate_failed" if row["detail"]
+                                 else "no_candidate_matched")
+            results.append(row)
+            # Keep going: the dependencies are independent, so one that cannot
+            # be obtained must not block the others. A device run proved the
+            # cost of stopping early — selph.ExtraMachineConfig failed and its
+            # sibling selph.FurnitureMachine was never even attempted, even
+            # though it was downloadable. Partial progress is strictly better
+            # here, and every failure is reported by name.
+
+        if not any_attempted:
+            break
+        # Depth: what is STILL missing now that this round's installs landed.
+        try:
+            still = [str(x) for x in (rescan() or [])]
+        except Exception:
+            still = []
+        fresh = [x for x in still if x.lower() not in seen]
+        if not fresh:
+            break
+        try:
+            nxt = plan(fresh, lookup=lookup,
+                       candidates_for=candidates_for, limit=MAX_DEPS)
+        except Exception:
+            break
+        if not nxt.get("ok"):
+            break
+        pending = nxt.get("deps") or []
+        if not pending:
+            break
+
+    out = _ok(phase="installed", deps=results,
+              installed=installed, attempted=len(results),
+              rounds=rounds_run, max_rounds=int(max_rounds))
+    try:
+        remaining = [str(x) for x in (rescan() or [])]
+    except Exception:
+        remaining = []
+    out["still_missing"] = remaining
+    if remaining:
+        # Two honest reasons to stop with gaps left, and they mean different
+        # things to the user: we ran out of rounds, or the next scan offered
+        # nothing this plugin can fetch. Saying "nothing publishes them" when
+        # we simply hit the cap would be a lie; saying nothing at all would
+        # hide that the install is incomplete.
+        if rounds_run >= int(max_rounds):
+            out["note"] = ("stopped after %d rounds; %d dependencies are still "
+                           "missing" % (rounds_run, len(remaining)))
+        else:
+            out["note"] = ("%d dependencies are still missing and nothing on "
+                           "the index offers them" % len(remaining))
+    return to_json_safe(out)
 
 
 def auto_download(opener, engine, repo: str, asset_id: int, filename: str,

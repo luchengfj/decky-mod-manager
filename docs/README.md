@@ -73,7 +73,7 @@ src/
   api.ts                      @decky/api call/callable bridge, invoke() guard
   types.ts                    TS mirror of the JSON-safe envelope + per-RPC payload types
   i18n.ts                     t() / errorText() / categoryText(), zh-CN via navigator.language
-  i18n/en.json, zh-CN.json    443 keys each, parity enforced by validate_i18n.py
+  i18n/en.json, zh-CN.json    445 keys each, parity enforced by validate_i18n.py
   components/
     Modal.tsx                 gamepad-first showInfo / showListModal / showErrorModal / showFomodModal
     ConfirmModal.tsx          two-phase confirm (A=confirm, B=cancel)
@@ -114,7 +114,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        29 modules, 497 cases (`Ran 497 tests ... OK (skipped=8)`)
+tests/                        29 modules, 502 cases (`Ran 502 tests ... OK (skipped=8)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -217,7 +217,7 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 497 tests ... OK (skipped=8)  (LASTEXITCODE=0)
+python -m unittest discover -s tests -v  -> Ran 502 tests ... OK (skipped=8)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_i18n.py            -> EN 439 / ZH 439, parity [] , EXIT=0
 .decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 26, ALL_STATIC_CHECKS True

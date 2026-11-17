@@ -1353,22 +1353,37 @@ function Content() {
   };
 
   const describeDeps = (d: unknown): string[] => {
-    const box = (d || {}) as { deps?: Array<Record<string, unknown>> };
+    const box = (d || {}) as {
+      deps?: Array<Record<string, unknown>>;
+      rounds?: number;
+      still_missing?: string[];
+      note?: string;
+    };
     const list = box.deps || [];
+    // Round 45: a dependency can pull in another one, so the same question is
+    // re-asked after each round. Show the round only when there was more than
+    // one -- printing "round 1" on every single-level install would be noise.
+    const multi = (box.rounds ?? 0) > 1;
+    const out: string[] = [];
     if (!list.length) return [t("DEPS_NONE")];
-    return list.map((row) => {
+    for (const row of list) {
       const uid = String(row.uniqueId || "");
       const done = row.installed === true;
       const reason = depReason(String(row.reason ?? ""));
       const asset = row.asset ? String(row.asset) : "";
       const detail = row.detail ? String(row.detail) : "";
+      const roundNo = typeof row.round === "number" ? row.round : 0;
       const head = t("DEPS_ROW", "{id} · {state}", {
-        id: uid,
+        id: multi && roundNo > 1 ? t("DEPS_ROW_DEEP", "{id} (depth {n})", { id: uid, n: String(roundNo) }) : uid,
         state: done ? t("DEPS_OK") : reason,
       });
       const tail = done ? asset : detail;
-      return tail ? head + "\n  " + tail : head;
-    });
+      out.push(tail ? head + "\n  " + tail : head);
+    }
+    const still = box.still_missing || [];
+    if (still.length) out.push(t("DEPS_STILL", "Still missing: {ids}", { ids: still.join(", ") }));
+    if (box.note) out.push(String(box.note));
+    return out;
   };
 
   const doDepsPlan = () => {

@@ -369,6 +369,122 @@ class TestInstallPath(_TmpMixin, unittest.TestCase):
         self.assertIn("engine exploded", got["deps"][0]["detail"])
 
 
+class TestDepth(_TmpMixin, unittest.TestCase):
+    """Round 45: a dependency can itself require something.
+
+    The scan only reports what the INSTALLED mods declare, so a gap created by
+    the very mod we just installed is invisible until the scan is re-run. These
+    cases pin that re-scan, and pin that it cannot run forever.
+    """
+
+    def test_a_dependency_of_a_dependency_is_resolved(self):
+        inbox = self._inbox()
+        eng = _ListEngine(inbox, {"A.zip": "a.one", "B.zip": "b.two"})
+        # Scan order matters: the re-scan happens AFTER a round's installs land,
+        # so the first answer must already include what a.one needed. The final
+        # call is the "what is left" question asked once more before reporting.
+        scans = [["b.two"], [], []]
+        calls = {"n": 0}
+
+        def rescan():
+            i = min(calls["n"], len(scans) - 1)
+            calls["n"] += 1
+            return scans[i]
+
+        def fetch(repo, asset_id, filename):
+            self._touch(inbox, filename)
+            return {"ok": True, "path": os.path.join(inbox, filename)}
+
+        got = deps.run(None, eng, missing_ids=["a.one"], allow_install=True,
+                       after_confirm=True,
+                       lookup=lambda ids: {i: {"gitHubRepo": "o/r"} for i in ids},
+                       candidates_for=lambda repo, uid: [
+                           {"asset_id": hash(uid) % 1000,
+                            "name": "A.zip" if uid == "a.one" else "B.zip"}],
+                       fetch=fetch, rescan=rescan)
+        self.assertTrue(got["ok"])
+        self.assertEqual(got["installed"], 2)
+        self.assertEqual(eng.installed, ["A.zip", "B.zip"])
+        rounds = {r["uniqueId"]: r["round"] for r in got["deps"]}
+        self.assertEqual(rounds["a.one"], 1)
+        self.assertEqual(rounds["b.two"], 2, "second level must be attempted")
+        self.assertEqual(got["rounds"], 2)
+        self.assertEqual(got["still_missing"], [])
+
+    def test_the_loop_is_bounded_and_says_so(self):
+        inbox = self._inbox()
+        eng = _ListEngine(inbox, {"A.zip": "a.one"})
+        # A cycle in the index: every scan still reports the same id.
+        def rescan():
+            return ["a.one"]
+
+        def fetch(repo, asset_id, filename):
+            self._touch(inbox, filename)
+            return {"ok": True, "path": os.path.join(inbox, filename)}
+
+        got = deps.run(None, eng, missing_ids=["a.one"], allow_install=True,
+                       after_confirm=True,
+                       lookup=lambda ids: {"a.one": {"gitHubRepo": "o/r"}},
+                       candidates_for=lambda repo, uid: [{"asset_id": 1, "name": "A.zip"}],
+                       fetch=fetch, rescan=rescan, max_rounds=3)
+        # One install: the id joins `seen`, so the second round has nothing new
+        # to do and the loop exits instead of downloading the same thing again.
+        self.assertEqual(got["installed"], 1)
+        self.assertEqual(eng.installed, ["A.zip"])
+        self.assertEqual(got["rounds"], 1)
+        self.assertEqual(got["still_missing"], ["a.one"])
+        self.assertIn("still", got.get("note") or "")
+
+    def test_an_already_seen_id_is_never_installed_twice(self):
+        inbox = self._inbox()
+        eng = _ListEngine(inbox, {"A.zip": "a.one"})
+
+        def fetch(repo, asset_id, filename):
+            self._touch(inbox, filename)
+            return {"ok": True, "path": os.path.join(inbox, filename)}
+
+        got = deps.run(None, eng, missing_ids=["a.one", "a.one"], allow_install=True,
+                       after_confirm=True,
+                       lookup=lambda ids: {"a.one": {"gitHubRepo": "o/r"}},
+                       candidates_for=lambda repo, uid: [{"asset_id": 1, "name": "A.zip"}],
+                       fetch=fetch, rescan=lambda: [])
+        self.assertEqual(got["attempted"], 1)
+        self.assertEqual(len(eng.installed), 1)
+
+    def test_the_confirm_phase_promises_the_bounded_depth(self):
+        inbox = self._inbox()
+        eng = _ListEngine(inbox, {"A.zip": "a.one"})
+        got = deps.run(None, eng, missing_ids=["a.one"], allow_install=True,
+                       after_confirm=False,
+                       lookup=lambda ids: {"a.one": {"gitHubRepo": "o/r"}},
+                       candidates_for=lambda repo, uid: [{"asset_id": 1, "name": "A.zip"}])
+        self.assertEqual(got["phase"], "confirm")
+        self.assertEqual(eng.installed, [], "confirming must not write")
+        joined = " ".join(got.get("warnings") or [])
+        self.assertIn("re-run", joined)
+        self.assertIn(str(deps.MAX_ROUNDS), joined)
+
+    def test_a_rescan_that_raises_does_not_lose_the_installs(self):
+        inbox = self._inbox()
+        eng = _ListEngine(inbox, {"A.zip": "a.one"})
+
+        def rescan():
+            raise RuntimeError("status exploded")
+
+        def fetch(repo, asset_id, filename):
+            self._touch(inbox, filename)
+            return {"ok": True, "path": os.path.join(inbox, filename)}
+
+        got = deps.run(None, eng, missing_ids=["a.one"], allow_install=True,
+                       after_confirm=True,
+                       lookup=lambda ids: {"a.one": {"gitHubRepo": "o/r"}},
+                       candidates_for=lambda repo, uid: [{"asset_id": 1, "name": "A.zip"}],
+                       fetch=fetch, rescan=rescan)
+        self.assertTrue(got["ok"])
+        self.assertEqual(got["installed"], 1)
+        self.assertEqual(got["still_missing"], [])
+
+
 class TestJsonSafe(unittest.TestCase):
     def test_a_result_survives_json_round_trip(self):
         got = deps.run(None, _ListEngine(os.path.join(

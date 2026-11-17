@@ -14,7 +14,7 @@ features are deliberately excluded.
 | Import a local ZIP / `.7z` into the game's mod folder, unzip, verify | works for Stardew Valley |
 | See files the user downloaded in the browser, not only the plugin inbox | works, read-only (Round 42) |
 | Enable / disable / uninstall / roll back | works (folder move in and out of the game's `Mods/`) |
-| See required dependencies and download the ones that are fetchable | works, one level deep |
+| See required dependencies and download the ones that are fetchable | works, up to 3 levels deep (Round 45) |
 | Download mods | GitHub Releases + direct HTTPS URL only |
 | Nexus | **metadata only** — browse and open the mod page; download links are premium-only, by Nexus policy |
 | Know whether the game actually loaded a mod (not just that it is on disk) | works, read-only (Round 40, docs/LOADER_LOG.md) |
@@ -44,8 +44,14 @@ features are deliberately excluded.
    constant `False` — the failure mode a filename list always has. The same
    `E_EXTERNAL_MANAGER` code is raised, from a signal that does not need to
    know the other manager's name.
-2. **The dependency resolver only goes one level deep and trusts an index that
-   is provably stale.** `selph.ExtraMachineConfig` is mapped by the SMAPI index
+2. ~~**The dependency resolver only goes one level deep.**~~ **Depth SHIPPED in
+   Round 45**; the stale index is still real. `deps.run()` now re-asks "what is
+   still missing" after each round of installs, so a dependency of a
+   dependency gets resolved too — bounded by `MAX_ROUNDS = 3`, with every row
+   carrying the `round` it was resolved in and the result carrying
+   `still_missing` plus a `note` that distinguishes "ran out of rounds" from
+   "nothing on the index offers them". The index problem is untouched and
+   unfixable from here: `selph.ExtraMachineConfig` is mapped by the SMAPI index
    to a repository that does not contain it (verified twice with
    `per_page=100`). Today that produces an honest refusal. It would stop being
    honest the moment someone "fixes" it by accepting the first plausible ZIP —

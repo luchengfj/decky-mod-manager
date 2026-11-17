@@ -441,5 +441,7 @@
   "LAYOUT_WHY_TITLE": "为什么这里是只读：",
   "LAYOUT_WHY_SYMLINK": "MOD 文件夹本身是符号链接，真正的目录由别的工具掌管。",
   "LAYOUT_WHY_ENTRIES": "MOD 文件夹里有符号链接条目（{names}），说明这些 MOD 是别的管理器部署的。",
-  "LAYOUT_WHY_DEVICE": "MOD 文件夹与游戏不在同一个文件系统上。"
+  "LAYOUT_WHY_DEVICE": "MOD 文件夹与游戏不在同一个文件系统上。",
+  "DEPS_ROW_DEEP": "{id}（第 {n} 层）",
+  "DEPS_STILL": "仍然缺少：{ids}"
 }

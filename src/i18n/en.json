@@ -441,5 +441,7 @@
   "LAYOUT_WHY_TITLE": "Why this is read-only:",
   "LAYOUT_WHY_SYMLINK": "the mod folder is a symlink, so another tool owns the real one.",
   "LAYOUT_WHY_ENTRIES": "the mod folder contains symlinked entries ({names}), which means a manager deployed them.",
-  "LAYOUT_WHY_DEVICE": "the mod folder is on a different filesystem than the game."
+  "LAYOUT_WHY_DEVICE": "the mod folder is on a different filesystem than the game.",
+  "DEPS_ROW_DEEP": "{id} (depth {n})",
+  "DEPS_STILL": "Still missing: {ids}"
 }

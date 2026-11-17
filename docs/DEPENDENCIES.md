@@ -109,17 +109,30 @@ pins this; it failed against the old code (`attempted == 1`) and passes now
 |---|---|---|
 | dependencies per call | 20 | a download that fans out without bound is a denial of service on yourself |
 | candidates per dependency | 4 | enough for versioned assets, small enough to stay inside the GitHub rate limit |
+| install rounds | 3 | a dependency may itself need others; three rounds covers that, and a lower number stops a cycle in the index from spinning forever |
 | index response | 4 MiB | refused rather than buffered |
 | one download | 256 MiB | the existing shared cap |
+
+The round cap is not silent. Every row carries the `round` it was resolved in,
+the result carries `rounds`, `max_rounds` and `still_missing`, and `note`
+distinguishes the two different reasons a dependency can survive: the loop ran
+out of rounds (there is more to fetch) versus nothing on the index offers it
+(there is not). Reporting both with one sentence would be a lie in one of the
+two directions.
 
 ## What is proven, and what is not
 
 Proven on the device: the plan phase writes nothing; the wrong-mod candidate is
 refused with the declaring vs expected ids in the detail; the correct
 dependency installs and its manifest is on disk; a failed dependency no longer
-blocks the others; nothing else in `Mods/` changed.
+blocks the others; nothing else in `Mods/` changed. Also proven on the device
+after round 45: the confirm phase writes nothing while promising the bounded
+depth, and the inspect phase reports the same three dependencies with
+`fetchable=1`.
 
 Not proven: that a game session actually loads the freshly installed
 dependency (that needs a game launch after the install), and that the resolver
-behaves well for a mod whose dependencies form a deep chain — the loop is
-one level deep by design and does not recurse.
+behaves well for a mod whose dependencies form a chain deeper than three —
+the loop is depth-aware but capped, and a chain longer than `MAX_ROUNDS`
+reports its remainder through `still_missing` instead of pretending to be
+finished.

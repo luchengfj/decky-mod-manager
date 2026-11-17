@@ -250,6 +250,7 @@
   "ERR_E_DUPLICATE_ENTRY": "压缩包含有重复文件名。",
   "ERR_E_MANIFEST_MISSING": "压缩包中未找到 About/About.xml。",
   "ERR_E_MANIFEST_INVALID": "About/About.xml 无法解析。",
+  "ERR_E_MULTI_MOD_ARCHIVE": "这个压缩包里装了多个 MOD，请逐个导入。",
   "ERR_E_ID_INVALID": "MOD 的 packageId 缺失或非法。",
   "ERR_E_FIELD_MISSING": "About.xml 缺少必填字段。",
   "ERR_E_DUPLICATE": "该 MOD（相同 packageId）已安装，请改用替换。",

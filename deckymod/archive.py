@@ -22,7 +22,7 @@ import shutil
 import tempfile
 import uuid
 import zipfile
-from typing import Dict, List, Tuple
+from typing import Dict, List, NamedTuple, Tuple
 from xml.etree import ElementTree as ET
 
 from .errors import ModError
@@ -154,46 +154,99 @@ def inspect_zip(path: str, limits: dict | None = None,
             "entry_count": len(entries), "entries": entries, "_zf_entries": infos}
 
 
-def _strip_single_root(entries: List[str]) -> Tuple[str | None, Dict[str, str]]:
-    """If all entries share one leading directory component, strip it.
+class ManifestLocation(NamedTuple):
+    """Where a mod's manifest lives, and what the mod's own root directory is.
 
-    Returns (root_or_none, mapping from stripped_name -> original_name).
+    ``base`` is the mod root as a path prefix INSIDE the archive ("" when the
+    mod sits at the archive root). ``mapping`` is {stripped: original} for the
+    files that belong to THIS mod, where ``stripped`` is relative to ``base``.
+    ``others`` lists the mod roots of any other mods found in the same
+    archive -- an archive that ships several mods cannot be installed as one.
     """
-    top = set()
-    for e in entries:
-        parts = e.split("/")
-        if parts and parts[0]:
-            top.add(parts[0])
+    base: str
+    orig_name: str
+    mapping: Dict[str, str]
+    others: List[str]
+
+
+def _relpaths(globs: List[str]) -> List[str]:
+    """Turn descriptor globs into manifest paths relative to a mod's root.
+
+    Round 62: the globs were being applied to archive-wide names through
+    ``fnmatch``, where ``*`` also matches ``/``. So ``*/manifest.json`` happily
+    matched ``Pack/ModA/manifest.json``, but the extraction mapping had only
+    stripped ``Pack`` -- the mod was extracted one directory too deep, where
+    SMAPI never looks for it. A glob is now read as "this path, relative to the
+    mod's own root, at any depth": the leading ``*/`` means "wherever the mod
+    root happens to be", not "exactly one component".
+    """
+    rels = []
+    for g in globs:
+        r = str(g).strip("/")
+        while r.startswith("*/"):
+            r = r[2:]
+        if r and r not in rels:
+            rels.append(r)
+    # most specific first, so "About/About.xml" wins over a bare "About.xml"
+    rels.sort(key=lambda r: (-r.count("/"), -len(r)))
+    return rels
+
+
+def locate_manifest(entries: List[str], relpaths: List[str]) -> ManifestLocation | None:
+    """Find every member that looks like a manifest, and the root it implies.
+
+    The mod root is derived from the member itself (``name`` minus the
+    ``relpath`` suffix), never from a guess about how many directories the
+    packer wrapped around the files. Returns ``None`` when nothing matches;
+    the first entry of ``others`` being non-empty means the archive contains
+    more than one mod, which the caller must refuse rather than silently pick.
+    """
+    files = [e for e in entries if e and not e.endswith("/")]
+    found: List[Tuple[str, str]] = []   # (base, orig_name)
+    for e in files:
+        low = e.lower()
+        for rel in relpaths:
+            rl = rel.lower()
+            if low == rl:
+                found.append(("", e))
+                break
+            if low.endswith("/" + rl):
+                found.append((e[: -(len(rel) + 1)], e))
+                break
+    if not found:
+        return None
+    # shallowest, then shortest: the most likely "the mod itself"
+    found.sort(key=lambda b: (b[0].count("/"), len(b[0]), b[0].lower()))
+    bases: List[str] = []
+    for base, _ in found:
+        if base not in bases:
+            bases.append(base)
+    base = bases[0]
+    orig_name = next(o for b, o in found if b == base)
+    prefix = base + "/" if base else ""
+    mapping: Dict[str, str] = {}
+    for e in files:
+        if prefix:
+            if not e.startswith(prefix):
+                continue
+            stripped = e[len(prefix):]
         else:
-            return None, {}
-    if len(top) != 1:
-        return None, {}
-    root = next(iter(top))
-    # only strip when it is a real wrapper dir (at least one nested path)
-    if not any("/" in e.rstrip("/") for e in entries):
-        return None, {}
-    mapping = {}
-    for e in entries:
-        stripped = e[len(root) + 1:] if e.startswith(root + "/") else e
+            stripped = e
         if stripped:
             mapping[stripped] = e
-    return root, mapping
+    return ManifestLocation(base=base, orig_name=orig_name,
+                            mapping=mapping, others=bases[1:])
 
 
 def _find_manifest(entries: List[str]) -> str | None:
-    """Locate About/About.xml after strip_single_root (or as-is)."""
-    root, mapping = _strip_single_root(entries)
-    names = list(mapping.keys()) if mapping else entries
-    candidates = [n for n in names if n.lower().endswith("about/about.xml")]
-    if not candidates:
-        # also accept a root-level About.xml (some mods)
-        candidates = [n for n in names if n.lower() == "about.xml" or n.lower().endswith("/about.xml")]
-    if not candidates:
-        return None
-    # prefer shortest / most canonical
-    candidates.sort(key=lambda n: (n.lower().count("/"), len(n)))
-    stripped = candidates[0]
-    return mapping.get(stripped, stripped) if mapping else stripped
+    """Locate About/About.xml, keeping the historical "no refusal" behaviour.
+
+    Only used by the RimWorld ``xml_list`` engine, which is a planned game and
+    not reachable in production; it deliberately keeps picking one manifest
+    instead of raising so this dormant path cannot start refusing archives.
+    """
+    loc = locate_manifest(entries, _relpaths(["About/About.xml", "*/About/About.xml"]))
+    return loc.orig_name if loc else None
 
 
 def parse_about_xml(zf: zipfile.ZipFile, member: str) -> dict:
@@ -254,17 +307,18 @@ def inspect_mod(path: str, limits: dict | None = None) -> dict:
     info = inspect_zip(path, limits)
     infos = info.pop("_zf_entries")
     with zipfile.ZipFile(path, "r") as zf:
-        manifest = _find_manifest([i.filename for i in infos])
-        if not manifest:
+        loc = locate_manifest([i.filename for i in infos],
+                              _relpaths(["About/About.xml", "*/About/About.xml"]))
+        if not loc:
             raise ModError("E_MANIFEST_MISSING", detail="no About/About.xml found")
+        manifest = loc.orig_name
         meta = parse_about_xml(zf, manifest)
-        # Build the extraction mapping. _strip_single_root() returns
-        # {stripped_name: original_name}; INVERT it so a ZIP that wraps all
-        # files in one top folder still extracts About/About.xml at the TOP
-        # level of Mods/<packageId>/ (not nested under the wrapper directory).
-        # The `orig` value keeps the real archive member name for zf.open().
-        root, mapping = _strip_single_root([i.filename for i in infos])
-        orig_to_stripped = {v: k for k, v in mapping.items()} if mapping else {}
+        # Build the extraction mapping.  Round 62: the mapping is now anchored
+        # at the directory the manifest was FOUND in (loc.base), not at a
+        # separate guess about the archive's wrapper.  Derived from one member,
+        # the two can no longer disagree about how deep the mod starts.
+        root = loc.base or None
+        orig_to_stripped = {v: k for k, v in loc.mapping.items()} if loc.mapping else {}
         members = {}
         for zi in infos:
             nm = zi.filename

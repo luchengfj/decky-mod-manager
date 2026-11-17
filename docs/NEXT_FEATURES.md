@@ -33,6 +33,18 @@ features are deliberately excluded.
 | Chinese / English UI | works, 455 keys each, parity enforced |
 | Let a descriptor name its own third-party-manager marker | works (Round 53, docs/DECLARED_VS_READ.md) |
 
+0g. **Multi-mod archives, and any archive nested more than one folder deep.**
+
+   One `manifest.json` glob was matching members two levels below the directory
+   the extraction mapping had stripped. A zip holding several mods installed as
+   `Mods/<first-id>/ModA/`, `ModB/` -- a folder no game loads -- and the plugin
+   could not even uninstall it afterwards, because `status()` scans only the
+   top level it had just skipped. Now the mod root comes from the manifest
+   member itself, and more than one mod in one archive is refused with
+   `E_MULTI_MOD_ARCHIVE` instead of silently picking one.
+
+   Found by Round 62; see `docs/ARCHIVE_LAYOUT.md`.
+
 ## Closed since this page was written
 
 - **The import surface could only see its own inbox.** The plugin read

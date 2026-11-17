@@ -483,6 +483,15 @@ not-found / Flatpak refused), full Engine lifecycle
 game-running/state-drift/state-missing, and `main.Plugin` RPC envelope shape.
 
 During local testing **one real production bug was found and fixed**: `archive.py`
+Round 62 note: the mapping-versus-root defect described below was not the last
+one in that area. `_strip_single_root()` was also being used to decide *how deep*
+a mod starts, while the manifest glob was matched with `fnmatch`, whose `*`
+crosses `/`. Those two answers could disagree, and when they did the install
+succeeded while writing the mod one directory too deep to ever load. Both facts
+now come from the manifest member itself (`archive.locate_manifest`), and an
+archive holding more than one mod is refused with `E_MULTI_MOD_ARCHIVE`.
+See `docs/ARCHIVE_LAYOUT.md`.
+
 `inspect_mod()` had its `members` mapping reversed (`_strip_single_root()` returns
 `{stripped: original}` but the lookup used the original name), so a single-root-wrapped
 ZIP unpacked to `Mods/<pid>/<wrapper>/About/About.xml` and post-commit verification

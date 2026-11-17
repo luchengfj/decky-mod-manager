@@ -180,7 +180,7 @@ class TestTriStateCoordinator(unittest.TestCase):
             self.assertIn(e, ERRORS, "%s -> %s not in ERRORS" % (nx, e))
         # both directions: no NX code is left without a translation
         self.assertEqual(sorted(auto_import.DL_TO_E), sorted(download.DL_ERRORS))
-        self.assertEqual(len(ERRORS), 51)
+        self.assertEqual(len(ERRORS), 52)
         err_src = open(os.path.join(os.path.dirname(auto_import.__file__),
                                     "errors.py"), encoding="utf-8").read()
         # no module-local DL_* code leaked into the shipped errors registry

@@ -203,8 +203,9 @@ def inspect_mod(path: str, limits: dict | None = None, reject_extensions=None,
         except (KeyError, OSError, RuntimeError) as e:
             raise ModError("E_MANIFEST_INVALID", detail=f"cannot read {hit.orig_name}: {e}")
     pm = parser.parse(raw, hit.orig_name)
-    # _strip_single_root() returns {stripped: original}; INVERT it so a
-    # single-root-wrapped ZIP extracts manifest.json at the TOP of Mods/<dir>/.
+    # Round 62: hit.mapping is now anchored at the directory the manifest was
+    # found in, so inverting it puts manifest.json at the TOP of Mods/<dir>/
+    # no matter how the packer nested the files.
     orig_to_stripped = {v: k for k, v in hit.mapping.items()} if hit.mapping else {}
     manifest_stripped = orig_to_stripped.get(hit.orig_name, hit.orig_name)
     members = {}

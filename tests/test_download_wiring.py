@@ -384,7 +384,7 @@ class TestMapping(_DownloadMixin, unittest.TestCase):
         self.assertEqual(auto_import.DL_TO_E["DL_NO_ASSET"], "E_INBOX_UNREADABLE")
         self.assertEqual(auto_import.DL_TO_E["DL_NOT_FOUND"], "E_INBOX_UNREADABLE")
         from deckymod.errors import ERRORS
-        self.assertEqual(len(ERRORS), 51)
+        self.assertEqual(len(ERRORS), 52)
         for code in ("DL_HOST_NOT_ALLOWED", "DL_NO_ASSET", "DL_NOT_FOUND"):
             self.assertIn(code, download.DL_ERRORS)
             self.assertNotIn(code, ERRORS)

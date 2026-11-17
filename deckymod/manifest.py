@@ -8,14 +8,21 @@ descriptor's ``mod_package`` block (``field_map``, ``required_manifest_fields``,
 manifest *format* (not just field names) additionally requires one parser class
 registered in ``PARSERS``.
 
-This module is stdlib-only. It reuses ``archive._strip_single_root`` (a purely
+This module is stdlib-only. It reuses ``archive.locate_manifest`` (a purely
 structural helper) and ``archive.parse_about_xml`` (the existing RimWorld XML
 parser). It does NOT modify either, so the 33 historical RimWorld tests and the
 41-green frozen-interpreter path stay byte-identical.
+
+Round 62 note: ``locate_manifest`` replaced ``archive._strip_single_root`` here
+because glob matching used ``fnmatch``, whose ``*`` also matches ``/``. That let
+a ``*/manifest.json`` glob find a manifest *two* levels below the directory that
+had been stripped, and the mod was then installed one folder too deep to load.
+``locate_manifest`` derives the root and the member mapping from the same
+member, so they cannot disagree; more than one mod in one archive is refused
+with ``E_MULTI_MOD_ARCHIVE`` instead of silently picking one.
 """
 from __future__ import annotations
 
-import fnmatch
 import io
 import json
 import os
@@ -53,7 +60,7 @@ class ManifestHit:
     """Where the manifest member lives inside an archive."""
     orig_name: str
     root: Optional[str]
-    mapping: Dict[str, str]  # {stripped: original}
+    mapping: Dict[str, str]  # {stripped: original}, relative to `root`
 
 
 class ManifestParser(Protocol):
@@ -63,21 +70,32 @@ class ManifestParser(Protocol):
 
 
 def _match_member(entries: List[str], globs: List[str]) -> Optional[ManifestHit]:
-    root, mapping = archive._strip_single_root(entries)
-    names = list(mapping.keys()) if mapping else list(entries)
-    candidates = []
-    for n in names:
-        low = n.lower()
-        for g in globs:
-            if fnmatch.fnmatch(low, g.lower()):
-                candidates.append(n)
-                break
-    if not candidates:
+    """Locate the manifest, and derive the mod root FROM that member.
+
+    Round 62: this used to strip one wrapper directory off the archive and then
+    match descriptor globs against the stripped names with ``fnmatch``, where
+    ``*`` matches ``/`` too. ``*/manifest.json`` therefore matched
+    ``Pack/ModA/manifest.json`` -- a member two levels below the stripped root
+    -- and the extraction mapping (which only knew about ``Pack``) wrote the mod
+    to ``Mods/<id>/ModA/``. SMAPI only reads a manifest at a mod directory's
+    top level, so a "successful" install produced a folder that never loads and
+    that the plugin itself could not uninstall.
+
+    Now the two facts come from one member: the manifest's own path tells us
+    both where the mod starts and which files belong to it, so they cannot
+    disagree. An archive holding more than one mod is refused instead of
+    silently installing whichever manifest sorts first and dropping the rest.
+    """
+    loc = archive.locate_manifest(entries, archive._relpaths(globs))
+    if not loc:
         return None
-    candidates.sort(key=lambda n: (n.count("/"), len(n)))
-    stripped = candidates[0]
-    orig = mapping.get(stripped, stripped) if mapping else stripped
-    return ManifestHit(orig_name=orig, root=root, mapping=mapping)
+    if loc.others:
+        raise ModError(
+            "E_MULTI_MOD_ARCHIVE",
+            detail="this archive holds %d mods (%s); import them one at a time"
+                   % (len(loc.others) + 1, ", ".join([loc.base or "(root)"] + loc.others)))
+    return ManifestHit(orig_name=loc.orig_name, root=loc.base or None,
+                       mapping=loc.mapping)
 
 
 def _coerce_dep_ids(value, id_keys: List[str],

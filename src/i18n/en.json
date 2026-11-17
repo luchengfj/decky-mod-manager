@@ -250,6 +250,7 @@
   "ERR_E_DUPLICATE_ENTRY": "The archive contains duplicate file names.",
   "ERR_E_MANIFEST_MISSING": "About/About.xml was not found in the archive.",
   "ERR_E_MANIFEST_INVALID": "About/About.xml could not be parsed.",
+  "ERR_E_MULTI_MOD_ARCHIVE": "This archive holds several mods; import them one at a time.",
   "ERR_E_ID_INVALID": "The mod's packageId is missing or invalid.",
   "ERR_E_FIELD_MISSING": "A required field is missing from About.xml.",
   "ERR_E_DUPLICATE": "This mod (same packageId) is already installed. Use Replace instead.",

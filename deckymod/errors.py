@@ -51,6 +51,10 @@ ERRORS = {
     "E_DUPLICATE_ENTRY": ("import", "The archive contains duplicate file names.", False),
     "E_MANIFEST_MISSING": ("import", "About/About.xml was not found in the archive.", False),
     "E_MANIFEST_INVALID": ("import", "About/About.xml could not be parsed.", False),
+    # Round 62: an archive shipping several mods used to be "installed" as one
+    # directory containing all of them, which loads in no game. Refusing is the
+    # only honest answer: the user has a decision to make, not an error to retry.
+    "E_MULTI_MOD_ARCHIVE": ("import", "This archive holds several mods; import them one at a time.", False),
     "E_ID_INVALID": ("import", "The mod's packageId is missing or invalid.", False),
     "E_FIELD_MISSING": ("import", "A required field is missing from About.xml.", False),
 

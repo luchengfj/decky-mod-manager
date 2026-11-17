@@ -911,10 +911,20 @@ class FileDropEngine:
         plan = {"op": "enable" if enabled else "disable", "packageId": journal_id, "dir": name,
                 "from": src, "to": dst, "strategy": "file_drop_move"}
         if not after_confirm:
+            # Round 71: disabling a library has the same consequence as removing
+            # it from the game's point of view, so the confirmation says so.
+            dependents = self._active_dependents(r, journal_id) if not enabled else []
+            who = ", ".join(d.get("name") or d.get("id") or "" for d in dependents)
+            key = "CONFIRM_ENABLE"
+            if not enabled:
+                key = "CONFIRM_DISABLE_WITH_DEPENDENTS" if dependents else "CONFIRM_DISABLE"
             return ok({"phase": "confirm", "plan": plan,
-                       "confirm_text": f"{verb} {name}? The folder is moved to {dst_root} (not deleted).",
-                       "confirm_key": "CONFIRM_ENABLE" if enabled else "CONFIRM_DISABLE",
-                       "confirm_vars": {"pid": name},
+                       "confirm_text": (f"{verb} {name}? The folder is moved to {dst_root} (not deleted)."
+                                        + (f" {len(dependents)} installed mod(s) need it and will stop loading: {who}."
+                                           if dependents else "")),
+                       "confirm_key": key,
+                       "confirm_vars": {"pid": name, "n": len(dependents), "who": who},
+                       "dependents": dependents,
                        "targets": {"w1_state_file": None, "w2_disabled": dst_root},
                        "log_path": _log_path(self.journal)})
         txn = new_txn_id()
@@ -941,6 +951,22 @@ class FileDropEngine:
             except Exception as rb:
                 self.journal.rollback_failed(txn, {"reason": str(rb)})
                 return err("E_ROLLBACK_FAILED", detail=str(rb))
+
+    def _active_dependents(self, r, target_id: str) -> list:
+        """Which ENABLED mods require ``target_id`` (Round 71).
+
+        Read-only, and deliberately limited to ``Mods/``: a parked dependent is
+        already not loading, so removing its dependency changes nothing today.
+        Reporting it would be noise in a confirmation, and the honest place for
+        "this is disabled" is the row itself.
+        """
+        if not target_id or not os.path.isdir(r.mod_root):
+            return []
+        try:
+            scanned = manifest.scan_installed_mods(r.mod_root, self._mod_package())
+        except Exception:                                   # noqa: BLE001 - a warning must not block
+            return []
+        return manifest.dependents_of(target_id, scanned.get("mods") or [])
 
     def _pick_dir_name(self, package_id: str, known_dir, roots) -> str | None:
         """Find the on-disk directory for an identifier, case-tolerantly.
@@ -1057,10 +1083,20 @@ class FileDropEngine:
         if not after_confirm:
             if os.path.isdir(src) and not same_filesystem(src, r.quarantine_root):
                 raise ModError("E_CROSS_DEVICE", detail="mod dir and quarantine are on different filesystems")
+            # Round 71: SMAPI skips a mod whose required dependency is gone, so
+            # removing a library stops its dependents from loading. The old copy
+            # said only "the folder is moved to quarantine", which is true and
+            # incomplete: the panel went on to list the mods that had stopped.
+            dependents = self._active_dependents(r, journal_id)
+            who = ", ".join(d.get("name") or d.get("id") or "" for d in dependents)
             return ok({"phase": "confirm", "plan": plan,
-                       "confirm_text": f"Uninstall {package_id}? The folder is moved to quarantine (not deleted).",
-                       "confirm_key": "CONFIRM_UNINSTALL",
-                       "confirm_vars": {"pid": package_id},
+                       "confirm_text": (f"Uninstall {package_id}? The folder is moved to quarantine (not deleted)."
+                                        + (f" {len(dependents)} installed mod(s) need it and will stop loading: {who}."
+                                           if dependents else "")),
+                       "confirm_key": ("CONFIRM_UNINSTALL_WITH_DEPENDENTS" if dependents
+                                       else "CONFIRM_UNINSTALL"),
+                       "confirm_vars": {"pid": package_id, "n": len(dependents), "who": who},
+                       "dependents": dependents,
                        "targets": {"w1_state_file": None, "w2_quarantine": qdir},
                        "log_path": _log_path(self.journal)})
         self.journal.begin(txn, "uninstall", plan)

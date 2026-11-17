@@ -122,7 +122,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        56 modules, 816 cases (`Ran 816 tests ... OK (skipped=15)`)
+tests/                        57 modules, 831 cases (`Ran 831 tests ... OK (skipped=15)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -159,8 +159,8 @@ test_parked_dependencies.py  a disabled dependency is not a missing one, and the
 test_outdated_dependencies.py  installed and readable but older than the host asks for
 test_crash_recovery.py        an install interrupted between its two renames can still be undone
 test_failed_install.py        a failed upgrade puts the old version back; a failed clean-up asks what we did, not who owns it
-test_failed_install.py        a failed upgrade puts the old version back; a failed clean-up asks what we did, not who owns it
 test_restore_identity.py      a restore records the mod that is on disk, not the one that used to be
+test_dependents.py            removing a library names the mods that will stop loading, before it happens
   _verify.py                  compileall + registry JSON validation helper
 docs/                         see the index below
 .github/workflows/build.yml   CI: backend selftest + frontend build
@@ -261,7 +261,7 @@ python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_api_arity.py       -> BACKEND_RPCS 26 / FRONTEND_CALLS 26 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
-.decky-probe/r4_tar_drift.py             -> TAR_COUNT 121 / CUR_COUNT 121, drift 0
+.decky-probe/r4_tar_drift.py             -> TAR_COUNT 122 / CUR_COUNT 122, drift 0
 ```
 
 Backend is stdlib-only and **runs** on this box (the Windows-portability fix in
@@ -329,6 +329,7 @@ Reading order for a newcomer, and what each file is for:
 | [CRASH_RECOVERY.md](CRASH_RECOVERY.md) | what a crash between the two renames leaves behind, and why the audit called that copy litter |
 | [FAILED_INSTALL.md](FAILED_INSTALL.md) | what a failed install or upgrade promises: the old version stays, and a half-written folder never survives |
 | [RESTORE_IDENTITY.md](RESTORE_IDENTITY.md) | what a rollback writes into the journal, and why it now reads the disk instead of remembering |
+| [DEPENDENTS.md](DEPENDENTS.md) | who needs this mod: the reverse question a removal has to answer before it happens |
 | [NEXT_FEATURES.md](NEXT_FEATURES.md) | what is still missing, ranked by whether it can corrupt user data or fail silently — not a wish list |
 
 ## Windows portability note

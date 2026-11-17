@@ -490,6 +490,39 @@ def _find_manifest_in_dir(dir_path: str, globs: List[str]) -> Optional[str]:
     return None
 
 
+def dependents_of(target_id: str, entries) -> List[dict]:
+    """Which of ``entries`` would stop loading if ``target_id`` went away.
+
+    Round 71: ``missing_dependencies`` answers "what does this mod need", which
+    is only half the question a removal asks. The other half is "who needs
+    this": SMAPI skips a mod whose required dependency is absent, so removing a
+    library silently stops its dependents from loading -- the panel said
+    nothing until the list was rescanned afterwards.
+
+    Only ids this scan actually found with the right dependency are returned;
+    an id that is merely *mentioned* somewhere is not a dependent. Rows carry
+    id/name/dir so the caller can name a mod the user recognises.
+    """
+    key = str(target_id or "").strip().lower()
+    out: List[dict] = []
+    if not key:
+        return out
+    for m in entries or []:
+        uid = str(m.get("uniqueId") or "").strip()
+        if uid.lower() == key:
+            continue
+        deps = m.get("dependencies") or []
+        if not any(str(d).strip().lower() == key for d in deps):
+            continue
+        out.append({
+            "id": uid or str(m.get("dir") or ""),
+            "name": str(m.get("name") or ""),
+            "dir": str(m.get("dir") or ""),
+        })
+    out.sort(key=lambda r: (r["id"].lower(), r["dir"].lower()))
+    return out
+
+
 def scan_installed_mods(mod_root: str, mod_package: dict,
                         parked_ids=None) -> dict:
     """Read-only enumeration of installed mod directories (Step 2).
@@ -619,6 +652,9 @@ def scan_installed_mods(mod_root: str, mod_package: dict,
             if have_t < want_t:
                 stale.append({"id": d, "required": need, "installed": have})
         m["outdated_dependencies"] = stale
+        # Round 71: the reverse direction, from the pass already in hand.
+        # "who needs me" is what a removal has to warn about.
+        m["dependents"] = []
         for row in stale:
             outdated.append({
                 "from": str(m.get("uniqueId") or m.get("dir") or ""),
@@ -626,6 +662,9 @@ def scan_installed_mods(mod_root: str, mod_package: dict,
                 "required": row["required"],
                 "installed": row["installed"],
             })
+    # Round 71: fill the reverse map once, from the entries above.
+    for m in mods:
+        m["dependents"] = dependents_of(m.get("uniqueId") or m.get("dir"), mods)
     duplicate_ids = [
         [uid, dirs] for uid, dirs in sorted(id_to_dirs.items()) if len(dirs) > 1
     ]

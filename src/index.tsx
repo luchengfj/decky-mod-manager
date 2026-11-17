@@ -1134,6 +1134,14 @@ function Content() {
       if (others.length) {
         notes.push(t("MODLIST_DUP_ID", "Duplicate UniqueID also in: {v}", { v: others.join(", ") }));
       }
+      // Round 71: the reverse direction, on the row of the mod being depended
+      // on. This is the one place that answers "may I remove this?" before the
+      // user asks, and it costs nothing -- the scan already had every row.
+      if (m.dependents && m.dependents.length) {
+        notes.push(t("MODLIST_DEPENDENTS", "Other mods need this one: {v}", {
+          v: m.dependents.map((d) => d.name || d.id).join(", "),
+        }));
+      }
       return {
         label: t("MODLIST_ROW", "{name} · v{version} · {author}", {
           name: m.name, version: m.version || t("Q_MARK"), author: m.author || t("UNSPECIFIED"),

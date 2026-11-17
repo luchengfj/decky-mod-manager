@@ -62,6 +62,13 @@ export interface ModListEntry {
   parked_dependencies?: string[];
   /** Round 67: dependencies that are installed but too old for this mod. */
   outdated_dependencies?: OutdatedDependency[];
+  /**
+   * Round 71: the reverse direction -- the active mods that would stop
+   * loading if THIS one were removed or disabled. SMAPI skips a mod whose
+   * required dependency is gone, so removing a library breaks its users
+   * silently unless the confirmation says who they are.
+   */
+  dependents?: DependentMod[];
   parse_error?: string;
   /**
    * Round 40: what the loader said about THIS mod on its last launch.
@@ -261,6 +268,17 @@ export interface OutdatedDependency {
   id: string;
   required: string;
   installed: string;
+}
+
+/**
+ * Round 71: one mod that requires another one. `id` is the UniqueID when the
+ * manifest has one, otherwise the folder name -- the caller only ever shows
+ * `name` when it is known, so an unreadable mod still gets a stable handle.
+ */
+export interface DependentMod {
+  id: string;
+  name: string;
+  dir: string;
 }
 
 export interface ManagedMod {

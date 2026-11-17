@@ -38,6 +38,32 @@ features are deliberately excluded.
 | Make a failed install or upgrade say what actually happened | the old version stays or the leftover goes, and the answer matches the disk (Round 69, docs/FAILED_INSTALL.md) |
 | Record the mod that a restore actually put back | reads the folder's manifest instead of repeating the old record (Round 70, docs/RESTORE_IDENTITY.md) |
 | Report a disabled dependency as disabled, not as missing | the fetcher is no longer handed an id the user parked, so a download cannot overwrite it (Round 66, docs/PARKED_DEPENDENCIES.md) |
+| Warn who will stop loading before a library is removed | the reverse dependency map, in both confirmation sites (Round 71, docs/DEPENDENTS.md) |
+
+0h. **The reverse question: who needs this mod.**
+
+   Every dependency list until Round 71 answered "what does this mod need".
+   A removal asks the other direction, and nothing answered it: uninstalling a
+   library printed a confirmation about the quarantine folder and said nothing
+   about the mods that require it. SMAPI skips those silently, so the first
+   evidence was a row that had stopped appearing. The probe was two mods on a
+   synthetic tree; the confirmation text did not mention the dependent, and the
+   `status()` call immediately afterwards already knew.
+
+   `manifest.dependents_of(target_id, entries)` walks the entries the scan
+   already has, so the reverse map costs no second pass, and every row now
+   carries `dependents`. `FileDropEngine._active_dependents()` feeds the two
+   confirmation sites (`uninstall`, and disabling via `set_enabled`), which
+   switch to `CONFIRM_UNINSTALL_WITH_DEPENDENTS` /
+   `CONFIRM_DISABLE_WITH_DEPENDENTS` when the list is non-empty. A parked
+   dependent is not reported -- it is already not loading.
+
+   Nothing refuses. The plugin says who is affected and lets the person decide,
+   which is the same posture as the rest of the surface, and the row also shows
+   "Other mods need this one: ..." so the answer is visible before anyone asks.
+   15 tests, two negative proofs (confirmation ignores its own list; the map
+   compares ids byte-identically), and 27/27 checks against the deployed plugin
+   on the device.
 
 0g. **Multi-mod archives, and any archive nested more than one folder deep.**
 

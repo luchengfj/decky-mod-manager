@@ -1,0 +1,70 @@
+{
+  "schema": "deckymod/game-descriptor@1",
+  "id": "factorio",
+  "status": "planned",
+  "engine": "file_drop",
+  "display_label": "Factorio (read-only descriptor, Step 4)",
+  "force_read_only": true,
+  "note": "STEP 4 (goal-221c8ac6 rev2): second-game READ-ONLY descriptor used to PROVE the ManifestParser layer is pluggable. Its manifest is info.json with a DIFFERENT field set (name/version/title/author/factorio_version) than SMAPI's manifest.json (UniqueID/Name/Version/Author) — yet FileDropEngine enumerates/parses it through the SAME JsonMapParser with ZERO engine-code changes: only this descriptor JSON differs. status stays PLANNED (never production-enabled), force_read_only=true so every write RPC is refused, detection_only=true. The device has NO Factorio install (no appmanifest_427520), so validation is a SYNTHETIC TREE only (tests/test_parser_pluggability.py) — it is NOT a real-game write-back sign-off and does NOT close G3. Original scaffolding note: demoted by review #1 (selection A). The legacy json_toggle_list mutator shape is retained below for reference but is NOT the engine selected here.",
+
+  "identity": { "appid": 427520, "name": "Factorio", "platform": "linux-native", "status": "planned" },
+
+  "paths": {
+    "mod_root": "${HOME}/.factorio/mods",
+    "state_file": "${HOME}/.factorio/mods/mod-list.json",
+    "staging": "${HOME}/.factorio/.decky-staging",
+    "quarantine": "${HOME}/.factorio/.decky-quarantine/${TXN_ID}",
+    "journal": "${DECKY_DATA}/journal/factorio.jsonl",
+    "snapshots": "${DECKY_DATA}/snapshots/${TXN_ID}"
+  },
+
+  "loaders": [],
+
+  "mod_package": {
+    "archive_format": "zip",
+    "parser": "json_map",
+    "manifest_globs": ["info.json", "*/info.json"],
+    "manifest_format": "json",
+    "install_relpath_prefix": "mods/",
+    "field_map": {
+      "id": "name",
+      "name": "title",
+      "version": "version",
+      "author": "author",
+      "minimum_api_version": "factorio_version",
+      "dependencies": ["dependencies"],
+      "dependency_id_keys": ["name", "id"]
+    },
+    "id_regex": "^[a-z0-9][a-z0-9_-]*$",
+    "id_normalize": "none",
+    "required_manifest_fields": ["name", "version", "factorio_version"],
+    "install_filename_template": "${id}_${version}.zip",
+    "install_is_directory": false,
+    "limits": { "max_compressed_bytes": 268435456, "max_uncompressed_bytes": 268435456, "max_entries": 4096, "max_compression_ratio": 100, "max_path_depth": 16 },
+    "field_map_note": "SAME JsonMapParser as stardew, but a DIFFERENT field set and a DIFFERENT manifest filename (info.json). This is the Step 4 pluggability proof: enum/parse works with zero .py changes — only this descriptor differs.",
+    "id_extraction": { "json_path": "$.name", "regex": "^[a-z0-9][a-z0-9_-]*$" }
+  },
+
+  "state_mutator": {
+    "strategy": "json_toggle_list",
+    "list_path": "$.mods",
+    "entry_key": "name",
+    "enabled_key": "enabled",
+    "builtin": "base",
+    "builtin_locked": true,
+    "preserve_unknown_entries": true,
+    "write_mode": "atomic_replace"
+  },
+
+  "conflict_policy": { "duplicate": "reject_with_replace_option", "file_collision": "reject", "dependency": "metadata_only", "load_order": "append_only" },
+
+  "capabilities": {
+    "local_import": true, "detection_only": true, "gamepad_only": true, "history_refresh": true,
+    "enable_disable": false, "uninstall_quarantine": false, "rollback": false,
+    "loader_install": false, "launch_option_edit": false, "dll_override": false, "proton_prefix_write": false,
+    "exe_installer": false, "network_download": false, "workshop": false, "load_order_solver": false,
+    "dependency_solver": false, "requires_root": false, "requires_readonly_toggle": false, "universal_one_click": false
+  },
+
+  "safety": { "refuse_if_game_running": true, "recheck_before_commit": true, "post_commit_verify": true, "verify_on_open": true }
+}

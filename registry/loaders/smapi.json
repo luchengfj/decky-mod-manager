@@ -1,0 +1,26 @@
+{
+  "schema": "deckymod/loader@1",
+  "id": "smapi",
+  "status": "detect_only",
+  "name": "SMAPI (Stardew Modding API)",
+  "type": "external_launcher",
+  "applies_to_platform": "linux-native / windows",
+  "detect": { "patterns": ["StardewModdingAPI", "smapi-internal/"] },
+  "install_files": ["StardewModdingAPI", "smapi-internal/"],
+  "install_policy": "NEVER_INSTALL",
+  "launch_requirements": {
+    "launch_options_template": "\"${GAME_ROOT}/StardewModdingAPI\" %command%",
+    "launch_options_policy": "MUST_ALREADY_BE_SET_BY_USER",
+    "dll_override": null,
+    "needs_proton": false
+  },
+  "launch_requirements_note": "DETECT-ONLY semantics (approved 2026-11-14): this template is REFERENCE metadata used to CHECK that the user's Steam launch options already point at SMAPI. The plugin NEVER writes/sets launch options, NEVER installs SMAPI, NEVER applies a DLL override, NEVER touches a Proton prefix. Missing launcher -> E_LOADER_MISSING (an error, not an install).",
+  "mod_root_template": "${GAME_ROOT}/Mods",
+  "state_mutator_ref": "file_drop",
+  "external_manager": {
+    "markers": [".mm_deployed", "Mods_Core"],
+    "on_detect": "E_EXTERNAL_MANAGER_READONLY",
+    "note": "Flatpak io.github.Amethyst.ModManager deploys Mods/ via symlinks + Mods_Core/. When detected the plugin refuses every write (status/list_inbox/inspect remain available). Never move/rewrite symlinks or Mods_Core/."
+  },
+  "notes": "SMAPI mods are directories with manifest.json in Mods/. Note the collision with RimWorld's Mods/ folder name - each descriptor resolves its OWN mod_root, never a shared global. This loader entry is ACTIVE as DETECT-ONLY metadata for the stardew descriptor; it is not an installer."
+}

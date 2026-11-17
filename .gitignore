@@ -1,0 +1,42 @@
+# Decky build dependencies
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local-only runtime state (never commit real Deck paths / journals)
+.decky-staging/
+.decky-quarantine/
+.decky-disabled/
+.decky-test-tmp/
+.decky-data/
+journal/
+snapshots/
+*.log
+
+# Local investigation scratch: contains SSH private keys, an old API-key
+# dump, device screenshots and machine-specific probe output.
+# NEVER commit this directory.
+.decky-probe/
+.probe/
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+nexus_api_key
+*.tar
+*.tar.gz
+
+# Build output: rebuilt by CI, shipped as a GitHub Release asset (the ZIP is
+# what Decky Loader installs), not committed to the tree.
+dist/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

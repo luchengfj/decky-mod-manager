@@ -1,0 +1,19 @@
+{
+  "schema": "deckymod/loader@1",
+  "id": "bepinex5",
+  "status": "planned",
+  "name": "BepInEx 5",
+  "version": "5.4.23",
+  "applies_to_platform": "windows-proton (and some unity-mono native)",
+  "type": "doorstop_injection",
+  "detect": { "patterns": ["BepInEx/core/BepInEx.dll", "winhttp.dll"] },
+  "install_files": ["BepInEx/", "doorstop_config.ini", "winhttp.dll"],
+  "launch_requirements": {
+    "launch_options_template": "WINEDLLOVERRIDES=\"winhttp.dll=n,b\" %command%",
+    "dll_override": "winhttp.dll=n,b",
+    "needs_proton": true
+  },
+  "mod_root_template": "${GAME_ROOT}/BepInEx/plugins",
+  "state_mutator_ref": "file_drop",
+  "notes": "PLANNED. Installing files, editing Steam launch options, or writing into compatdata/<appid>/pfx are all refused in MVP (E_CAPABILITY_DISABLED). Kept as the canonical example of a loader that needs a launch-option edit + DLL override."
+}

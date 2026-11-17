@@ -1,0 +1,19 @@
+{
+  "schema": "deckymod/loader@1",
+  "id": "melonloader",
+  "status": "planned",
+  "name": "MelonLoader",
+  "version": "0.6.x",
+  "type": "doorstop_injection",
+  "applies_to_platform": "windows / windows-proton (unity il2cpp)",
+  "detect": { "patterns": ["MelonLoader/Managed/", "version.dll"] },
+  "install_files": ["MelonLoader/", "version.dll"],
+  "launch_requirements": {
+    "launch_options_template": "WINEDLLOVERRIDES=\"version.dll=n,b\" %command%",
+    "dll_override": "version.dll=n,b",
+    "needs_proton": true
+  },
+  "mod_root_template": "${GAME_ROOT}/Mods",
+  "state_mutator_ref": "file_drop",
+  "notes": "PLANNED. Same shape as BepInEx (doorstop + DLL override + launch option). Grouped to show the descriptor schema covers multiple loaders without code changes."
+}

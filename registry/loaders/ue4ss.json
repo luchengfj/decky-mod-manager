@@ -1,0 +1,18 @@
+{
+  "schema": "deckymod/loader@1",
+  "id": "ue4ss",
+  "status": "planned",
+  "name": "UE4SS (Unreal Engine 4 Scripting System)",
+  "type": "proxy_dll",
+  "applies_to_platform": "windows-proton",
+  "detect": { "patterns": ["UE4SS.dll", "dwmapi.dll"] },
+  "install_files": ["UE4SS.dll", "dwmapi.dll", "UE4SS-settings.ini", "Mods/"],
+  "launch_requirements": {
+    "launch_options_template": "WINEDLLOVERRIDES=\"dwmapi.dll=n,b\" %command%",
+    "dll_override": "dwmapi.dll=n,b",
+    "needs_proton": true
+  },
+  "mod_root_template": "${GAME_ROOT}/ue4ss/Mods",
+  "state_mutator_ref": "file_drop",
+  "notes": "PLANNED. Proxy-DLL pattern (dwmapi.dll). Requires launch-option edit in Windows games - refused in MVP."
+}

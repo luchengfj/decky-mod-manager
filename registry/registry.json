@@ -1,0 +1,84 @@
+{
+  "schema": "deckymod/game-registry@1",
+  "version": "0.2.0-stardew",
+  "active_game": "stardew",
+  "notes": "ACTIVE GAME = stardew (AppID 413150, SMAPI, DETECT-ONLY). rimworld is retained as a PLANNED descriptor purely so the 33 historical regression tests keep running (they pin DECKYMOD_GAME_ID=rimworld). factorio/valheim/future loaders are planned scaffolding refused by the capability gate. This file is DATA, not code: exactly ONE descriptor may be enabled at a time (max_enabled_games_in_mvp=1). There is NO universal one-click install. The stardew path NEVER installs SMAPI, edits Steam launch options, writes a Proton pfx, or uses a DLL override; it is read-only/detection when an external mod manager owns the Mods/ tree.",
+
+  "variables": {
+    "DECKY_DATA": "Decky-managed persistent data dir (DECKY_PLUGIN_RUNTIME_DIR/data). POSIX, on internal SSD.",
+    "DECKY_INBOX": "Fixed drop-folder for local ZIP files (DECKY_PLUGIN_RUNTIME_DIR/inbox).",
+    "DECKY_PLUGIN_LOG_DIR": "Decky-managed log dir.",
+    "XDG_CONFIG": "$XDG_CONFIG_HOME if set else $HOME/.config. Used for the game's state file.",
+    "STEAM_LIBRARY": "Resolved Steam library root that actually contains appmanifest_<appid>.acf for this game. NEVER hard-coded.",
+    "APP_INSTALL_DIR": "Verbatim 'installdir' value from appmanifest_<appid>.acf (case-sensitive, != store title).",
+    "GAME_ROOT": "realpath(STEAM_LIBRARY/steamapps/common/APP_INSTALL_DIR).",
+    "TXN_ID": "Per-transaction opaque id (timestamp + random), used to namespace snapshots/quarantine."
+  },
+
+  "allowed_write_roots": [
+    "${DECKY_DATA}",
+    "${DECKY_INBOX}",
+    "${DECKY_PLUGIN_LOG_DIR}",
+    "${STEAM_LIBRARY}/steamapps/common/${APP_INSTALL_DIR}/Mods",
+    "${XDG_CONFIG}/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Config"
+  ],
+  "allowed_write_roots_stardew_note": "stardew uses the SAME Mods root but NO XDG state-file root (state_file=null, file_drop strategy). A sibling .decky-staging/.decky-quarantine on the Mods filesystem remains the single approved quarantine exception.",
+  "allowed_write_roots_note": "Everything the plugin writes MUST be under one of these roots (or a sibling .decky-staging/.decky-quarantine of the SAME filesystem, see descriptor.paths). Quarantine is the one approved exception to '#4 journal/quarantine in DECKY_DATA': it must live on W2's filesystem to avoid EXDEV(18) on cross-device os.replace.",
+
+  "conflict_defaults": {
+    "duplicate": "reject_with_replace_option",
+    "file_collision": "reject",
+    "dependency": "metadata_only",
+    "load_order": "append_only",
+    "case_handling": "case_insensitive_listdir",
+    "symlink_policy": "reject"
+  },
+
+  "capability_gate": {
+    "enabled_game_status": "enabled",
+    "max_enabled_games_in_mvp": 1,
+    "refuse_if_capability_false": true,
+    "refuse_if_status_not_enabled": true,
+    "note": "Any operation whose required capability is false returns E_CAPABILITY_DISABLED. A descriptor with status!=enabled returns E_CAPABILITY_DISABLED. There is no universal one-click install."
+  },
+
+  "loader_catalog": {
+    "bepinex5": "registry/loaders/bepinex5.json",
+    "smapi": "registry/loaders/smapi.json",
+    "xnvse": "registry/loaders/xnvse.json",
+    "ue4ss": "registry/loaders/ue4ss.json",
+    "melonloader": "registry/loaders/melonloader.json"
+  },
+  "loader_catalog_note": "smapi is DETECT-ONLY for stardew: it is checked for presence, NEVER installed (see loaders/smapi.json). The other 4 loaders remain PLANNED scaffolding refused by the capability gate. No loader is ever installed by this plugin.",
+
+  "descriptors": {
+    "stardew": {
+      "file": "registry/games/stardew.json",
+      "status": "enabled",
+      "appid": 413150,
+      "platform": "linux-native",
+      "selection": "B (approved 2026-11-14): Stardew Valley + SMAPI, DETECT-ONLY. Depends on a user-installed SMAPI + user-set Steam launch options; the plugin never installs a loader, never edits launch options, never writes pfx. Read-only mode when an external mod manager owns Mods/."
+    },
+    "rimworld": {
+      "file": "registry/games/rimworld.json",
+      "status": "planned",
+      "appid": 294100,
+      "platform": "linux-native",
+      "selection": "HISTORICAL REGRESSION (selection A, originally approved): retained so the 33 synthetic-tree tests keep running via DECKYMOD_GAME_ID=rimworld. No longer the active game since the user has no RimWorld installed. Not enabled in production."
+    },
+    "factorio": {
+      "file": "registry/games/factorio.json",
+      "status": "planned",
+      "appid": 427520,
+      "platform": "linux-native",
+      "selection": "Demoted from the first draft's sample game. Kept as a second json_toggle_list shape example. NOT active in MVP."
+    },
+    "valheim": {
+      "file": "registry/games/valheim.json",
+      "status": "planned",
+      "appid": 892970,
+      "platform": "windows-proton",
+      "selection": "B (declined): BepInEx/Proton class. Would require loader install + WINEDLLOVERRIDES launch-option edit + pfx write, i.e. three §3.8 hard prohibitions. Refused."
+    }
+  }
+}

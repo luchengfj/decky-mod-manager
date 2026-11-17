@@ -1,0 +1,13 @@
+{
+  "name": "Decky MOD Manager",
+  "author": "local",
+  "version": "0.2.0",
+  "description": "Gamepad-first MOD manager for Steam Deck Game Mode. Detect installed games and their mods, install from a local ZIP or a direct download, enable/disable, uninstall and roll back. No root, no read-only toggle, no universal one-click install.",
+  "api_version": 1,
+  "flags": [],
+  "publish": {
+    "tags": ["utility", "mods"],
+    "image": "",
+    "description": "Browse your Steam library and the mods each game actually has, import a mod ZIP (or fetch one over HTTPS), enable/disable it, uninstall it, and roll back a bad install. Ships with Stardew Valley / SMAPI support in detect-only mode; other games are identified read-only until a descriptor is added."
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "deckymod/loader@1",
+  "id": "xnvse",
+  "status": "planned",
+  "name": "xNVSE (New Vegas Script Extender)",
+  "type": "dll_override",
+  "applies_to_platform": "windows-proton",
+  "detect": { "patterns": ["nvse_loader.exe", "nvse_1_4.dll"] },
+  "install_files": ["nvse_loader.exe", "nvse_1_4.dll", "Data/NVSE/"],
+  "launch_requirements": {
+    "launch_options_template": "WINEDLLOVERRIDES=\"d3d9.dll=n,b\" %command%",
+    "dll_override": "d3d9.dll=n,b",
+    "needs_proton": true
+  },
+  "mod_root_template": "${GAME_ROOT}/Data",
+  "state_mutator_ref": "file_drop",
+  "notes": "PLANNED. Note install_files contain a .exe (nvse_loader.exe) which our MVP reject_extensions would refuse - a future loader-install milestone must explicitly whitelist loader binaries, never arbitrary archive .exe content."
+}

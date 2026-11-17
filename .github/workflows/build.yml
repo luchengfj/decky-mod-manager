@@ -1,0 +1,36 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend-selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile all backend modules
+        run: python -m compileall -q deckymod main.py
+      - name: Validate registry JSON
+        run: python -c "import json,glob,sys; [json.load(open(p,encoding='utf-8')) for p in glob.glob('registry/**/*.json',recursive=True)]; print('registry JSON OK')"
+      - name: Run stdlib-only self-tests (synthetic Steam tree)
+        run: python -m unittest discover -s tests -v
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pnpm
+        run: npm i -g pnpm@9
+      - name: Install (versions pinned by pnpm-lock.yaml)
+        run: pnpm install --frozen-lockfile
+      - name: Build frontend bundle
+        run: pnpm run build

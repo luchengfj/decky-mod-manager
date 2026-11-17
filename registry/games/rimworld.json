@@ -1,0 +1,152 @@
+{
+  "schema": "deckymod/game-descriptor@1",
+  "id": "rimworld",
+  "status": "planned",
+  "engine": "xml_list",
+  "display_label": "RimWorld MVP (selection A, historical)",
+  "engine_note": "engine:xml_list selects the legacy RimWorld Engine via ENGINE_FACTORY. Kept PLANNED in production; the 33 historical tests pin DECKYMOD_GAME_ID=rimworld. This descriptor is NOT migrated to ManifestParser (archive.inspect_mod / state_mutator stay byte-identical).",
+
+  "identity": {
+    "appid": 294100,
+    "name": "RimWorld",
+    "platform": "linux-native",
+    "status": "planned",
+    "note": "HISTORICAL REGRESSION (selection B, approved 2026-11-14): this descriptor is PLANNED in production (active_game=stardew). The 33 synthetic-tree tests pin DECKYMOD_GAME_ID=rimworld to keep exercising it. AppID 294100 native Linux, no Proton prefix. ⚠️ VERIFICATION V9: exact installdir casing from appmanifest_294100.acf."
+  },
+
+  "paths": {
+    "game_root": "${GAME_ROOT}",
+    "mod_root": "${GAME_ROOT}/Mods",
+    "state_file": "${XDG_CONFIG}/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Config/ModsConfig.xml",
+    "state_staging": "${XDG_CONFIG}/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Config/.decky-staging",
+    "staging": "${GAME_ROOT}/.decky-staging",
+    "quarantine": "${GAME_ROOT}/.decky-quarantine/${TXN_ID}",
+    "journal": "${DECKY_DATA}/journal/rimworld.jsonl",
+    "snapshots": "${DECKY_DATA}/snapshots/${TXN_ID}",
+    "notes": [
+      "state_file is W1 (internal SSD, POSIX). Path contains literal spaces; treat as a single string, never word-split. ⚠️ V14: verify exact path incl. XDG_CONFIG_HOME, casing, and 1.4/1.5/1.6 differences.",
+      "mod_root is W2 (the game install, possibly on microSD/exFAT). Each mod installs as its own DIRECTORY Mods/<packageId>/.",
+      "staging and quarantine are SIBLINGS of Mods/ (under GAME_ROOT), NOT inside Mods/. RimWorld scans Mods/ child dirs for About/About.xml; a staging/quarantine dir inside Mods/ could be misread. ⚠️ V16: confirm whether RimWorld ignores dot-directories.",
+      "Quarantine MUST live on W2's filesystem: cross-filesystem os.replace of a whole mod directory raises EXDEV(18). This is the single approved exception to review-#4 (journal/quarantine/logs in DECKY_DATA). journal still records original path, quarantine path and txn id.",
+      "state_staging is a sibling of the Config dir so atomic_replace of ModsConfig.xml never crosses filesystems."
+    ]
+  },
+
+  "loaders": [],
+  "loaders_note": "Empty by design (selection A). No BepInEx/SMAPI/xNVSE/UE4SS/MelonLoader install in MVP. E_LOADER_REQUIRED and E_PROTON_PREFIX_MISSING are retained in the error table only as wording for planned games.",
+
+  "mod_package": {
+    "archive_format": "zip",
+    "magic": "504b0304",
+    "manifest_globs": ["About/About.xml", "*/About/About.xml"],
+    "manifest_format": "xml",
+    "strip_single_root": true,
+    "id_extraction": {
+      "xpath": "/ModMetaData/packageId/text()",
+      "regex": "^[a-z0-9][a-z0-9_.-]*$",
+      "normalize": "lowercase",
+      "note": "packageId legitimately contains dots (e.g. brrainz.harmony). validate_with lowercases before regex."
+    },
+    "version_extraction": {
+      "xpath": "/ModMetaData/modVersion/text()",
+      "fallback": "sha256:12"
+    },
+    "supported_versions_extraction": {
+      "xpath": "/ModMetaData/supportedVersions/li/text()",
+      "note": "Informational badge only. MVP does NOT reject on version mismatch."
+    },
+    "metadata_badges": ["loadAfter", "dependencies"],
+    "metadata_badges_note": "<loadAfter>/<dependencies> from About.xml are shown as info badges ONLY. No dependency solver, no load-order solver (both capability=false).",
+    "required_manifest_fields": ["packageId", "name", "supportedVersions"],
+    "install_filename_template": "${id}",
+    "install_is_directory": true,
+    "limits": {
+      "max_compressed_bytes": 268435456,
+      "max_uncompressed_bytes": 268435456,
+      "max_entries": 4096,
+      "max_compression_ratio": 100,
+      "max_path_depth": 16
+    },
+    "reject": [
+      "absolute_paths",
+      "parent_traversal",
+      "backslash_paths",
+      "symlinks",
+      "hardlinks",
+      "devices",
+      "duplicate_entries",
+      "encrypted_entries"
+    ],
+    "reject_extensions": [".exe", ".msi", ".bat", ".cmd", ".ps1", ".scr", ".com", ".jar"],
+    "notes": "Windows .exe/.msi installers are refused outright (§3.4 forward-looking constraint). We never execute archive contents. The archive is unpacked, not installed."
+  },
+
+  "state_mutator": {
+    "strategy": "xml_list",
+    "list_xpath": "/ModsConfigData/activeMods",
+    "entry_tag": "li",
+    "entry_is_text": true,
+    "order_sensitive": true,
+    "write_impl": "surgical_line_edit",
+    "validate_with": "ElementTree(readonly)",
+    "locked_builtin_entries": [
+      { "packageId": "ludeon.rimworld", "position": "first", "locked": true }
+    ],
+    "core_invariant": "activeMods must contain ludeon.rimworld as the FIRST <li>. Missing or out of position -> E_CORE_MISSING, operation refused.",
+    "preserve_unknown_entries": true,
+    "preserve_unknown_entries_note": "DLC (ludeon.rimworld.*), Workshop items, and any <li> we did not create are left byte-for-byte untouched. We only add/remove the single <li> for the managed packageId.",
+    "insert_mode": "append_to_end",
+    "write_mode": "atomic_replace",
+    "encoding": "utf-8",
+    "notes": [
+      "install != enable. install = unpack dir into Mods/<packageId>/; enable = append <li>packageId</li> to <activeMods>.",
+      "surgical_line_edit: ElementTree is used ONLY to validate/parse the file read-only. The WRITE inserts or deletes exactly one <li>...</li> line inside the <activeMods> block and leaves every other byte (comments, indentation, <version>, knownExpansions) unchanged. ElementTree re-serialization would drop comments/formatting - forbidden. ⚠️ V15: confirm RimWorld accepts this write-back.",
+      "RimWorld may rewrite ModsConfig.xml on quit -> verify_on_open and E_STATE_EXTERNAL drift detection are mandatory (safety.verify_on_open=true)."
+    ]
+  },
+
+  "conflict_policy": {
+    "duplicate": "reject_with_replace_option",
+    "duplicate_key": "packageId",
+    "file_collision": "reject",
+    "file_collision_note": "If Mods/<packageId>/ already exists and is NOT tracked in our journal -> E_FILE_COLLISION (refuse, never silently overwrite).",
+    "dependency": "metadata_only",
+    "load_order": "append_only"
+  },
+
+  "capabilities": {
+    "local_import": true,
+    "enable_disable": true,
+    "uninstall_quarantine": true,
+    "rollback": true,
+    "atomic_state_write": true,
+    "gamepad_only": true,
+    "history_refresh": true,
+
+    "loader_install": false,
+    "launch_option_edit": false,
+    "dll_override": false,
+    "proton_prefix_write": false,
+    "exe_installer": false,
+    "network_download": false,
+    "workshop": false,
+    "load_order_solver": false,
+    "dependency_solver": false,
+    "requires_root": false,
+    "requires_readonly_toggle": false,
+    "universal_one_click": false
+  },
+
+  "safety": {
+    "refuse_if_game_running": true,
+    "recheck_before_commit": true,
+    "post_commit_verify": true,
+    "verify_on_open": true
+  },
+
+  "known_limitations": [
+    "insert_mode=append_to_end + load_order_solver=false + dependency_solver=false: ordering-sensitive mods (e.g. brrainz.harmony must load before dependants) appended at the END may not work. Reordering must be done in-game by the user (out of MVP). This is stated honestly in the UI.",
+    "No automatic conflict/dependency resolution, no network/Workshop, no loaders, no load-order editing, no Proton prefix access, no .exe installers."
+  ],
+  "known_limitation_keys": ["LIMIT_ORDER_APPEND", "LIMIT_NO_AUTO_RESOLVE"]
+}

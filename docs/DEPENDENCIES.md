@@ -1,0 +1,125 @@
+# Downloading a mod's dependencies
+
+Round 38 answers a user question: *"还有以及MOD下载的过程，能否把依赖项一起下载"* —
+when a mod is downloaded, can its required dependencies come along?
+
+The answer is yes, with one rule that turned out to be the whole problem:
+**a downloaded file is only a dependency if the manifest inside it says so.**
+
+## Why the obvious implementation is wrong
+
+Two facts, both measured on the Deck rather than assumed:
+
+1. **A monorepo publishes one release per mod.** `zombifier/My_Stardew_Mods`
+   has four releases and four assets:
+
+   | tag | asset | id |
+   |---|---|---|
+   | `custom-builders/0.0.2` | `CustomBuilders.0.0.2.zip` | 242074360 |
+   | `custom-builders/0.0.1` | `CustomBuilders.0.0.1.zip` | 241151493 |
+   | `furniture-machine/0.0.2` | `FurnitureMachine.0.0.2.zip` | 212285549 |
+   | `furniture-machine/0.0.1` | `FurnitureMachine.0.0.1.zip` | 211996093 |
+
+   So "take the first usable `.zip` in the repo the index named" is a guess,
+   and it is frequently wrong. Both `selph.ExtraMachineConfig` and
+   `selph.FurnitureMachine` resolve to this same repo.
+
+2. **The public index covers less than it appears to.** Of the four
+   dependencies actually missing on the test device, two are not in the index
+   with any usable repository at all.
+
+## The rule
+
+Resolution is two stages, and the second stage is not optional:
+
+1. Ask `smapi.io/api/v2.2/mods` which GitHub repo (if any) publishes the id.
+2. Download candidate assets, open each one, and accept it **only** when
+   `manifest.json` declares the same `UniqueID`. Anything else is deleted and
+   the next candidate is tried, within a fixed budget
+   (`MAX_CANDIDATES_PER_DEP = 4`, `MAX_DEPS = 20`).
+
+Ordering candidates by name similarity is only a hint. It never authorises an
+install.
+
+## What a device run actually did
+
+Plan phase (`allow_install=False`) — inert, inbox unchanged:
+
+```
+MISSING 4
+OK True  PHASE inspect  TOTAL 4 FETCHABLE 2  INBOX_UNCHANGED True
+  Xiddav.tilesheet        resolvable=False reason=no_repo_in_index
+  hxw.tilesheets          resolvable=False reason=no_repo_in_index
+  selph.ExtraMachineConfig resolvable=True  repo=zombifier/My_Stardew_Mods candidates=4
+      cand 242074360 CustomBuilders.0.0.2.zip 31511
+  selph.FurnitureMachine  resolvable=True  repo=zombifier/My_Stardew_Mods candidates=4
+      cand 212285549 FurnitureMachine.0.0.2.zip 34005
+```
+
+Note the first candidate for `ExtraMachineConfig` is `CustomBuilders` — a
+different mod. Install phase, after verification:
+
+```
+MODS_BEFORE 29
+PHASE installed  INSTALLED 1  ATTEMPTED 4
+  Xiddav.tilesheet         installed=False reason=no_repo_in_index
+  hxw.tilesheets           installed=False reason=no_repo_in_index
+  selph.ExtraMachineConfig installed=False reason=candidate_failed
+      detail=asset declares 'selph.FurnitureMachine', expected 'selph.ExtraMachineConfig'
+  selph.FurnitureMachine   installed=True  asset=FurnitureMachine.0.0.2.zip
+MODS_AFTER 30  ADDED ['selph.furnituremachine']
+```
+
+The wrong mod was refused by name; the right one landed. A follow-up query of
+the repo with `per_page=100` confirmed the index claim is simply wrong —
+there is no `ExtraMachineConfig` asset in that repository, so refusing was the
+only honest outcome.
+
+## The bug that run found
+
+The first implementation stopped at the first dependency it could not install.
+On the device that meant `ExtraMachineConfig` failing **prevented
+`FurnitureMachine` from ever being attempted**, even though it was
+downloadable. Dependencies are independent, so the loop now continues and
+reports each failure separately. `tests/test_deps.py::test_a_refused_install_does_not_block_the_other_dependencies`
+pins this; it failed against the old code (`attempted == 1`) and passes now
+(`attempted == 2`).
+
+## Surface
+
+* New RPC `fetch_dependencies(allow_install, after_confirm)` — the 17th. Same
+  TRI-STATE contract as every other download: plan / confirm / execute, and
+  phase 3 returns the engine's own `E_EXTERNAL_MANAGER` verbatim.
+* New module `deckymod/deps.py`. It reuses `deckymod/download.py` for all HTTP
+  (pinned hosts, capped reads, the shared error codes) — it opens no socket of
+  its own, which `test_it_does_not_open_its_own_sockets` asserts.
+* `download.default_opener` gained an optional `body` argument, because the
+  index endpoint answers `405` to `GET`. Default `None` leaves every existing
+  call unchanged.
+* UI: two ButtonItems in the download section (`DEPS_BTN` / `DEPS_INSTALL_BTN`)
+  and a per-dependency report. 21 new i18n keys, en/zh parity 357.
+* No new error codes: `errors.py` is still 50. The resolver's failures are
+  reported as a per-row `reason` inside a successful envelope, because "four
+  dependencies were checked and two could not be fetched" is information, not
+  an error.
+
+## Bounded by design
+
+| limit | value | why |
+|---|---|---|
+| dependencies per call | 20 | a download that fans out without bound is a denial of service on yourself |
+| candidates per dependency | 4 | enough for versioned assets, small enough to stay inside the GitHub rate limit |
+| index response | 4 MiB | refused rather than buffered |
+| one download | 256 MiB | the existing shared cap |
+
+## What is proven, and what is not
+
+Proven on the device: the plan phase writes nothing; the wrong-mod candidate is
+refused with the declaring vs expected ids in the detail; the correct
+dependency installs and its manifest is on disk; a failed dependency no longer
+blocks the others; nothing else in `Mods/` changed.
+
+Not proven: that a game session actually loads the freshly installed
+dependency (that needs a game launch after the install), and that the resolver
+behaves well for a mod whose dependencies form a deep chain — the loop is
+one level deep by design and does not recurse.

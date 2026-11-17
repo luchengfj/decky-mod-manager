@@ -1,0 +1,64 @@
+{
+  "schema": "deckymod/game-descriptor@1",
+  "id": "valheim",
+  "status": "planned",
+  "engine": "unsupported",
+  "display_label": "Valheim (unsupported scaffolding)",
+  "engine_note": "engine:unsupported has NO ENGINE_FACTORY entry on purpose — this descriptor represents the DECLINED BepInEx/Proton class and can never be dispatched. It stays pure-data to prove the registry scales to windows-proton games without granting any capability.",
+  "note": "Scaffolding only. Represents selection B (BepInEx/Proton class) which the user DECLINED. status=planned so the capability gate refuses it. Enabling it would require relaxing three §3.8 hard prohibitions: loader install, launch-option/WINEDLLOVERRIDES edit, and pfx write. Kept pure-data to prove the registry scales to windows-proton games.",
+
+  "identity": { "appid": 892970, "name": "Valheim", "platform": "windows-proton", "status": "planned" },
+
+  "paths": {
+    "game_root": "${GAME_ROOT}",
+    "mod_root": "${GAME_ROOT}/BepInEx/plugins",
+    "proton_prefix": "${STEAM_LIBRARY}/steamapps/compatdata/892970/pfx",
+    "state_file": "${GAME_ROOT}/BepInEx/config/decky-mod-manager.json",
+    "staging": "${GAME_ROOT}/.decky-staging",
+    "quarantine": "${GAME_ROOT}/.decky-quarantine/${TXN_ID}",
+    "journal": "${DECKY_DATA}/journal/valheim.jsonl",
+    "snapshots": "${DECKY_DATA}/snapshots/${TXN_ID}",
+    "notes": "proton_prefix is RECORDED as a design placeholder but proton_prefix_write capability is false and no code path writes into pfx in MVP. ⚠️ V8: prefix may not exist until first launch; never create a prefix on the user's behalf."
+  },
+
+  "loaders": [
+    {
+      "id": "bepinex5",
+      "type": "bepinex5",
+      "version": "5.4.23",
+      "status": "planned",
+      "detect": { "patterns": ["BepInEx/core/BepInEx.dll", "winhttp.dll"] },
+      "install_files": ["BepInEx/", "doorstop_config.ini", "winhttp.dll", "start_game_bepinex.sh"],
+      "launch_requirements": {
+        "launch_options_template": "WINEDLLOVERRIDES=\"winhttp.dll=n,b\" %command%",
+        "dll_override": "winhttp.dll=n,b",
+        "needs_proton": true
+      },
+      "mod_root": "${GAME_ROOT}/BepInEx/plugins",
+      "state_mutator_ref": "file_drop"
+    }
+  ],
+  "loaders_note": "Present as DATA ONLY. Installing these files / editing Steam launch options / writing pfx are all refused (E_CAPABILITY_DISABLED) in MVP.",
+
+  "mod_package": {
+    "archive_format": "zip",
+    "manifest_globs": ["manifest.json", "*/manifest.json"],
+    "manifest_format": "json",
+    "id_extraction": { "json_path": "$.name", "regex": "^[A-Za-z0-9._-]+$" },
+    "required_manifest_fields": ["name", "version_number"],
+    "limits": { "max_compressed_bytes": 268435456, "max_uncompressed_bytes": 268435456, "max_entries": 4096, "max_compression_ratio": 100, "max_path_depth": 16 }
+  },
+
+  "state_mutator": { "strategy": "file_drop", "write_mode": "atomic_replace" },
+
+  "conflict_policy": { "duplicate": "reject_with_replace_option", "file_collision": "reject", "dependency": "metadata_only", "load_order": "append_only" },
+
+  "capabilities": {
+    "local_import": false, "enable_disable": false, "uninstall_quarantine": false, "rollback": false,
+    "loader_install": false, "launch_option_edit": false, "dll_override": false, "proton_prefix_write": false,
+    "exe_installer": false, "network_download": false, "workshop": false, "load_order_solver": false,
+    "dependency_solver": false, "requires_root": false, "requires_readonly_toggle": false, "universal_one_click": false
+  },
+
+  "safety": { "refuse_if_game_running": true, "recheck_before_commit": true, "post_commit_verify": true, "verify_on_open": true }
+}

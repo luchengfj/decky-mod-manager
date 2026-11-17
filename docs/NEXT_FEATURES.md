@@ -16,6 +16,7 @@ features are deliberately excluded.
 | See which mods ship the same file, without pretending to fix load order | works, read-only (Round 47) |
 | Tell you which quarantined mods can still come back, and which cannot | works, read-only (Round 48) |
 | Know which Nexus page a mod you already installed came from | works, read-only (Round 49) |
+| Refuse to change mods while the game is actually running | works, read-only check (Round 50, docs/RUNNING_GAME.md) |
 | Enable / disable / uninstall / roll back | works (folder move in and out of the game's `Mods/`) |
 | See required dependencies and download the ones that are fetchable | works, up to 3 levels deep (Round 45) |
 | Download mods | GitHub Releases + direct HTTPS URL only |
@@ -37,6 +38,17 @@ features are deliberately excluded.
   `root: "downloads"` now appears next to the 13 inbox entries.
 
 ## P0 — must exist before this is safe to hand to a stranger
+
+0. ~~**`refuse_if_game_running` was a promise the code did not keep.**~~
+   **SHIPPED in Round 50** (`deckymod/procs.py`, see `docs/RUNNING_GAME.md`).
+   The descriptor said `true` since Round 39 and all four destructive call
+   sites were present, but the only implementation read
+   `DECKYMOD_GAME_RUNNING` -- a test seam that production never sets. So a
+   mod could be uninstalled with the game holding its `.dll` files open, the
+   one failure a rollback cannot repair. Now decided from `/proc`
+   `argv[0]` (marker basename, or a path inside `GAME_ROOT`), with
+   `unknown` kept distinct from `stopped`. Proven on the device with a
+   stand-in launcher: `GATE_OK=False CODE=E_GAME_RUNNING`.
 
 1. ~~**Second-writer detection is Stardew-specific and marker-based.**~~
    **SHIPPED in Round 44** (`deckymod/modwatch.py`, see

@@ -96,6 +96,17 @@ export interface QuarantineEntry {
   restorable?: boolean;
 }
 
+/** Round 50: whether the game is running, read from /proc.
+ *  `unknown` means the check could not be performed -- it is never a
+ *  claim that the game is stopped, and the panel says so. */
+export interface RunningReport {
+  state?: "running" | "stopped" | "unknown";
+  pid?: string;
+  match?: string;
+  scanned?: number;
+  detail?: string;
+}
+
 export interface QuarantineReport {
   checked?: boolean;
   exists?: boolean;
@@ -190,6 +201,7 @@ export interface StateInfo {
    * code path can restore -- the user believes it is recoverable.
    */
   quarantine?: QuarantineReport;
+  running?: RunningReport;
   /** Step 2: [uid, [dirs]] pairs for duplicate UniqueIDs. */
   duplicate_ids?: [string, string[]][];
   /** Step 2: dependency ids referenced but not present in the mod set. */

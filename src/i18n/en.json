@@ -453,5 +453,7 @@
   "QUAR_RESTORABLE": "{n} folder(s) can still be restored with Rollback.",
   "QUAR_UNKNOWN": "The journal could not be read, so these folders are of unknown status -- not orphans.",
   "QUAR_NONE": "The quarantine is empty.",
-  "MODDETAIL_KEYS": "Declared update keys: {v}"
+  "MODDETAIL_KEYS": "Declared update keys: {v}",
+  "RUNNING_LINE": "The game is running -- close it before changing mods.",
+  "RUNNING_UNKNOWN": "Whether the game is running could not be checked."
 }

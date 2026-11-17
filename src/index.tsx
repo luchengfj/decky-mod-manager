@@ -1841,6 +1841,16 @@ function Content() {
    * recoverable. Shown only when the folder actually contains something --
    * an empty orphan is clutter, not a warning.
    */
+  // Round 50. The gate refuses writes while the game runs, so the panel
+  // must be able to say so -- a bare E_GAME_RUNNING reads as a bug.
+  const runningLine = (): string => {
+    const rr = status?.state?.running;
+    if (!rr || !rr.state || rr.state === "stopped") return "";
+    if (rr.state === "running") {
+      return t("RUNNING_LINE", "The game is running -- close it before changing mods.");
+    }
+    return t("RUNNING_UNKNOWN", "Whether the game is running could not be checked.");
+  };
   const quarantineLine = (): string => {
     const q = status?.state?.quarantine;
     if (!q || !q.checked) return "";
@@ -1961,6 +1971,13 @@ function Content() {
           <PanelSectionRow>
             <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
               {quarantineLine()}
+            </div>
+          </PanelSectionRow>
+        ) : null}
+        {runningLine() ? (
+          <PanelSectionRow>
+            <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
+              {runningLine()}
             </div>
           </PanelSectionRow>
         ) : null}

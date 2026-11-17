@@ -64,6 +64,16 @@
       "skipped_missing_ids": "aren't installed \\(([^)]+)\\)",
       "patched_row": "\\]\\s+-\\s+(?P<name>.+?)$",
       "notes": "READ-ONLY. The loader's summary block is the only evidence that a mod was actually accepted by the game rather than merely sitting in Mods/. Nothing here writes, fixes or reorders anything: a skipped mod is reported, never repaired. Patterns were transcribed from a real 150-line log; a log written in another dialect yields a reason string, never a guessed result."
+    },
+    "running_process_markers": [
+      "StardewModdingAPI",
+      "Stardew Valley",
+      "StardewValley"
+    ],
+    "running_detection": {
+      "enabled": true,
+      "note": "Read from /proc argv[0] only. The plugin matches an executable whose basename is one of running_process_markers, or whose path lies inside GAME_ROOT. It never matches a substring of a later argument, so a terminal sitting in Mods/ is not mistaken for the game. Running is reported as 'unknown', never as 'not running', when /proc cannot be listed. See deckymod/procs.py.",
+      "markers": "running_process_markers"
     }
   },
   "mod_package": {

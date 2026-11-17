@@ -73,7 +73,7 @@ src/
   api.ts                      @decky/api call/callable bridge, invoke() guard
   types.ts                    TS mirror of the JSON-safe envelope + per-RPC payload types
   i18n.ts                     t() / errorText() / categoryText(), zh-CN via navigator.language
-  i18n/en.json, zh-CN.json    455 keys each, parity enforced by validate_i18n.py
+  i18n/en.json, zh-CN.json    457 keys each, parity enforced by validate_i18n.py
   components/
     Modal.tsx                 gamepad-first showInfo / showListModal / showErrorModal / showFomodModal
     ConfirmModal.tsx          two-phase confirm (A=confirm, B=cancel)
@@ -99,6 +99,7 @@ deckymod/                     stdlib-only Python backend (no third-party deps)
   updatekeys.py               parses a mod's own UpdateKeys: the only
                               trustworthy source for its Nexus id
   quarantine.py               what the quarantine still holds, and what can no longer come back
+  procs.py                    is the game running? /proc argv[0], never a name search (Round 50)
   file_drop.py                file_drop engine helpers: presence == enabled, external-manager guard
   smapi.py                    FileDropEngine: status/inspect/install/enable/disable/uninstall/rollback
   fomod.py                    FOMOD descriptor parsing -> option-filtered extraction
@@ -118,7 +119,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        33 modules, 569 cases (`Ran 569 tests ... OK (skipped=9)`)
+tests/                        35 modules, 595 cases (`Ran 595 tests ... OK (skipped=9)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -133,6 +134,8 @@ tests/                        33 modules, 569 cases (`Ran 569 tests ... OK (skip
   test_conflicts_status.py    the scan is actually wired through status()
   test_updatekeys.py          site:id@channel shapes real manifests actually use
   test_quarantine.py          restorable vs orphan vs unknown, and no deletes
+test_procs.py               faked /proc: marker, path, unknown-is-not-stopped
+test_running_gate.py        every destructive op refuses while the game runs
   _verify.py                  compileall + registry JSON validation helper
 docs/                         see the index below
 .github/workflows/build.yml   CI: backend selftest + frontend build
@@ -225,15 +228,15 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 569 tests ... OK (skipped=9)  (LASTEXITCODE=0)
+python -m unittest discover -s tests -v  -> Ran 595 tests ... OK (skipped=9)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
-.decky-probe/validate_i18n.py            -> EN 455 / ZH 455, parity [] , EXIT=0
+.decky-probe/validate_i18n.py            -> EN 457 / ZH 457, parity [] , EXIT=0
 .decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 26, ALL_STATIC_CHECKS True
 .decky-probe/validate_download_wiring.py -> DOWNLOAD_WIRING_ALL_OK=True, EXIT=0
 .decky-probe/validate_api_arity.py       -> BACKEND_RPCS 26 / FRONTEND_CALLS 26 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
-.decky-probe/r4_tar_drift.py             -> TAR_COUNT 84 / CUR_COUNT 84, drift 0
+.decky-probe/r4_tar_drift.py             -> TAR_COUNT 98 / CUR_COUNT 98, drift 0
 ```
 
 Backend is stdlib-only and **runs** on this box (the Windows-portability fix in
@@ -281,6 +284,7 @@ Reading order for a newcomer, and what each file is for:
 | [RUNBOOK.md](RUNBOOK.md) / [ONDEVICE.md](ONDEVICE.md) | offline handover and on-device debugging checklists |
 | [NEXUS_ROADMAP.md](NEXUS_ROADMAP.md) | historical round notes, incl. §6.7 the Nexus metadata surface and why download links stay premium-only; snapshots are never backfilled |
 | [QUARANTINE.md](QUARANTINE.md) | what "uninstall" keeps, and when a kept folder can no longer be restored |
+| [RUNNING_GAME.md](RUNNING_GAME.md) | is the game running right now, and why that used to be an environment variable nobody set |
 | [UPDATE_KEYS.md](UPDATE_KEYS.md) | where a mod's Nexus id comes from, and why a guessed one would open someone else's mod |
 | [MOD_FOLDER_CONFLICTS.md](MOD_FOLDER_CONFLICTS.md) | which mods ship the same file, why scope belongs to the loader, and the 27 false alarms the device found |
 | [MOD_FOLDER_OWNERSHIP.md](MOD_FOLDER_OWNERSHIP.md) | who owns the Mods folder, and why a filename list can never answer that |

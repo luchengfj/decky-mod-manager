@@ -30,7 +30,7 @@ import os
 import shutil
 import time
 
-from . import archive, conflicts, file_drop, fomod, import_root, loaderlog, manifest, modwatch, paths, quarantine
+from . import archive, conflicts, file_drop, fomod, import_root, loaderlog, manifest, modwatch, paths, procs, quarantine
 from .envelope import err, ok
 from .errors import ModError
 from .fsops import ensure_dir, map_oserror, preflight_root, same_filesystem
@@ -76,10 +76,49 @@ class FileDropEngine:
         appid = self.registry.appid_for(self.game_id)   # from descriptor identity
         return paths.resolve(appid, preflight=True, no_state_file=True)
 
+    def _running(self, r: paths.ResolvedPaths) -> dict:
+        """Round 50: is the game running, decided from /proc argv[0].
+
+        ``safety.refuse_if_game_running`` was true in the descriptor while the
+        only implementation read an environment variable nothing sets, so the
+        flag was a promise the code did not keep. Markers come from the
+        descriptor; the decision comes from deckymod/procs.py.
+        """
+        det = self._descriptor().get("loader_detection", {}) or {}
+        cfg = det.get("running_detection") or {}
+        if cfg.get("enabled") is False:
+            return {"state": "unknown", "pid": "", "match": "", "scanned": 0,
+                    "detail": "running detection is disabled in the descriptor"}
+        markers = det.get(cfg.get("markers") or "running_process_markers") or []
+        try:
+            return procs.is_running(r.game_root, markers)
+        except Exception as exc:                     # noqa: BLE001 - never fail
+            return {"state": "unknown", "pid": "", "match": "", "scanned": 0,
+                    "detail": "%s: %s" % (type(exc).__name__, exc)}
+
     def _check_not_running(self):
+        """Refuse a write while the game has the mod files open.
+
+        The env-var seam is kept for tests and for an explicit override, but it
+        is no longer the only signal -- on this device nothing ever set it, so
+        every destructive op ran unchecked. ``unknown`` does NOT refuse: a
+        host without /proc would otherwise make the plugin write-nothing, and
+        the descriptor's ``post_commit_verify`` plus the journal are what cover
+        the rest. Refusing on ``running`` is the case that matters.
+        """
         marker = os.environ.get("DECKYMOD_GAME_RUNNING")
         if marker and marker.lower() in ("1", "true", "yes"):
             raise ModError("E_GAME_RUNNING", detail="DECKYMOD_GAME_RUNNING is set")
+        cfg = (self._descriptor().get("safety") or {})
+        if not cfg.get("refuse_if_game_running", True):
+            return
+        try:
+            r = self._resolve()
+        except ModError:
+            return          # resolution already failed; its own error is better
+        got = self._running(r)
+        if got.get("state") == "running":
+            raise ModError("E_GAME_RUNNING", detail=procs.describe(got))
 
     def _check_write_allowed(self, r: paths.ResolvedPaths):
         """DETECT-ONLY gate for EVERY mutating op. Order matters: the descriptor
@@ -323,6 +362,9 @@ class FileDropEngine:
                          "entries": [], "dirs": 0, "total_bytes": 0,
                          "restorable": 0, "orphans": 0, "empty": 0}
         ident = d.get("identity", {}) or {}
+        # Round 50: answered from /proc rather than assumed. "unknown" is kept
+        # distinct from "stopped" so the panel can say it could not check.
+        running_info = self._running(r)
         pending = self.journal.pending()
         data = {
             "game": {"appid": ident.get("appid"), "name": ident.get("name") or self.game_id,
@@ -349,6 +391,9 @@ class FileDropEngine:
                 # not have and should not pretend to have.
                 "conflicts": conflict_info,
             "quarantine": quar_info,
+                # Round 50: whether the game is running RIGHT NOW, so the panel
+                # can say why a write was refused instead of showing a bare code.
+                "running": running_info,
             },
             "installed": list(self.journal.installed().values()),
             "pending_recovery": pending,

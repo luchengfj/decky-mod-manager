@@ -176,6 +176,7 @@
   "ROLLBACK_RECOVERED": "已从快照恢复未完成的事务 {txn}。",
   "ROLLBACK_COMPLETED": "事务 {txn} 回滚完成。",
   "RECOVERY_SUB": "存在未完成事务（PREPARED/APPLYING）。请回滚以恢复操作前状态。",
+  "RECOVERY_STUCK_SUB": "上次回滚未完成。副本仍在隔离区；按 A 可重试。",
   "RECOVERY_TITLE": "需要恢复",
   "RECOVERY_SUBTITLE": "A = 恢复/回滚该事务 · B = 返回。后端不会自动重试。",
   "ROLLBACK_SEE_STATUS": "（见状态页）",

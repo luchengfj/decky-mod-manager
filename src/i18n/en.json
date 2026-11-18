@@ -176,6 +176,7 @@
   "ROLLBACK_RECOVERED": "Recovered pending transaction {txn} from its snapshot.",
   "ROLLBACK_COMPLETED": "Rollback of {txn} completed.",
   "RECOVERY_SUB": "Unfinished transaction (PREPARED/APPLYING). Roll back to restore the pre-op state.",
+  "RECOVERY_STUCK_SUB": "Rollback did not finish. Its copy is in the quarantine; A tries again.",
   "RECOVERY_TITLE": "Recovery needed",
   "RECOVERY_SUBTITLE": "A = recover / roll back this txn - B = back. The backend never auto-retries.",
   "ROLLBACK_SEE_STATUS": "(see Status)",

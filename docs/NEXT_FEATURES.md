@@ -39,6 +39,7 @@ features are deliberately excluded.
 | Record the mod that a restore actually put back | reads the folder's manifest instead of repeating the old record (Round 70, docs/RESTORE_IDENTITY.md) |
 | Report a disabled dependency as disabled, not as missing | the fetcher is no longer handed an id the user parked, so a download cannot overwrite it (Round 66, docs/PARKED_DEPENDENCIES.md) |
 | Warn who will stop loading before a library is removed | the reverse dependency map, in both confirmation sites (Round 71, docs/DEPENDENTS.md) |
+| Make a failed rollback retryable instead of a dead end | stuck transactions surface in recovery and never fake a recovery (Round 72, docs/STUCK_ROLLBACK.md) |
 
 0h. **The reverse question: who needs this mod.**
 
@@ -224,6 +225,24 @@ fails exactly the new case, and 21/21 device checks including
     (`restored_uid`, `expected_uid`, `note`) and does not claim ownership.
     8 new cases in tests/test_restore_identity.py; 23 device checks on the
     deployed plugin; see docs/RESTORE_IDENTITY.md.
+
+0o. A failed rollback was a dead end with a false promise.
+
+    `E_ROLLBACK_FAILED` told the user their data was preserved and marked
+    the transaction `rollback_available=True`, yet `rollback(txn)` replied
+    `E_UNKNOWN "nothing to roll back … (state=ROLLBACK_FAILED)"` and
+    `recovery()` did not list it. Worse, a stuck txn whose `.replaced`
+    folder had vanished fell through an older branch that answered
+    `ok({recovered: true})` without restoring anything.
+    The upgrade and interrupted-install branches now accept
+    `ROLLBACK_FAILED`; a standalone retry branch owns the decision and
+    shares one `_restore_displaced()` helper with them. With no copy left
+    it refuses and names the quarantine folder. `journal.stuck()` is
+    separate from `pending()` so a stuck txn is visible without freezing
+    every other write; `referenced_txns()` counts it so reclaim cannot
+    delete the last copy. 10 new cases in tests/test_stuck_rollback.py;
+    two mutations of the fix both fail the new tests while ordinary cases
+    still pass; see docs/STUCK_ROLLBACK.md.
 
 ## Closed since this page was written
 

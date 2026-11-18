@@ -835,14 +835,29 @@ function Content() {
       return;
     }
     const pending = r.data?.pending || [];
-    const rows: ListRow[] = pending.map((tx) => ({
-      label: tx,
-      sub: t("RECOVERY_SUB"),
-      onActivate: (close) => {
-        close();
-        confirmRollback(tx);
-      },
-    }));
+    const stuck = r.data?.stuck || [];
+    // Round 72: a transaction whose rollback failed does not block writes, so
+    // it never appeared under "pending" -- but it is exactly the one whose
+    // folder holds the only copy of the old version. Same modal, same action,
+    // different description.
+    const rows: ListRow[] = [
+      ...pending.map((tx) => ({
+        label: tx,
+        sub: t("RECOVERY_SUB"),
+        onActivate: (close: () => void) => {
+          close();
+          confirmRollback(tx);
+        },
+      })),
+      ...stuck.map((tx) => ({
+        label: tx,
+        sub: t("RECOVERY_STUCK_SUB"),
+        onActivate: (close: () => void) => {
+          close();
+          confirmRollback(tx);
+        },
+      })),
+    ];
     showListModal(
       t("RECOVERY_TITLE"),
       rows,

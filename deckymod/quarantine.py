@@ -123,7 +123,11 @@ def referenced_txns(journal) -> Optional[set]:
         txn = r.get("txn")
         if txn:
             out.add(str(txn))
-    out.update(t for t, s in states.items() if s in ("PREPARED", "APPLYING"))
+    # Round 72: a ROLLBACK_FAILED transaction keeps its folder too. The audit
+    # called that folder "restorable" while rollback() refused to touch it, and
+    # the only remaining copy of the old version was one reclaim away.
+    out.update(t for t, s in states.items()
+               if s in ("PREPARED", "APPLYING", "ROLLBACK_FAILED"))
     return out
 
 

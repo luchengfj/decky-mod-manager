@@ -1174,6 +1174,38 @@ class FileDropEngine:
             return None
         return {"packageId": pm.uid, "name": pm.name, "version": pm.version}
 
+    def _restore_displaced(self, txn: str, saved: str, target: str,
+                           pid, name=None, version=None, *,
+                           error_detail="could not restore the previous copy"):
+        """Put one displaced copy back and record what actually came back.
+
+        Round 72: three rollback branches used to repeat this block. The
+        counts that pinned them broke when a third was added -- the real
+        problem is that a second copy of the decision is a second chance to
+        disagree (round 60). This is the one place that undoes the displacement,
+        reads the version from the folder on disk (round 70, a path is not an
+        identity), and writes MOD_ROLLBACK_RESTORED.
+
+        Callers decide how to FINISH the transaction -- a committed upgrade,
+        a rolled-back interrupted install, a retried stuck rollback -- and what
+        to say when there is no copy at all. ``cannot tell`` never becomes a
+        guess here.
+        """
+        got = upgrade.undo_install(saved, target)
+        if not got.get("ok"):
+            raise ModError(got.get("code") or "E_OP_FAILED",
+                           detail=got.get("detail") or error_detail)
+        actual = self._read_dir_identity(target)
+        self.journal.record(
+            "MOD_ROLLBACK_RESTORED", txn,
+            packageId=pid,
+            mod={"name": (actual or {}).get("name") or name or pid,
+                 "dir": target,
+                 "version": (actual or {}).get("version") or version},
+            restored_from=saved,
+            removed_new=bool(got.get("removed_new")))
+        return got, actual
+
     def _replaced_copy_for(self, txn: str):
         """The copy an interrupted install moved aside, if it is still there.
 
@@ -1315,21 +1347,17 @@ class FileDropEngine:
         # replacement is still in place. Excluding that state is what made
         # rollback answer "nothing to roll back for txn ... (state=ROLLED_BACK)"
         # for a transaction that had everything needed to undo it.
-        if inst and state in ("COMMITTED", "APPLYING", "PREPARED", "ROLLED_BACK"):
-            got = upgrade.undo_install(inst.get("replaced_old"), inst.get("dir"))
-            if not got.get("ok"):
-                raise ModError(got.get("code") or "E_OP_FAILED",
-                               detail=got.get("detail") or "could not restore the previous copy")
-            # Round 70: the version that came back is the version on disk.
-            actual = self._read_dir_identity(inst.get("dir"))
-            self.journal.record("MOD_ROLLBACK_RESTORED", txn,
-                                packageId=inst.get("packageId"),
-                                mod={"name": (actual or {}).get("name")
-                                     or inst.get("packageId"),
-                                     "dir": inst.get("dir"),
-                                     "version": (actual or {}).get("version")},
-                                restored_from=inst.get("replaced_old"),
-                                removed_new=bool(got.get("removed_new")))
+        # Round 72: ROLLBACK_FAILED belongs here too. A restore that threw is a
+        # rollback that did not finish -- the displaced copy is still in the
+        # quarantine and the replacement is still on disk. Leaving the state out
+        # made rollback() answer "nothing to roll back for txn ... (state=
+        # ROLLBACK_FAILED)" to a caller who had just been told the data was
+        # preserved and could be recovered.
+        if inst and state in ("COMMITTED", "APPLYING", "PREPARED",
+                              "ROLLED_BACK", "ROLLBACK_FAILED"):
+            got, _actual = self._restore_displaced(
+                txn, inst.get("replaced_old"), inst.get("dir"),
+                inst.get("packageId"), name=inst.get("packageId"))
             self.journal.committed(txn, {"rollback_of": "upgrade",
                                          "packageId": inst.get("packageId")})
             return ok({"restored": inst.get("packageId"), "dir": inst.get("dir"),
@@ -1352,21 +1380,10 @@ class FileDropEngine:
                          if e.get("event") == "PREPARED"), None) or {}
             saved = self._replaced_copy_for(txn)
             if saved:
-                got = upgrade.undo_install(saved, plan.get("to") or "")
-                if not got.get("ok"):
-                    raise ModError(got.get("code") or "E_OP_FAILED",
-                                   detail=got.get("detail")
-                                   or "could not restore the interrupted install")
-                actual = self._read_dir_identity(plan.get("to"))
-                self.journal.record("MOD_ROLLBACK_RESTORED", txn,
-                                    packageId=plan.get("packageId"),
-                                    mod={"name": (actual or {}).get("name")
-                                         or plan.get("name") or plan.get("packageId"),
-                                         "dir": plan.get("to"),
-                                         "version": (actual or {}).get("version")
-                                         or plan.get("version")},
-                                    restored_from=saved,
-                                    removed_new=bool(got.get("removed_new")))
+                got, _actual = self._restore_displaced(
+                    txn, saved, plan.get("to") or "", plan.get("packageId"),
+                    name=plan.get("name"), version=plan.get("version"),
+                    error_detail="could not restore the interrupted install")
                 self.journal.rolled_back(txn, {"recovered": True,
                                                "restored_from": saved})
                 return ok({"recovered": True, "txn": txn,
@@ -1380,6 +1397,36 @@ class FileDropEngine:
             except Exception as rb:
                 self.journal.rollback_failed(txn, {"reason": str(rb)})
                 return err("E_ROLLBACK_FAILED", detail=str(rb))
+        if state == "ROLLBACK_FAILED":
+            # Round 72: a rollback that already ran and did not finish is not a
+            # transaction with nothing to undo -- it is one whose undo failed.
+            # This branch exists for the shape where the install died before
+            # recording MOD_INSTALLED, so there is no `inst` event above and the
+            # only thing naming the old copy is the quarantine folder itself.
+            plan = next((e.get("plan") for e in events
+                         if e.get("event") == "PREPARED"), None) or {}
+            saved = self._replaced_copy_for(txn)
+            if saved:
+                got, _actual = self._restore_displaced(
+                    txn, saved, plan.get("to") or "", plan.get("packageId"),
+                    name=plan.get("name"), version=plan.get("version"),
+                    error_detail="could not finish the failed rollback")
+                self.journal.committed(txn, {"rollback_of": "retry",
+                                             "packageId": plan.get("packageId")})
+                return ok({"restored": plan.get("packageId"),
+                           "dir": plan.get("to"),
+                           "restored_from": saved,
+                           "removed_new": bool(got.get("removed_new")),
+                           "txn": txn, "log_path": _log_path(self.journal)})
+            # Nothing to put back. Do NOT answer "recovered": the automatic
+            # restore failed once already, and the plugin cannot tell whether a
+            # mod is missing because of it. Say what is true.
+            raise ModError(
+                "E_ROLLBACK_FAILED",
+                detail=("the automatic rollback for txn %s did not finish and "
+                        "there is no copy left to restore; the quarantine folder "
+                        "is at %s"
+                        % (txn, os.path.join(r.quarantine_root, txn))))
         raise ModError("E_UNKNOWN", detail=f"nothing to roll back for txn {txn} (state={state})")
 
     # ------------------------------------------------------------------ reclaim (round 54)
@@ -1563,8 +1610,17 @@ class FileDropEngine:
         return self.status()   # no state-fp cache in file_drop
 
     def recovery(self) -> dict:
+        """Pending (write-blocking) and stuck (rollback already failed) txns.
+
+        Round 72: these are two different lists on purpose. ``pending`` blocks
+        every write until it is recovered; ``stuck`` does not block anything --
+        it is work the user still has to look at, and the panel had no way to
+        see it before this key existed.
+        """
         try:
-            return ok({"pending": self.journal.pending(), "log_path": _log_path(self.journal)})
+            return ok({"pending": self.journal.pending(),
+                       "stuck": self.journal.stuck(),
+                       "log_path": _log_path(self.journal)})
         except Exception as e:
             return err("E_UNKNOWN", detail=str(e))
 

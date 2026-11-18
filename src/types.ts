@@ -506,6 +506,10 @@ export interface HistoryData {
 
 export interface RecoveryData {
   pending: string[];
+  /** Round 72: transactions whose rollback already ran and did not finish.
+   *  Separate from `pending`: these do not block new writes, but their
+   *  quarantine folder holds the only remaining copy of the old version. */
+  stuck?: string[];
   log_path: string;
 }
 

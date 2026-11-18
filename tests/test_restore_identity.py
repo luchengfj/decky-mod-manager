@@ -184,11 +184,22 @@ class TestOnePlaceAsksTheDisk(_Base, unittest.TestCase):
             return f.read()
 
     def test_the_helper_exists_once(self):
+        """Round 72: the identity is read in ONE restore helper.
+
+        The old count of 3 call sites broke when the third branch was added.
+        Since then the three branches share ``_restore_displaced`` and the disk
+        is asked exactly once there (plus the uninstall branch, which has its
+        own shape because it restores a moved-aside uninstall rather than a
+        displaced upgrade).
+        """
         src = self._src()
         self.assertEqual(src.count("def _read_dir_identity(self"), 1)
-        self.assertEqual(src.count("self._read_dir_identity("), 3,
-                         "every restore branch asks the folder: uninstall, "
-                         "upgrade and the interrupted install")
+        self.assertEqual(src.count("self._read_dir_identity("), 2,
+                         "uninstall restore, and the shared displaced helper")
+        i = src.index("    def _restore_displaced(")
+        j = src.index("    def ", i + 10)
+        self.assertEqual(src[i:j].count("self._read_dir_identity("), 1,
+                         "every displaced-copy restore asks the folder once")
 
     def test_no_branch_records_a_remembered_identity_for_a_restore(self):
         src = self._src()

@@ -88,14 +88,34 @@ class Journal:
                 st = r["event"]
         return st
 
+    def stuck(self) -> List[str]:
+        """Transactions whose rollback ran and did not finish.
+
+        Round 72: separate from ``pending()`` on purpose. ``pending()`` is the
+        write gate -- a PREPARED/APPLYING transaction blocks new writes until it
+        is recovered. A ROLLBACK_FAILED one must NOT block them: the automatic
+        restore already failed once, and locking every other operation behind it
+        would turn one bad folder into a dead plugin. The user still needs to
+        see it, which is why it has its own list.
+        """
+        return [t for t, s in self._txn_states().items()
+                if s == "ROLLBACK_FAILED"]
+
     def pending(self) -> List[str]:
         """Transactions left in PREPARED / APPLYING (recovery needed)."""
+        return [t for t, s in self._txn_states().items()
+                if s in ("PREPARED", "APPLYING")]
+
+    def _txn_states(self) -> Dict[str, str]:
+        """Last lifecycle state recorded for each transaction."""
         states: Dict[str, str] = {}
         for r in self.read_all():
             e = r.get("event")
-            if e in ("PREPARED", "APPLYING", "COMMITTED", "ROLLED_BACK", "ROLLBACK_FAILED"):
-                states[r["txn"]] = e
-        return [t for t, s in states.items() if s in ("PREPARED", "APPLYING")]
+            txn = r.get("txn")
+            if e in ("PREPARED", "APPLYING", "COMMITTED", "ROLLED_BACK",
+                     "ROLLBACK_FAILED") and txn:
+                states[txn] = e
+        return states
 
     # ---- transaction lifecycle ----
     def begin(self, txn: str, op: str, plan: dict):

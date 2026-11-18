@@ -264,7 +264,12 @@ class TestTheShapeCannotRegress(unittest.TestCase):
     def test_the_rollback_branch_accepts_rolled_back(self):
         src = self._source("smapi.py")
         body = src[src.index("        inst = next((e for e in events"):]
-        body = body[:body.index("        if state in (\"PREPARED\", \"APPLYING\"):")]
+        # Round 72: the old anchor was the literal condition line, which this
+        # round extended -- so the anchor vanished and the test errored instead
+        # of measuring anything. Bound the slice by the function's own final
+        # refusal, which is the thing that must stay unreachable for these
+        # states.
+        body = body[:body.index("raise ModError(\"E_UNKNOWN\", detail=f\"nothing to roll back for txn")]
         self.assertIn('"ROLLED_BACK"', body,
                       "a failed upgrade keeps its replacement on disk; rollback "
                       "must be able to undo it")
@@ -279,10 +284,28 @@ class TestTheShapeCannotRegress(unittest.TestCase):
                         "record the rollback only after the copy is back")
 
     def test_only_one_place_decides_the_destination(self):
+        """Round 72: three rollback cases now share one helper.
+
+        The old assertion counted call sites and broke when a fourth case was
+        added; the property worth keeping is that there is exactly ONE place
+        that calls ``upgrade.undo_install`` on a rollback, and every branch goes
+        through it (round 60: a second copy is a second chance to disagree).
+        """
         src = self._source("smapi.py")
-        self.assertEqual(src.count("upgrade.undo_install("), 3,
-                         "three cases: interrupted install, failed upgrade, "
-                         "committed upgrade -- all through one helper")
+        self.assertEqual(src.count("def _restore_displaced(self"), 1)
+        # The helper is defined ABOVE _rollback_inner; it is the one place a
+        # rollback-side restore calls undo_install. (_install_inner has its own
+        # call, in the failure path -- that is not a rollback branch.)
+        h = src.index("    def _restore_displaced(")
+        hbody = src[h:src.index("    def ", h + 10)]
+        self.assertEqual(hbody.count("upgrade.undo_install("), 1,
+                         "one place puts a displaced copy back")
+        start = src.index("    def _rollback_inner(")
+        body = src[start:]
+        self.assertEqual(body.count("self._restore_displaced("), 3,
+                         "committed upgrade, interrupted install, stuck retry")
+        self.assertEqual(body.count("upgrade.undo_install("), 0,
+                         "no rollback branch bypasses the helper")
 
 
 if __name__ == "__main__":

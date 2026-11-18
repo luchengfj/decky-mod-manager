@@ -244,6 +244,26 @@ fails exactly the new case, and 21/21 device checks including
     two mutations of the fix both fail the new tests while ordinary cases
     still pass; see docs/STUCK_ROLLBACK.md.
 
+0p. The panel promised an update action the plugin does not have (Round 40).
+
+    Round 67 added `outdated_dependencies` reporting with the user-facing
+    wording "Dependencies too old: {v} (update them)" / "依赖版本过旧：{v}（请更新）".
+    But `fetch_dependencies` reads ONLY `state.missing_dependencies` -- an
+    outdated dependency never enters that flow, so pressing the download
+    button answered "no required dependency is missing". The panel told the
+    user to do something that had no button. Rather than add an automatic
+    upgrade path (which would treat "latest in a repo" as "the version this
+    host asked for", risk overwriting a parked copy, and add an RPC to a
+    28-RPC contract), the wording was corrected to name the action that
+    DOES exist: download a newer copy and import it here, which goes through
+    the normal manifest-verified upgrade flow. Three tests in
+    tests/test_outdated_dependencies.py pin the honesty (no false promise in
+    en/zh/index.tsx, text names the import path, fetcher still ignores
+    outdated); reintroducing the old strings fails them while plain cases
+    pass. No backend or RPC change; Deck unreachable this round so no device
+    rebuild -- the frontend string change reaches the panel on the next
+    connected build.
+
 ## Closed since this page was written
 
 - **The import surface could only see its own inbox.** The plugin read

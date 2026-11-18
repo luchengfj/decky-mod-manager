@@ -1136,10 +1136,13 @@ function Content() {
       }
       // Round 67: installed but older than this mod asks for. SMAPI skips
       // the whole mod in that state, so it is stated with the version it
-      // needs -- "update it", which is neither a download nor an enable.
+      // needs. Round 40: the old wording promised an in-plugin upgrade this
+      // plugin does not have -- fetch_dependencies reads only missing_dependencies, never
+      // outdated ones. Point at the path that DOES exist: fetch a newer copy
+      // and import it here, which upgrades through the normal verified flow.
       if (m.outdated_dependencies && m.outdated_dependencies.length) {
         notes.push(t("MODLIST_OUTDATED_DEPS",
-          "Dependencies too old: {v} (update them)", {
+          "Dependencies below required version: {v} (download a newer copy, then import it here)", {
             v: m.outdated_dependencies
               .map((d) => `${d.id} ${d.installed} < ${d.required}`)
               .join(", "),

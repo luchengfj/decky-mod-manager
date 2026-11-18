@@ -336,5 +336,49 @@ class TestTheParsedMinimumComesFromTheDescriptor(unittest.TestCase):
         self.assertRegex(src, r"if not want_t or not have_t:\s*\n\s*continue")
 
 
+class TestThePanelDoesNotPromiseAnUpdateAction(unittest.TestCase):
+    """Round 40: R67's own wording was a promise the plugin cannot keep.
+
+    ``fetch_dependencies`` reads ONLY ``missing_dependencies``; an outdated
+    dependency never enters that flow. So the panel must not say "update them"
+    / "请更新" -- it must point at the path that exists: download a newer copy
+    and import it here (the verified upgrade flow). Pinning this as a test
+    keeps the honesty fix from drifting back into a false promise.
+    """
+
+    @staticmethod
+    def _read(rel):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, rel), encoding="utf-8") as f:
+            return f.read()
+
+    def test_no_user_facing_text_promises_an_in_plugin_update(self):
+        for rel in ("src/i18n/en.json", "src/i18n/zh-CN.json", "src/index.tsx"):
+            text = self._read(rel)
+            self.assertNotIn("update them", text,
+                             "%s still promises an update it cannot run" % rel)
+            self.assertNotIn("请更新", text,
+                             "%s still promises an update it cannot run" % rel)
+
+    def test_the_text_points_at_the_real_import_path(self):
+        for name in ("en.json", "zh-CN.json"):
+            text = self._read("src/i18n/" + name)
+            self.assertIn("MODLIST_OUTDATED_DEPS", text)
+            # "import it here" / "从这里导入" -- the actual supported action.
+            self.assertTrue(
+                ("import it here" in text) or ("从这里导入" in text),
+                "%s must name the import path the user can actually take" % name)
+
+    def test_fetch_dependencies_still_ignores_outdated(self):
+        # The reason the wording had to change: the fetch flow does not consume
+        # outdated_dependencies. If someone later wires it up, this test fails
+        # and the wording can honestly be revisited.
+        src = self._read("main.py")
+        i = src.index("async def fetch_dependencies")
+        body = src[i:src.index("    async def ", i + 10)]
+        self.assertIn('state.get("missing_dependencies")', body)
+        self.assertNotIn("outdated_dependencies", body)
+
+
 if __name__ == "__main__":
     unittest.main()

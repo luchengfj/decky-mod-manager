@@ -192,7 +192,7 @@
   "MODLIST_MISSING_DEPS": "Missing dependencies: {v}",
   "MODLIST_PARKED_DEPS": "Installed but disabled: {v} (enable them)",
   "MODLIST_SUMMARY_PARKED_DEPS": "Installed but disabled: {v}",
-  "MODLIST_OUTDATED_DEPS": "Dependencies too old: {v} (update them)",
+  "MODLIST_OUTDATED_DEPS": "Dependencies below required version: {v} (download a newer copy, then import it here)",
   "MODLIST_DEPENDENTS": "Other mods need this one: {v}",
   "MODLIST_SUMMARY_OUTDATED_DEPS": "Dependencies too old: {v}",
   "MODLIST_DUP_ID": "Duplicate UniqueID also in: {v}",

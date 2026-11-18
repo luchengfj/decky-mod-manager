@@ -192,7 +192,7 @@
   "MODLIST_MISSING_DEPS": "缺失依赖：{v}",
   "MODLIST_PARKED_DEPS": "已安装但被停用：{v}（启用即可）",
   "MODLIST_SUMMARY_PARKED_DEPS": "已安装但被停用：{v}",
-  "MODLIST_OUTDATED_DEPS": "依赖版本过旧：{v}（请更新）",
+  "MODLIST_OUTDATED_DEPS": "依赖版本低于所需：{v}（请另下载新版后从这里导入）",
   "MODLIST_DEPENDENTS": "有 MOD 依赖它：{v}",
   "MODLIST_SUMMARY_OUTDATED_DEPS": "依赖版本过旧：{v}",
   "MODLIST_DUP_ID": "重复 UniqueID，也出现在：{v}",

@@ -360,7 +360,7 @@
   "DEPS_DONE": "依赖处理完成",
   "DEPS_R_OK": "可获取",
   "DEPS_R_NO_REPO": "不在 MOD 索引中",
-  "DEPS_R_NO_ZIP": "该仓库没有发布 zip",
+  "DEPS_R_NO_ZIP": "该仓库没有发布 zip 或 7z",
   "DEPS_R_NO_MATCH": "没有匹配该 UniqueID 的资源",
   "DEPS_R_REFUSED": "安装被拒绝",
   "DEPS_R_RAISED": "安装器报错",

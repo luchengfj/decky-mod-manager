@@ -47,11 +47,17 @@ MAX_INDEX_BYTES = 4 * 1024 * 1024
 MAX_ROUNDS = 3
 USER_AGENT = "decky-mod-manager"
 
-_ZIP_CONTENT_TYPES = frozenset({
+# R41: GitHub labels .7z releases "application/x-7z-compressed" (sometimes
+# just octet-stream). The engine installs .7z by MAGIC BYTES (round 63), so a
+# fetcher that hides .7z is a capability gap, not a safety measure. Content
+# type is only a first-pass filter; verify_candidate's manifest read decides.
+_ARCHIVE_CONTENT_TYPES = frozenset({
     "application/zip",
     "application/x-zip-compressed",
+    "application/x-7z-compressed",
     "application/octet-stream",
 })
+_ARCHIVE_SUFFIXES = (".zip", ".7z")
 
 
 def _fail(code: str, detail: str = "") -> dict:
@@ -147,11 +153,13 @@ def lookup_index(opener, ids, *, timeout=download.DEFAULT_TIMEOUT) -> dict:
 
 def candidate_assets(opener, repo: str, wanted_uid: str,
                      *, timeout=download.DEFAULT_TIMEOUT) -> dict:
-    """Usable .zip assets in ``repo``, best match for ``wanted_uid`` first.
+    """Usable .zip/.7z assets in ``repo``, best match for ``wanted_uid`` first.
 
     Ordering is a hint; acceptance happens in :func:`verify_candidate` by
     reading the manifest. A repo that publishes many mods will therefore not
-    yield the wrong one just because its name came first.
+    yield the wrong one just because its name came first. Round 41 added .7z:
+    the engine already installs it (round 63), so hiding it here served no
+    safety purpose -- the manifest check, not the extension, is the gate.
     """
     if "/" not in str(repo):
         return _fail("DL_BAD_URL", "repo must be owner/name")
@@ -181,7 +189,9 @@ def candidate_assets(opener, repo: str, wanted_uid: str,
             ct = str(a.get("content_type") or "")
             aid = a.get("id")
             size = a.get("size")
-            if not name.lower().endswith(".zip") or ct not in _ZIP_CONTENT_TYPES:
+            lower = name.lower()
+            if (not lower.endswith(_ARCHIVE_SUFFIXES)
+                    or ct not in _ARCHIVE_CONTENT_TYPES):
                 continue
             if not isinstance(aid, int) or aid <= 0:
                 continue

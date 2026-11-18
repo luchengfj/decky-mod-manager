@@ -264,6 +264,23 @@ fails exactly the new case, and 21/21 device checks including
     rebuild -- the frontend string change reaches the panel on the next
     connected build.
 
+0q. A dependency published only as .7z was silently unfetchable (Round 41).
+
+    The engine installs `.7z` end-to-end (round 63, 41/41 device checks) and
+    goal item 3 asks for ".zip and .7z", but `deps.candidate_assets` filtered
+    release assets on `.zip` only. A dependency whose repo published a single
+    `.7z` was reported `no_zip_asset` and never fetched -- a capability gap
+    presented as a content policy. The filter now accepts `.zip` and `.7z`
+    (including the octet-stream label GitHub often uses), but the acceptance
+    authority is unchanged: `verify_candidate` still opens the archive and
+    requires the manifest UniqueID to match. `.rar`/`.exe` stay refused. The
+    wire key and i18n key are unchanged for compatibility; only the English
+    and Chinese reason wording now says "zip or 7z". Six offline tests in
+    tests/test_deps_7z.py; reverting the filter fails the three `.7z` cases
+    while ordinary deps tests pass. 850 tests OK, compileall 0, seven
+    validators 0. Deck unreachable this round: offline-verified only, no
+    device claim. See docs/DEPENDENCIES.md.
+
 ## Closed since this page was written
 
 - **The import surface could only see its own inbox.** The plugin read

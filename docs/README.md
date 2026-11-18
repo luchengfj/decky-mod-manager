@@ -122,7 +122,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        58 modules, 844 cases (`Ran 844 tests ... OK (skipped=15)`)
+tests/                        59 modules, 850 cases (`Ran 850 tests ... OK (skipped=15)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -162,6 +162,7 @@ test_failed_install.py        a failed upgrade puts the old version back; a fail
 test_restore_identity.py      a restore records the mod that is on disk, not the one that used to be
 test_dependents.py            removing a library names the mods that will stop loading, before it happens
 test_stuck_rollback.py        a failed rollback is visible and retryable, or refuses without lying
+test_deps_7z.py               a dependency published only as .7z is fetchable, not silently skipped
   _verify.py                  compileall + registry JSON validation helper
 docs/                         see the index below
 .github/workflows/build.yml   CI: backend selftest + frontend build
@@ -262,7 +263,7 @@ python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_api_arity.py       -> BACKEND_RPCS 26 / FRONTEND_CALLS 26 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
-.decky-probe/r4_tar_drift.py             -> TAR_COUNT 123 / CUR_COUNT 123, drift 0
+.decky-probe/r4_tar_drift.py             -> TAR_COUNT 124 / CUR_COUNT 124, drift 0
 ```
 
 Backend is stdlib-only and **runs** on this box (the Windows-portability fix in

@@ -360,7 +360,7 @@
   "DEPS_DONE": "Dependencies processed",
   "DEPS_R_OK": "resolved",
   "DEPS_R_NO_REPO": "not in the mod index",
-  "DEPS_R_NO_ZIP": "the repository publishes no zip",
+  "DEPS_R_NO_ZIP": "the repository publishes no zip or 7z",
   "DEPS_R_NO_MATCH": "no asset matched this UniqueID",
   "DEPS_R_REFUSED": "the install was refused",
   "DEPS_R_RAISED": "the installer raised an error",

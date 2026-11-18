@@ -120,6 +120,37 @@ out of rounds (there is more to fetch) versus nothing on the index offers it
 (there is not). Reporting both with one sentence would be a lie in one of the
 two directions.
 
+## Round 41: .7z is a fetchable archive too
+
+The engine has installed `.7z` end-to-end since round 63 (41/41 device checks:
+inspect, install, status, uninstall, rollback all worked on a real `.7z` built
+with the device's own `7z`). But `deps.candidate_assets` filtered release assets
+on `.zip` only. A dependency published solely as `.7z` was therefore reported
+`no_zip_asset` ("该仓库没有发布 zip") and never fetched — a capability gap
+dressed up as a content policy, and a contradiction of goal item 3, which asks
+for ".zip and .7z".
+
+The fix is deliberately small: `candidate_assets` now accepts `.zip` and `.7z`
+suffixes with their known content types (`.7z` is often mislabelled
+`application/octet-stream`, which is accepted too). Nothing changed in the
+acceptance decision: a candidate is still accepted only when
+`verify_candidate` opens its archive and reads a manifest whose `UniqueID`
+equals the requested id. Content type is a first-pass filter, not evidence —
+so widening it cannot install a wrong mod. `.rar`/`.exe` are still refused, as
+the engine cannot read them. The `no_zip_asset` wire key and the
+`DEPS_R_NO_ZIP` i18n key are unchanged for compatibility; only the English and
+Chinese wording now says "zip or 7z" so the panel stops naming a capability
+the resolver does not have.
+
+Six offline tests in `tests/test_deps_7z.py` cover: a repo with only a `.7z`
+yields a candidate; `.zip` and `.7z` are both usable; an octet-stream-labelled
+`.7z` still works; `.rar`/`.exe` remain refused; the id-name ordering hint
+still prefers the matching `.7z`; and the reason wording matches the capability.
+Reverting the filter to `.zip`-only fails the three `.7z` cases while the
+ordinary deps tests still pass. 850 tests OK, compileall 0, seven validators 0.
+Deck was unreachable this round, so no device claim is made here — the change
+is offline-verified and reaches the bundle on the next connected build.
+
 ## What is proven, and what is not
 
 Proven on the device: the plan phase writes nothing; the wrong-mod candidate is

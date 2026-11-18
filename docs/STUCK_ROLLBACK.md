@@ -95,19 +95,39 @@ fourth copy of those decisions.
   (3 fails); the ordinary cases still pass under both mutations.
 - Full local suite: `Ran 841 tests ... OK (skipped=15)`, `compileall` 0, seven
   validators exit 0, sync tar 123/123 (drift 0).
-- Frontend `tsc --noEmit` + `rollup -c` last ran green on the Deck at
-  `TSC_EXIT=0 / ROLLUP_EXIT=0` for an earlier build of this round; the final
-  helper-extraction patch is backend-only, but a fresh Deck build has **not**
-  been run since (the device was unreachable at the time of writing).
+- Final Deck build of the committed tree: `TSC_EXIT=0 / ROLLUP_EXIT=0`,
+  `Ran 841 tests in 4.600s OK (skipped=1)`, deployed via the enumerated
+  `r52_deploy.sh` (`COPIED=1 VERIFY_FAIL=0`, `DIST_SHA=b9174423…` matching).
+  Artifact: `DeckyModManager-0.1.0-mvp.zip` 318505 B /
+  `13948dddf579bf315ca9b3dc9a393ffd0e60edb88e7e5da953d7ad562d272474`.
+
+### Device evidence (after the fix)
+
+`C:\ai\SD\.decky-probe\r72_device_probe.py` re-run on the deployed plugin,
+synthetic tree under `/tmp/r72dev_*` — the real `Mods/` (30 mods) untouched.
+**22/22 PASS**, including the two earlier failures:
+
+```
+PASS F_ROLLBACK_OK
+PASS F_OLD_VERSION_BACK  1.0.0
+PASS F_CONTAINER_GONE  /tmp/r72dev_3385531b/…/.decky-quarantine/20260101T000000-stuck072
+PASS G_ROW_VERSION_IS_OLD  1.0.0
+PASS H_REFUSES_HONESTLY  E_ROLLBACK_FAILED
+PASS H_NOT_NOTHING_TO_ROLL_BACK  the automatic rollback for txn … did not finish and
+                                 there is no copy left to restore; the quarantine
+                                 folder is at /tmp/r72dev_3385531b/…/…stuck073
+PASS H_NAMES_THE_FOLDER  (same detail names the exact quarantine folder)
+PASS I_JSON_SAFE
+PASS_COUNT 22 / 22
+VERDICT_FAILED_ROLLBACK_IS_NOT_A_DEAD_END True
+```
 
 ## What this does not claim
 
-- The final 22/22 device re-check has **not** run. The earlier device build
-  predates the two branches that fix `H_REFUSES_HONESTLY`, so its artifact is
-  stale and is not presented as evidence for that fix.
-- No real filesystem failure was induced — the failed state was entered
-  through a test seam (`journal.committed` raising `OSError(28)`), like every
-  other failure-path check in this project.
+- The retry was driven through a synthetic tree on the real device. No real
+  filesystem failure was induced on a user's installed mod: the stuck state was
+  entered through a test seam (`journal.committed` raising `OSError(28)`), like
+  every other failure-path check in this project.
 - Only the Stardew `file_drop` engine is affected. `engine.py` (RimWorld
   `xml_list`, planned) has the same shape and was intentionally left alone.
 - The panel has not been seen by a human in Game Mode; all UI claims come from

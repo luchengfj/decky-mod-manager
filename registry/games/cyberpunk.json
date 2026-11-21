@@ -104,7 +104,7 @@
   "download_sources": {
     "nexus_game_domain": "cyberpunk2077",
     "browse_url": "https://www.nexusmods.com/cyberpunk2077",
-    "note": "Nexus is browsed in the signed-in browser; downloads land in ~/Downloads and are imported from there. No API key is used."
+    "note": "Nexus is browsed in the signed-in browser; downloads land in ~/Downloads and are imported from there. No API key is used. Round 78: nexus_game_domain is the BROWSE-ONLY alias — the three website-page openers (open_mod_page / open_search_page / open_browse_page) read it, while the API RPCs (nexus_recent/nexus_mod/nexus_download_link) still require a nexus_metadata block and a stored key."
   },
   "safety": {
     "never_write_outside": "write_roots + the .decky-staging/.decky-quarantine siblings",

@@ -1,0 +1,22 @@
+{
+  "schema": "deckymod/loader@1",
+  "id": "bepinex6_il2cpp",
+  "status": "planned",
+  "name": "BepInEx 6 (Unity IL2CPP)",
+  "version": "6.0.0-be",
+  "applies_to_platform": "windows-proton (unity il2cpp)",
+  "type": "doorstop_injection",
+  "detect": { "patterns": ["BepInEx/core/BepInEx.dll", "winhttp.dll"] },
+  "install_files": ["BepInEx/", "doorstop_config.ini", "winhttp.dll"],
+  "browse_url": "https://builds.bepinex.dev/projects/bepinex_be",
+  "hint": "unity-il2cpp",
+  "hint_note": "For Unity IL2CPP games (GameAssembly.dll next to the exe) — the shape DAVE THE DIVER and most modern Unity ports use. Bleeding-edge builds; pick the latest BE build's win-x64 zip.",
+  "launch_requirements": {
+    "launch_options_template": "WINEDLLOVERRIDES=\"winhttp.dll=n,b\" %command%",
+    "dll_override": "winhttp.dll=n,b",
+    "needs_proton": true
+  },
+  "mod_root_template": "${GAME_ROOT}/BepInEx/plugins",
+  "state_mutator_ref": "file_drop",
+  "notes": "Round 79: same install_loader contract as bepinex5. The zip extracts to the loader root (game root); the plugin never edits launch options."
+}

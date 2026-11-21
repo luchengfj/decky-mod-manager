@@ -108,8 +108,12 @@ class TestDescriptorShape(_TmpEnv):
         self.assertEqual(d["identity"]["appid"], 1868140)
         self.assertTrue(d["capabilities"]["local_import"])
         self.assertFalse(d["capabilities"]["enable_disable"])
-        # The declaration that matters: no loader is ever installed.
-        self.assertFalse(d["capabilities"]["loader_install"])
+        # Round 79 (user-approved): loader ZIPs may be extracted for
+        # user-configured games; built-in descriptors keep this false.
+        self.assertTrue(d["capabilities"]["loader_install"])
+        self.assertEqual(d["paths"]["loader_root"], "${GAME_ROOT}")
+        # The declaration that matters: launch options are still never edited.
+        self.assertFalse(d["capabilities"]["launch_option_edit"])
 
 
 class TestRegistryMerge(_TmpEnv):

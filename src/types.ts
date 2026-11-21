@@ -297,6 +297,19 @@ export interface ManagedMod {
  * planned / unsupported rows are grey "catalog-only, not installable".
  * Showing more games here never lifts the single-active-game write gate.
  */
+/** Round 79: a loader the panel can open a download page for (loader catalog). */
+export interface LoaderOffer {
+  id: string;
+  name: string;
+  browse_url: string;
+  version: string;
+  hint: string;
+  hint_note: string;
+  /** stat-fit against the game's Unity flavour (GameAssembly/Assembly-CSharp) */
+  hint_fits: boolean;
+  installed: boolean;
+}
+
 /** Round 77: what the panel needs to configure a game it ships no descriptor for. */
 export interface GameSetupData {
   appid: number;
@@ -306,6 +319,17 @@ export interface GameSetupData {
   refused: boolean;
   configured: boolean;
   write_roots: string[];
+  /** Round 79: loaders with an official page, fit-ranked for this game. */
+  loaders?: LoaderOffer[];
+}
+
+/** Round 79: result of installing a loader ZIP (uninstallable like any mod). */
+export interface LoaderInstallData {
+  installed: string;
+  packageId: string;
+  files: number;
+  replaced: number;
+  txn: string;
 }
 
 /** Round 76: result of switching which supported game the panel manages. */

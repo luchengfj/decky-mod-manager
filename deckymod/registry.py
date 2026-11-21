@@ -212,7 +212,10 @@ class Registry:
             # Browse-plane only: the game's Nexus site prefix, read from the
             # descriptor's declared download source. Never a hard-coded list in
             # the UI, and never a fetched/derived path. None for games that
-            # declare no nexus_metadata source (the UI then shows no prefix).
+            # declare no nexus source (the UI then shows no prefix).
+            # Round 78: the browse-only alias (a plain-string
+            # "nexus_game_domain", cyberpunk.json shape) counts too — the
+            # website openers accept it, so the catalog prefix must match.
             nexus_domain = None
             sources = d.get("download_sources")
             if isinstance(sources, dict):
@@ -221,6 +224,10 @@ class Registry:
                     nd = nm.get("game_domain")
                     if isinstance(nd, str) and nd.strip():
                         nexus_domain = nd.strip()
+                if nexus_domain is None:
+                    ngd = sources.get("nexus_game_domain")
+                    if isinstance(ngd, str) and ngd.strip():
+                        nexus_domain = ngd.strip()
             is_enabled = status == enabled_status
             out.append({
                 "id": str(gid),

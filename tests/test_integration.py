@@ -215,7 +215,7 @@ class TestDownloadToImportHalfChain(unittest.TestCase):
                       if isinstance(n, ast.ClassDef) and n.name == "Plugin")
         rpcs = [m.name for m in plugin.body
                 if isinstance(m, ast.AsyncFunctionDef) and not m.name.startswith("_")]
-        self.assertEqual(len(rpcs), 33, rpcs)
+        self.assertEqual(len(rpcs), 36, rpcs)
         for name in ("gh_search", "gh_releases", "gh_download", "download_url"):
             self.assertIn(name, rpcs)
         for name in ("api_key_status", "set_api_key", "delete_api_key",

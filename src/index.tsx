@@ -51,6 +51,9 @@ import {
   gameSetup,
   configureGame,
   forgetGame,
+  openLoaderPage,
+  installLoader,
+  deleteZipSource,
   installMod,
   setModEnabled,
   uninstallMod,
@@ -74,6 +77,7 @@ import type {
   ProgressPayload,
   CatalogEntry,
   SteamGame,
+  GameSetupData,
 } from "./types";
 import { isConfirmData } from "./types";
 import { t, errorText, categoryText } from "./i18n";
@@ -323,6 +327,114 @@ function Content() {
     });
   };
 
+  // Round 79: open a loader's official download page (browser hand-off, no
+  // download by the plugin). The URL is built in the backend from the loader
+  // catalog — the caller passes the catalog id only.
+  const doOpenLoaderPage = (loaderId: string, name: string) => {
+    setBusySafe(true);
+    const g = generation.current;
+    (async () => {
+      const r = await openLoaderPage(loaderId);
+      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+      setBusySafe(false);
+      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
+      toast(t("GS_LOADER_OPENED_TITLE"), t("GS_LOADER_OPENED", "{name} download page opened — grab the ZIP, then come back.", { name }));
+    })().catch((e) => {
+      if (!mounted.current) return;
+      setBusySafe(false);
+      setError(bridgeError(String(e)));
+    });
+  };
+
+  // Round 79: pick the downloaded loader ZIP and extract it in two phases.
+  // The list comes from the same read-only scan the import list uses
+  // (inbox + the browser's download folder). The backend refuses anything
+  // outside the declared roots and journals every file it places.
+  const openLoaderZipPicker = (d: GameSetupData) => {
+    setBusySafe(true);
+    const g = generation.current;
+    (async () => {
+      const fresh = await listInbox();
+      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+      setBusySafe(false);
+      if (!fresh.ok || !fresh.data) {
+        showInfo(t("GS_LOADER_INSTALL"), [envelopeError(fresh)], []);
+        return;
+      }
+      const zips = (fresh.data.items || []).filter((it) => /\.zip$/i.test(it.name));
+      const rows: ListRow[] = zips.map((it) => ({
+        label: it.name,
+        sub: `${it.path}${it.size != null ? t("INBOX_BYTES", "  ·  {n} bytes", { n: it.size }) : ""}`,
+        onActivate: (close) => { close(); void confirmLoaderInstall(d, it.path, it.name); },
+      }));
+      showListModal(
+        t("GS_LOADER_PICK", "Loader ZIPs ({n})", { n: zips.length }),
+        rows,
+        t("GS_LOADER_PICK_SUB", "These are the ZIPs in your download folders. A = extract into the game folder."),
+      );
+    })().catch((e) => {
+      if (!mounted.current) return;
+      setBusySafe(false);
+      setError(bridgeError(String(e)));
+    });
+  };
+
+  const confirmLoaderInstall = async (d: GameSetupData, path: string, name: string): Promise<void> => {
+    setBusySafe(true);
+    const g = generation.current;
+    const plan = await installLoader(path, false);
+    if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+    setBusySafe(false);
+    if (!plan.ok) { setError(plan); setLastResult(envelopeError(plan)); return; }
+    showInfo(
+      t("GS_LOADER_CONFIRM", "Install loader?"),
+      [
+        (plan.data && (plan.data as { confirm_text?: string }).confirm_text) || name,
+        "",
+        t("GS_LOADER_REMOVABLE", "Removable afterwards: uninstall it from the mods list like any mod."),
+      ],
+      [
+        {
+          label: t("GS_LOADER_DO", "Install (A)"),
+          onClick: (close) => {
+            close();
+            void runLoaderInstall(path, false);
+          },
+        },
+        {
+          label: t("GS_LOADER_DO_DELETE"),
+          onClick: (close) => {
+            close();
+            void runLoaderInstall(path, true);
+          },
+        },
+      ],
+    );
+  };
+
+  const runLoaderInstall = async (path: string, deleteAfter: boolean): Promise<void> => {
+    setBusySafe(true);
+    const g = generation.current;
+    const done = await installLoader(path, true);
+    if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+    if (!done.ok) { setBusySafe(false); setError(done); setLastResult(envelopeError(done)); return; }
+    const dd = (done.data || {}) as { files?: number; packageId?: string };
+    let note = t("GS_LOADER_DONE", "{n} files installed as {pid}. Remove it from the mods list any time.",
+      { n: String(dd.files ?? 0), pid: dd.packageId ?? "" });
+    if (deleteAfter) {
+      const dr = await deleteZipSource(path);
+      if (dr.ok) {
+        note += " · " + t("ZIP_REMOVED", "{name} deleted.", { name: path.split("/").pop() || path });
+      } else {
+        setError(dr);
+      }
+    }
+    await reload();
+    setBusySafe(false);
+    toast(t("GS_LOADER_DONE_TITLE"), note);
+    setLastResult(note);
+  };
+
   const openGameSetup = (game: SteamGame) => {
     setBusySafe(true);
     const g = generation.current;
@@ -364,6 +476,34 @@ function Content() {
           : t("GS_WILL_CREATE", "will be created — only if you already installed the loader"),
         onActivate: (close) => { close(); saveGameConfig(d.appid, d.name, c.path); },
       })));
+      // Round 79: loader hand-off — jump to the official page, then extract
+      // the ZIP the user downloaded. Built-in games get no loader rows here
+      // (their descriptors keep loader_install=false and the backend refuses).
+      const loaders = d.loaders || [];
+      if (loaders.length) {
+        rows.push({
+          label: t("GS_LOADER_HEAD", "Mod loaders"),
+          sub: t("GS_LOADER_HEAD_SUB",
+            "Open the official page, download the ZIP, then install it — journaled and removable like any mod. Steam launch options are never edited."),
+          onActivate: () => { /* header row: no action */ },
+          disabled: true,
+        });
+        for (const ld of loaders) {
+          rows.push({
+            label: t("GS_LOADER_ROW", "{name} · open download page",
+              { name: ld.version ? `${ld.name} ${ld.version}` : ld.name }),
+            sub: (ld.installed ? t("GS_LOADER_INSTALLED", "already installed  ·  ") : "")
+              + (ld.hint_fits ? (ld.hint_note || "") : t("GS_LOADER_UNFIT", "may not fit this game") + "  ·  " + ld.hint_note),
+            onActivate: (close) => { close(); doOpenLoaderPage(ld.id, ld.name); },
+          });
+        }
+        rows.push({
+          label: t("GS_LOADER_INSTALL", "Install loader ZIP from Downloads"),
+          sub: t("GS_LOADER_INSTALL_SUB",
+            "Pick the ZIP you just downloaded; the plugin extracts it into the game folder."),
+          onActivate: (close) => { close(); void openLoaderZipPicker(d); },
+        });
+      }
       showListModal(
         t("GS_TITLE", "Mod folder for {name}", { name: d.name }),
         rows,
@@ -548,6 +688,10 @@ function Content() {
      * obstacles) gets to speak for itself instead of the generic error text.
      * Returns true when handled, so the caller's message is not overwritten. */
     onRefuse?: (r: OpEnvelope) => boolean,
+    /* Round 80: an optional follow-up that runs once AFTER a committed op —
+     * e.g. deleting the source ZIP behind "install and delete". Its message,
+     * when it returns one, is appended to the result line. */
+    afterSuccess?: () => Promise<string | null>,
   ) => {
     setBusySafe(true);
     const g = generation.current;
@@ -592,6 +736,10 @@ function Content() {
         if (okDone) {
           toast(t("TOAST_DONE"), msg);
           later(() => setProgress(null), 1500);
+          if (afterSuccess) {
+            const extra = await afterSuccess();
+            if (extra) setLastResult(`${msg} · ${extra}`);
+          }
         }
         await reload();
         setBusySafe(false);
@@ -751,6 +899,27 @@ function Content() {
         runTwoPhase(
           (ac) => installMod(path, ac),
           importSuccess,
+        );
+      },
+    });
+    // Round 80: opt-in source cleanup. A separate action, never automatic —
+    // a deleted ZIP cannot come back from the journal.
+    actions.push({
+      label: t("BTN_IMPORT_DELETE"),
+      onClick: (close) => {
+        close();
+        runTwoPhase(
+          (ac) => installMod(path, ac),
+          importSuccess,
+          undefined,
+          async () => {
+            const dr = await deleteZipSource(path);
+            if (!dr.ok) { setError(dr); return null; }
+            const name = path.split("/").pop() || path;
+            const note = t("ZIP_REMOVED", "{name} deleted.", { name });
+            toast(t("ZIP_REMOVED_TITLE"), note);
+            return note;
+          },
         );
       },
     });
@@ -1418,6 +1587,11 @@ function Content() {
     // where the user is looking instead of making them hunt for the switch.
     const cat = (status?.catalog || []).find((c) => c.appid === game.appid);
     if (cat && cat.operable) {
+      // Round 79 (device finding): "Change mod folders" must only be offered
+      // for USER-configured games — offering it for a built-in descriptor let
+      // Stardew Valley be re-configured as a root_merge game, which shadowed
+      // its SMAPI management.
+      const isUserConfigured = cat.id.startsWith("user_");
       showListModal(
         game.name,
         [
@@ -1432,9 +1606,13 @@ function Content() {
             sub: t("GAME_MGMT_SETUP_SUB",
               "Re-pick where this game's loader reads mods from, or remove the configuration."),
             onActivate: (close) => { close(); openGameSetup(game); },
+            disabled: !isUserConfigured,
           },
         ],
-        t("GAME_MGMT_SUB", "This game can be managed by the plugin."),
+        isUserConfigured
+          ? t("GAME_MGMT_SUB", "This game can be managed by the plugin.")
+          : t("GAME_MGMT_BUILTIN_SUB",
+              "Built-in adaptation: the mod folders are fixed by the descriptor — no manual setup needed."),
       );
       return;
     }
@@ -2153,21 +2331,21 @@ function Content() {
             <Focusable style={{ display: "flex", flexDirection: "row", gap: "4px", width: "100%" }}>
               <DialogButton
                 style={{ flex: 1, minWidth: 0, height: "auto", padding: "5px 2px", fontSize: "12px" }}
-                disabled={busy}
+                disabled={busy || !activeNexusDomain}
                 onClick={() => doNexusRecent("latest_added")}
               >
                 {t("NEXUS_RECENT_ADDED")}
               </DialogButton>
               <DialogButton
                 style={{ flex: 1, minWidth: 0, height: "auto", padding: "5px 2px", fontSize: "12px" }}
-                disabled={busy}
+                disabled={busy || !activeNexusDomain}
                 onClick={() => doNexusRecent("latest_updated")}
               >
                 {t("NEXUS_RECENT_UPDATED")}
               </DialogButton>
               <DialogButton
                 style={{ flex: 1, minWidth: 0, height: "auto", padding: "5px 2px", fontSize: "12px" }}
-                disabled={busy}
+                disabled={busy || !activeNexusDomain}
                 onClick={() => doNexusRecent("trending")}
               >
                 {t("NEXUS_RECENT_TRENDING")}
@@ -2195,7 +2373,7 @@ function Content() {
           <ButtonItem
             label={t("NEXUS_MOD_FETCH")}
             description={t("NEXUS_MOD_FETCH_DESC")}
-            disabled={busy || !nexusModId.trim()}
+            disabled={busy || !activeNexusDomain || !nexusModId.trim()}
             onClick={doNexusMod}
           >
             {t("NEXUS_MOD_FETCH")}
@@ -2224,7 +2402,7 @@ function Content() {
           <ButtonItem
             label={t("SEARCH_BTN")}
             description={t("SEARCH_BTN_DESC")}
-            disabled={busy || !searchText.trim()}
+            disabled={busy || !activeNexusDomain || !searchText.trim()}
             onClick={doSearch}
           >
             {t("SEARCH_SECTION")}

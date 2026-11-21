@@ -79,23 +79,32 @@ def detect_loader(game_root: str, patterns=None) -> bool:
 def check_launch_options(user_home: str, appid="", launcher_token="") -> str:
     """Return 'set' | 'missing' | 'unknown'.
 
-    Best-effort scan of Steam userdata localconfig.vdf for ``appid``'s
-    LaunchOptions referencing ``launcher_token``. Both come from the
-    descriptor (``loader_detection`` / ``identity``), so this helper is
-    game-agnostic. With no descriptor tokens supplied, the answer is
-    'unknown' (nothing to prove). 'unknown' (no readable file) is deliberately
-    non-fatal: absence of the file does not prove the option is unset
-    (different Steam layouts / Deck Game Mode). Writes are refused only when
-    we can positively see the option is 'missing'.
+    Best-effort PARSE of Steam userdata localconfig.vdf: the launch option is
+    read from the app's OWN block
+    (``UserLocalConfigStore/Software/Valve/Steam/apps/<appid>/LaunchOptions``)
+    and must contain ``launcher_token``. Both come from the descriptor
+    (``loader_detection`` / ``identity``), so this helper is game-agnostic.
+
+    Round 79 device finding: the old implementation returned "set" when the
+    token appeared ANYWHERE in any account's file — a false "set" while the
+    actually-active account had no launch option for the game at all, which
+    is exactly the state that makes the game start without SMAPI. With no
+    descriptor tokens supplied, the answer is 'unknown' (nothing to prove).
+    'unknown' (no readable file) is deliberately non-fatal: absence of the
+    file does not prove the option is unset (different Steam layouts / Deck
+    Game Mode). Writes are refused only when we can positively see the option
+    is 'missing'.
     """
     if not appid or not launcher_token:
         return "unknown"
+    from .vdf import parse_vdf
     roots = [
         os.path.join(user_home, ".local", "share", "Steam"),
         os.path.join(user_home, ".steam", "steam"),
     ]
-    appid_token = '"%s"' % appid
-    found_any = False
+    seen_app_block = False
+    seen_token = False
+    candidates = []   # (mtime, path) — the most recently written account wins
     for root in roots:
         ud = os.path.join(root, "userdata")
         try:
@@ -107,16 +116,36 @@ def check_launch_options(user_home: str, appid="", launcher_token="") -> str:
             if not os.path.isfile(lc):
                 continue
             try:
-                with open(lc, "r", encoding="utf-8", errors="replace") as f:
-                    txt = f.read()
+                candidates.append((os.path.getmtime(lc), lc))
             except OSError:
                 continue
-            if appid_token not in txt:
-                continue
-            found_any = True
-            if launcher_token and launcher_token in txt:
-                return "set"
-    return "missing" if found_any else "unknown"
+    # Multi-account devices: the account the user is ACTUALLY logged into is
+    # approximated by the localconfig Steam wrote most recently. Checking
+    # every account made a stale account's launch option answer "set" for the
+    # fresh one (round 79 device finding: the game started without SMAPI
+    # while the panel still said the options were set).
+    candidates.sort(reverse=True)
+    for _mtime, lc in candidates:
+        try:
+            with open(lc, "r", encoding="utf-8", errors="replace") as f:
+                tree = parse_vdf(f.read())
+        except (OSError, ValueError, KeyError):
+            # an unparseable file is 'unknown' for that account, not fatal
+            continue
+        apps = (((tree or {}).get("UserLocalConfigStore") or {})
+                .get("Software") or {}).get("Valve") or {}
+        apps = (apps.get("Steam") or {}).get("apps") or {}
+        block = apps.get(str(appid))
+        if not isinstance(block, dict):
+            continue
+        seen_app_block = True
+        opts = str(block.get("LaunchOptions") or "")
+        if launcher_token in opts:
+            seen_token = True
+        break   # the most recent account decides; older ones are history
+    if seen_token:
+        return "set"
+    return "missing" if seen_app_block else "unknown"
 
 
 def _active_mod_package() -> dict:

@@ -44,6 +44,7 @@ features are deliberately excluded.
 | Write a second game's mods | Cyberpunk 2077 ships as a descriptor: the `root_merge` engine routes archive members file-by-file into declared write roots, journals every file, backs up anything replaced, and refuses game payload outright (Round 76, tests/test_root_merge.py) |
 | Write mods for a game the plugin does not ship | the user configures the mod folder(s) once in the panel; the same root_merge engine then writes only inside them, with the same journal + backup guarantees; anti-cheat online games are refused, and the configuration can be changed or removed from the panel (Round 77, tests/test_user_games.py) |
 | Switch which game the panel manages | `switch_game` atomically rewrites `active_game`; exactly one game is managed at a time, unchanged (Round 76) |
+| Hand a loader to the user without pretending to install it for everyone | user-configured games: open the loader's official page, extract the downloaded ZIP into the game folder — two-phase, journaled, backed up, removable; launch options still never edited (Round 79, tests/test_loader_install.py) |
 
 0h. **The reverse question: who needs this mod.**
 

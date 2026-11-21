@@ -18,8 +18,8 @@ and rolls back an install that went wrong.
 >    rollback are exact.
 > 3. **Any other Steam game, configured by you** — the panel asks where that game's loader reads mods from;
 >    the same `root_merge` engine then writes only inside the folder you picked. Games with anti-cheat are
->    refused outright, and no loader is ever installed: files dropped for a loader you have not installed
->    will simply not load, and the panel says so.
+>    refused outright, and a game you configure never gets a loader installed silently: the panel opens the
+>    loader's official download page, and only extracts the ZIP **you** downloaded, with your explicit tap.
 >
 > Exactly one game is managed at a time (`switch_game` moves the panel between supported games). There is
 > no universal one-click install, and this README will not pretend otherwise.
@@ -37,13 +37,21 @@ and rolls back an install that went wrong.
 | **Rollback** | Every mutation is journalled. A bad install can be rolled back to the exact previous state, or the plugin reports honestly that it could not. |
 | **Dependencies** | Reads each mod's declared dependencies, reports which are missing, and can fetch a missing dependency **only** when the downloaded archive's own manifest names the same mod ID. |
 | **Download (optional)** | HTTPS download from an allow-listed host into an inbox, then the same import path. Two-phase: a read-only plan, then an explicit confirm. |
+| **Loader hand-off** | In the mod-folder setup screen: open a loader's official download page (BepInEx 5 / BepInEx 6 IL2CPP / MelonLoader, fit-ranked by the game's Unity flavour), then extract the ZIP you downloaded — one tap, per-file journal, backups, removable. Built-in games and launch options stay out of reach. |
+| **Delete source ZIP** | The import and loader confirm dialogs offer "install and delete the ZIP" — a separate, explicit action (never automatic), restricted to files inside the declared import roots. |
 | **Errors** | 52 stable error codes, each with a category and a suggested next step, shown in the QAM — never a raw traceback. |
 
 ## Hard limits (by design, not by accident)
 
 - **No root, ever.** The plugin runs as the Decky user and does not escalate.
 - **No `steamos-readonly disable`.** Nothing in this plugin touches the read-only root filesystem.
-- **No loader installation.** SMAPI, BepInEx, xNVSE and friends are *detected*, never installed or updated.
+- **Loader installation, scoped.** For every built-in game (Stardew, Cyberpunk) SMAPI, BepInEx,
+  xNVSE and friends are *detected*, never installed — unchanged. For a game **you configure**,
+  the panel may open the loader's official download page and extract the ZIP you downloaded into
+  the game folder: two-phase confirmed, journaled per file, backed up, removable like any mod
+  (Round 79; a user-approved scoping of the old "never, for every game, permanently" rule).
+  Steam launch options are **still never edited** — if a loader needs `WINEDLLOVERRIDES`, the
+  panel shows the text and you paste it in Steam yourself.
 - **No launch-option editing.** If a loader needs a launch option, you set it in Steam; the plugin only reports that it is missing.
 - **No Proton prefix writes.** Mod files go into the game's mod folder, not into `compatdata`.
 - **No cloud, no account sync, no telemetry.** The plugin has no server of its own and stores nothing off-device.
@@ -53,9 +61,11 @@ and rolls back an install that went wrong.
 ```
 main.py                  Decky plugin entry point; all public RPCs (positional args, JSON-safe envelopes)
 deckymod/                Backend, standard library only
-  engine.py               XML-list engines (enable/disable by editing a state file)
-  smapi.py, file_drop.py  File-drop engines (enable/disable by directory presence)
-  manifest.py             Manifest parsers, driven entirely by the game descriptor
+  engine.py              XML-list engines (enable/disable by editing a state file)
+  smapi.py, file_drop.py File-drop engines (enable/disable by directory presence)
+  root_merge.py          Per-file install engine (Cyberpunk, user-configured games, loader ZIPs)
+  user_games.py          User-defined game descriptors (data/games/<appid>.json, written by the panel)
+  manifest.py            Manifest parsers, driven entirely by the game descriptor
   archive.py, sevenzip.py Archive inspection, limits, extraction
   download.py             HTTPS with a host allow-list, size cap, TLS bundle union
   deps.py                 Dependency resolution; accepts only a manifest-verified download
@@ -128,6 +138,10 @@ Known gaps, stated plainly:
 - Only the two built-in games have device-verified descriptors. A user-configured game works the way
   its descriptor says (synthetic-tree proven), but your own folder choice has not been verified against
   your game — start with a mod you can afford to lose, and check the game still launches.
+- **SMAPI's launch option must use the FULL PATH.** `StardewModdingAPI %command%` looks right but the
+  name is not on Steam's shell PATH — the launch fails and the game never opens (measured on device).
+  Use `"<game folder>/StardewModdingAPI" %command%` instead; the plugin can only report that the option
+  is missing or malformed, never fix it for you.
 - Nexus Mods is **metadata and browser hand-off only**. The plugin can browse and open pages; the API gives
   download links to premium accounts, and free accounts must download in the browser. See
   [`docs/NEXUS_ROADMAP.md`](docs/NEXUS_ROADMAP.md).

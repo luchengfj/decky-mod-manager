@@ -8,6 +8,9 @@
   "type": "doorstop_injection",
   "detect": { "patterns": ["BepInEx/core/BepInEx.dll", "winhttp.dll"] },
   "install_files": ["BepInEx/", "doorstop_config.ini", "winhttp.dll"],
+  "browse_url": "https://github.com/BepInEx/BepInEx/releases",
+  "hint": "unity-mono",
+  "hint_note": "For Unity MONO games (managed/Assembly-CSharp.dll next to the exe). NOT for IL2CPP games (GameAssembly.dll) — those need BepInEx 6 IL2CPP or MelonLoader.",
   "launch_requirements": {
     "launch_options_template": "WINEDLLOVERRIDES=\"winhttp.dll=n,b\" %command%",
     "dll_override": "winhttp.dll=n,b",
@@ -15,5 +18,5 @@
   },
   "mod_root_template": "${GAME_ROOT}/BepInEx/plugins",
   "state_mutator_ref": "file_drop",
-  "notes": "PLANNED. Installing files, editing Steam launch options, or writing into compatdata/<appid>/pfx are all refused in MVP (E_CAPABILITY_DISABLED). Kept as the canonical example of a loader that needs a launch-option edit + DLL override."
+  "notes": "Round 79: browse_url is opened in the signed-in browser (never fetched by the plugin); the ZIP the user downloads is extracted by install_loader ONLY for descriptors whose capabilities.loader_install is true (user-configured games), journaled per file with backup+rollback. Steam launch options are NEVER edited by the plugin — if the game needs WINEDLLOVERRIDES the panel shows the text and the user pastes it in Steam themselves."
 }

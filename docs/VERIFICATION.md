@@ -1450,8 +1450,8 @@ C = 抽象层 path resolver 重构（**独立门控，本计划不执行**，触
 ### §K — Round 78：第二游戏（Cyberpunk）+ 用户自定义游戏 真机部署与真实写回（2026-11-21，加性证据回写，状态字一律不动）
 
 > 授权链：用户在本会话明示「/goal 完成steam游戏适配，可以写入其他游戏的MOD」→ 部署阶段
-> 用户主动提供 SSH（192.168.66.191，用户 deck / 口令 1234，已装 agent 公钥
-> `deck_key`，位于本机 `C:\ai\node-portable\ssh\`）。本节是**加性证据回写**：§A–§J
+> 用户主动提供 SSH 访问（Steam Deck 局域网地址；用户 deck；口令仅一次性用于部署
+> agent 公钥，**不入库**）。本节是**加性证据回写**：§A–§J
 > 原样保留、状态字一律不动；`V1` 仍唯一 `CLOSED`，V2–V20/F1–F3 全 `OPEN`，
 > 原 G3（RimWorld 294100）仍 `OPEN / NOT SHIPPABLE`。**不写 `CLOSED`。**
 
@@ -1572,5 +1572,224 @@ append-only 记录（Cyberpunk / user_1868140 各一组 install+uninstall 事务
   MicroSD 库（`/run/media`）未测（设备上两游戏均在内置库）；exFAT/跨设备路径未测；
   `V2–V20 / F1–F3` 状态字一律未动、未写任何 `CLOSED`、原 G3 仍
   `OPEN / NOT SHIPPABLE`。
+
+#### §K.1 — Round 78b：Nexus 浏览页在 Cyberpunk 打不开 → 修复 + 真机复验（2026-11-21，加性证据回写，状态字一律不动）
+
+> 用户报告：「无法打开下载/导入中的 最新发布/最近更新/热门的网页」。真机复现（探针逐字）：
+> `CP_TRENDING: {"ok": false, "code": "E_CAPABILITY_DISABLED"}` /
+> `CP_DETAIL: [open_browse_page] nexus_metadata source disabled`，同机 Stardew 正常
+> （`SD_URL: https://www.nexusmods.com/stardewvalley/mods?sort=trending`）。
+> 根因 = 又一次「declared but unread」：`cyberpunk.json` 的 `download_sources` 声明的是
+> **browse-only 别名 `nexus_game_domain`（纯字符串）**，而三个网站页打开器
+> （`open_mod_page` / `open_search_page` / `open_browse_page`）只读 API 形状的
+> `nexus_metadata` 块。打开网站页从不需要 API key，因此按别名拒绝是错的。
+
+**修复（三处，全部加性）**：
+1. `main.py` 新增 `_nexus_browse_domain()`：先认 `nexus_metadata.game_domain`
+   （stardew 形状），回退到 `nexus_game_domain`（cyberpunk 形状）；三个网站页打开器
+   改用它。**API RPC（nexus_recent / nexus_mod / nexus_download_link / nexus_validate）
+   刻意维持 `_nexus_domain()`**——它们真正需要 `nexus_metadata` 块和存储的 key。
+   拒绝文案改为 `no Nexus domain declared for this game (download_sources)`。
+2. `deckymod/registry.py` `catalog()` 的 `nexus_domain` 同样回退——UI 门控依据与
+   后端执行规则一致。
+3. `src/index.tsx`：三个浏览按钮 + mod 页按钮 + 搜索按钮在 `!activeNexusDomain`
+   时禁用（不再渲染「点了必失败」的按钮）；`NEXUS_NO_PREFIX` 文案改为覆盖
+   「此游戏无 Nexus 域 → 去浏览器逛 nexusmods.com、ZIP 从下载导入」。
+
+**回归**：新增 `tests/test_nexus_browse.py` 7 例（别名打开网站页、API 块优先、
+无域拒绝、未知 sort 拒绝、API RPC 仍需 nexus_metadata、open_mod_page 别名、
+catalog 回退）——其中 1 例修出了探针级缺陷：`_nexus_browse_domain` 曾在方法内
+`from deckymod.registry import Registry` 重新 import，绕过 `main.Registry` 测试接缝
+读到生产 registry（正是本仓库历史上三次 TS 错误漏进构建的同类问题，这次是 Python 侧
+同类问题的复现与拦截）。全量 **939 tests OK (skipped=15)** + i18n 500/500 +
+`validate_p0 ALL_STATIC_CHECKS True` + `tsc --noEmit` 零错误 + `rollup -c`。
+
+**部署与真机复验（逐字）**：备份 `backups/plugin-before-round78b` → 推送 →
+sudo 解压 → `dist/index.js` md5 `6d7df5d6717fff44a9c0495a934700fb`（232732 B）→
+重载 active → deckymod.log
+`2026-11-21T00:06:18Z [info] Decky MOD Manager loaded (Stardew Valley / SMAPI (detect-only))`。
+探针复验：
+
+```text
+SWITCH_CP: True
+CP_trending: ok | https://www.nexusmods.com/cyberpunk2077/mods?sort=trending
+CP_latest_added: ok | https://www.nexusmods.com/cyberpunk2077/mods?sort=newest
+CP_latest_updated: ok | https://www.nexusmods.com/cyberpunk2077/mods?sort=updated
+USERGAME_TRENDING: REFUSED | E_CAPABILITY_DISABLED | [open_browse_page] no Nexus domain declared for this game (download_so
+BACK_STARDEW: True | active: stardew
+```
+
+三个排序页在真机浏览器（steam://openurl）真实打开；用户自定义游戏（无域）保持
+诚实拒绝；`active_game` 还原 stardew。**未覆盖（常驻）**：Cloudflare 挑战下的页面
+人眼渲染质量未核（CDP 目视不在本轮范围）；手柄目视 DoD 仍无人工贴回；状态字一律未动。
+
+#### §K.2 — Round 79：加载器交接（用户批准的红线收窄）+ 真实 BepInEx 真机安装/卸载（2026-11-21，加性证据回写，状态字一律不动）
+
+> 用户请求：「设置MOD目录的时候能帮忙跳转加载器网页，然后让我下载然后一键加载目录吗？」
+> → 用户在两个选项中明确选择「**跳转 + 一键解压（推荐）**」= 批准收窄「永不安装加载器」
+> 红线（仅用户自定义游戏；内置游戏与启动项/Proton prefix/exe 安装器约束不变）。
+
+**实现（全链）**：loader catalog 三条目带 `browse_url` + Unity 形态提示
+（bepinex5 / bepinex6_il2cpp 新增 / melonloader）；`user_games` 描述符
+`capabilities.loader_install: true` + `paths.loader_root: "${GAME_ROOT}"`；
+`RootMergeEngine.install_loader`（两阶段 + `_check_not_running` + `_check_no_pending`
++ import-root 校验 + 逐文件 FILE_PLACED journal + 备份 + **复用既有
+uninstall/rollback 机制**）；`main.py` 新 RPC `install_loader` / `open_loader_page`
+（**公开 RPC 33 → 35**，三个计数 pin 同步：test_wired_contract / validate_p0 /
+test_catalog / test_auto_import / test_integration）；`openurl.validate_url/open_url`
+接受调用方声明的额外允许主机（默认白名单不变——信任边界 = 随插件分发的 loader
+catalog）；前端 game_setup 弹窗 loader 行 + ZIP 选择安装流 + i18n 双语。
+
+**本地回归**：`tests/test_loader_install.py` 10 例（两阶段落位 / uninstall 精确移除 /
+备份恢复旧字节 / 无能力拒绝 / 不安全成员拒绝 / 运行中拒绝 / catalog URL 打开 /
+未知 id / 无页面 loader / game_setup offers）+ 全量 **949 tests OK (skipped=15)** +
+`validate_p0 ALL_STATIC_CHECKS True`（35 RPC）+ i18n 517/517 + `tsc --noEmit`
+零错误 + `rollup -c`（dist/index.js 243,811 B，md5 `639c9daa…`）。
+探针途中修出的缺陷：loader ZIP 解压后 `.decky-staging/` **空壳残留在游戏目录**
+（设备发现）→ `_drop_staging()` 连空父目录一起清；测试接缝绕过（方法内 re-import
+Registry）→ 改用模块级引用。
+
+**部署**：备份 `backups/plugin-before-round79` → round79.tgz（dist/ 布局正确）
+→ md5 逐字一致（`639c9daa…` / main.py `d7b938c7…`，后补 root_merge.py 与
+openurl.py + main.py 热修）→ `plugin_loader.service` 重载 active → deckymod.log
+`2026-11-21T02:41:07Z [info] Decky MOD Manager loaded (Stardew Valley / SMAPI (detect-only))`。
+
+**真机探针 `rounds/r79_loader_probe.py`**（归档于设备 + 仓库 `.decky-probe/`）——
+**真实 BepInEx ZIP 全流程，16/16 PASS**（逐字 stdout）：
+
+```text
+PASS CFG_OK
+PASS SW_OK
+PASS SETUP_LOADERS  | ['bepinex6_il2cpp', 'melonloader', 'bepinex5']
+PASS IL2CPP_FITS_FIRST  | unity-il2cpp
+PASS PAGE_OPENED  | None|
+PASS ZIP_DOWNLOADED  | BepInEx_win_x64_5.4.23.6.zip (642076 bytes)
+PASS PHASE_NO_WRITE
+PASS INSTALL_OK  | None|
+PASS FILES_LAND  | 22 files
+PASS STAGING_CLEANED  | gone
+PASS UNINSTALL_OK
+PASS FILES_GONE
+PASS LOADER_GONE_FROM_LIST
+PASS FORGET_OK  | stardew
+PASS NO_BEPINEX_LEFT
+PASS ZIP_REMOVED
+TOTAL 16 checks: 16 PASS / 0 FAIL
+```
+
+**这 16 项证明了什么**：真实加载器 ZIP（GitHub 官方资产
+`BepInEx_win_x64_5.4.23.6.zip`）下载到 `~/Downloads` → 两阶段确认不写盘 →
+`install_loader` 后 **22 个文件真实落盘**（`winhttp.dll` 落游戏根、
+`BepInEx/core/BepInEx.dll` 等树）→ **普通 uninstall（同一 RPC、同一机制）完全移除**
+→ 空目录剪枝后零残留 → `forget_game` 兜底回 stardew。`open_loader_page` 真实打开
+`builds.bepinex.dev/projects/bepinex_be`（catalog 声明的官方页）。
+**如实边界**：装的是 BepInEx 5（机制验证）；DAVE THE DIVER 是 IL2CPP 游戏、真正可用
+的是 BepInEx 6 IL2CPP / MelonLoader —— 面板已按 `hint_fits` 排序提示；探针未启动
+游戏验证 doorstop 真实注入。`V2–V20 / F1–F3` 状态字一律未动、未写 `CLOSED`。
+
+#### §K.3 — Round 79b：用户报告「星露谷的 SMAPI 管理没了」→ 根因 + 恢复 + 防呆（2026-11-21，加性证据回写，状态字一律不动）
+
+> 用户报告：星露谷的 SMAPI 模组管理在面板里消失。真机诊断逐字：
+> `catalog: [... ('user_413150', True, False)]` —— Stardew Valley（AppID 413150）被
+> **又配置成了一个用户自定义游戏**（`data/games/413150.json`，`write_roots: ["Mods"]`，
+> root_merge 引擎，`updated_at 2026-11-21T02:27:08Z`），catalog 出现第二个 enabled 的
+> 星露谷条目，把 SMAPI 的管理体验顶掉。链路：Round 78 给非活跃可操作游戏加了
+> 「修改 MOD 目录…」动作入口，但对**内置描述符游戏**也开放了 → 内置游戏被 reconfigure
+> 成 root_merge 用户游戏。**游戏文件无损**：`Mods/` 31 个 SMAPI MOD 完好、
+> `StardewModdingAPI.dll` + `smapi-internal/` 完好、启动项 set、无 user_413150 journal
+> 写入（该配置从未被用于实际写盘）。
+
+**恢复（逐字）**：`rm data/games/413150.json` → `user_413150` 从 catalog 消失 →
+status()：`game: Stardew Valley | mods: 31 | loader_detected: True | launch_options: "set"`、
+`CATALOG: [('stardew', True), ('cyberpunk', False)]` —— SMAPI 管理原样回来。
+
+**防呆（两层）**：
+1. `main.configure_game` 拒绝与任何内置描述符同 AppID 的用户配置
+   （`E_NOT_ALLOWED_ROOT`，detail 指名 built-in descriptor）。真机复验逐字：
+   `GUARD_TEST: False | E_NOT_ALLOWED_ROOT | [configure_game] 'Stardew Valley' is already managed by the built-in descriptor 'stardew'`。
+2. `openGameMods` 动作面板的「修改 MOD 目录…」行对内置游戏禁用
+   （副标题改为「内置适配：MOD 目录由描述符固定」）。
+
+**回归**：`tests/test_game_surface.py` 新增 2 例（拒绝内置 + 普通 game 仍可配置）→
+全量 **951 tests OK (skipped=15)** + i18n 518/518 + `tsc --noEmit` 零错误 +
+`rollup -c`（dist/index.js md5 `47331644…`）→ 热部署 main.py + dist → 重载 active。
+`V2–V20 / F1–F3` 状态字一律未动、未写 `CLOSED`。
+
+#### §K.4 — Round 79c：用户「游戏里没有 MOD」→ 根因 = 活跃 Steam 账号缺启动项 + 插件误报 set 已修（2026-11-21，加性证据回写，状态字一律不动）
+
+> 用户报告：已启动星露谷但「没有 MOD 显示」。真机证据链（逐字）：
+> 1. `SMAPI-latest.txt` mtime = **2026-11-20 19:27**（昨日会话，31 MOD 全部加载）——
+>    **今天这次启动 SMAPI 根本没运行**（SMAPI 每次启动都会重写该日志）。
+> 2. 设备有两个 Steam 账号目录：`userdata/1262859695`（localconfig mtime
+>    **2026-11-21T11:08** = 当前活跃）与 `userdata/404341080`（mtime 11-16）。粗查
+>    两份 localconfig 的 413150 块均无 LaunchOptions（精确正则）。
+> 3. **用户今天启动的是原版游戏**：切换/重登了 Steam 账号，活跃账号没有 SMAPI
+>    启动项。游戏文件全程无损（31 MOD + SMAPI 本体完好）。
+> 4. **插件层缺陷（同日修复）**：`check_launch_options` 是「token 出现在任一账号
+>    文件任意位置即 set」的宽松子串检查 → 面板误报「启动项：set」，掩盖了真实状态。
+>    修复 = 用 `vdf.parse_vdf` 真解析（读
+>    `UserLocalConfigStore/Software/Valve/Steam/apps/<appid>/LaunchOptions` 块）+
+>    **按 localconfig mtime 取最近活跃账号判定**（旧账号的历史启动项不再替活跃
+>    账号答 set）。`tests/test_second_game.py` 夹具同步改为真实 localconfig 结构，
+>    新增 4 例（set / missing / **token 在别的 app 块→missing**（设备上真正咬人的
+>    回归）/ 损坏文件→unknown）。全量 **955 tests OK (skipped=15)**。
+> 5. 热部署后真机逐字：`launch_options: missing | mods: 31 | smapi: True` ——
+>    面板现在诚实显示「启动项缺失」。
+>
+> **用户恢复路径（插件永不代改启动项，硬约束不变）**：Steam（当前账号）→ 库 →
+> 星露谷 → 属性 → 通用 → 启动选项 填
+> `"${GAME_ROOT}/StardewModdingAPI" %command%`（smapi.json 的官方模板）。
+> `V2–V20 / F1–F3` 状态字一律未动、未写 `CLOSED`。
+
+#### §K.5 — Round 80：安装后可选删除源 ZIP（用户请求，opt-in）（2026-11-21，加性证据回写，状态字一律不动）
+
+> 用户请求：「安装完MOD后，zip能否帮我删除」。设计 = **显式选择而非自动副作用**：
+> 删除不可逆（journal 无法恢复源文件），所以做成确认弹窗里的独立按钮
+> 「导入并删除 ZIP」/「安装并删除 ZIP」，永不自动执行。
+
+**实现**：`FileDropEngine.delete_source_zip`（两引擎共用；`_gate("local_import")` +
+`_validate_import_path` 同一套 containment——**只能在声明的 import root 内删**，
+symlink/目录拒绝，journal 记 `source zip removed` 行）+ `main.delete_zip_source` RPC
+（**公开 RPC 35 → 36**，四处计数 pin 同步）；前端 `runTwoPhase` 加 `afterSuccess`
+钩子 + 导入确认弹窗第二动作 + loader 确认弹窗「安装并删除 ZIP」变体；i18n 双语。
+
+**回归**：`tests/test_delete_source.py` 5 例（inbox 内删除+journal 记录 /
+**越界拒绝且文件原样** / 缺失文件诚实 E_INBOX_UNREADABLE / 空路径 /
+RootMergeEngine 继承同一守卫）→ 全量 **960 tests OK (skipped=15)** + i18n 522/522 +
+`validate_p0 ALL_STATIC_CHECKS True`（36 RPC）+ `tsc --noEmit` 零错误 +
+`rollup -c`（dist/index.js md5 `13e0ab7e…`）。
+
+**部署 + 真机验证（逐字）**：md5 一致（`13e0ab7e…`）→ 重载 active → 探针：
+```text
+DELETE_OK: True | gone: True
+OUTSIDE_REFUSED: True | E_PATH_ESCAPE
+MISSING_HONEST: True | E_PATH_ESCAPE   (首跑路径少了 data/ 段——插件拒绝正确，探针笔误)
+```
+（首跑 DELETE_OK=False 是探针把 zip 写到了非声明路径，插件的 containment 拒绝
+**正是设计行为**；修正路径后通过。）
+`V2–V20 / F1–F3` 状态字一律未动、未写 `CLOSED`。
+
+#### §K.6 — Round 80b：灰雾/金币叠影/拖拉机错位 → 元凶 SDV-HD2D，且「.disabled 后缀」禁用对 SMAPI 无效（2026-11-21，加性证据回写，状态字一律不动）
+
+> 用户报告游戏画面灰蒙蒙 + 拖拉机 MOD 错位。截图取证（Steam 截图 scp 回本地目检）：
+> 12:04 会话（全量 MOD）室内画面灰白 + **金币数字双重渲染**；12:10 会话（StardewUI
+> 已禁、HD2D 开）室外农田**右下灰白雾罩 + 拖拉机与骑手错位 + 金币仍叠影 + FPS 29.9**；
+> 对比 11-17 旧截图（同样 HD2D 开）：色彩浓郁、拖拉机对位、金币干净——变异点 = 今天
+> 新装的 4 个 MOD 与 HD2D 的组合（或 HD2D 0.9.1 公测在新场景下的自身缺陷）。
+>
+> **排查中的方法论缺陷（先自证后修正）**：SMAPI 4.5.2 实测**加载了
+> `xxx.disabled` 后缀的文件夹**——前几轮「禁用」全部无效，用户每次测的都是全量
+> MOD（这解释了「HD2D 关了还灰」的假阴性）。SMAPI 确定跳过的是**点开头**文件夹
+> （逐字：`Skipped Mods/.ivory.sdvhd2d (folder name starts with a dot)`），改用
+> 点前缀后：`Loaded 23 mods`（25→23，StardewUI 0 提及、HD2D 仅 skipped 行 1 提及）
+> → **用户确认画面恢复**（灰雾消失、金币干净、拖拉机归位）。
+>
+> **禁用清单**（点前缀，随时可逆）：`.ivory.sdvhd2d`（渲染器元凶）、
+> `.focustense.stardewui`（UI 框架，一并禁用排除）、`.Xiddav.schoolhouse`（含损坏
+> 中文资产 `Custom_SchoolHouse_NPCTrainRoom.zh-CN` 的学院包）。hxw.tilesheets 经
+> content.json 审计排除（23 Load + 3 EditImage 全部指向自家 hime_* 地图且带
+> `HasMod: Az.Foliage` 条件门，不碰原版贴图）。另两个无关发现：evolvingAIconversation
+> API 403（服务商地区限制）；LookupAnything/i18n 目录无 manifest（SMAPI 跳过，无害）。
+> `V2–V20 / F1–F3` 状态字一律未动、未写 `CLOSED`。
 
 **goal 状态**：决定性阻塞已解除（(a)(b) 已升、7/8 已 PASS、「0 真值」不再成立），goal 客观范围已实质达成；但用户 m06789 选的是选项「1」（补齐 7/8 → 写 §J.10 + 附录 + **给 goal 裁定**），**非** option 2（「按当前证据标完成」→ `update_goal(complete)`），且 goal 硬约束含「不新增 `CLOSED` 状态字除非用户显式指令」。收口路径 = 本 §J.10 + 附录 + 注记落盘 → lead/用户显式裁决「CDP DOM 文本是否等价于(现由 agent 代做的)目视」及 9/10 是否非阻塞接受 → 由用户/lead 显式 `update_goal(complete)`。**本节不自行调用 `update_goal(complete)`、不写 `CLOSED`、不勾 §B.4、不宣称 goal 已完成，goal 保持 `active`**，待用户一句显式授权后一次性收口。

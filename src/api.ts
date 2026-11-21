@@ -101,6 +101,26 @@ export const configureGame = (appid: number, name: string, writeRoots: string[])
   invoke<{ appid: number; write_roots: string[] }>("configure_game", appid, name, writeRoots);
 export const forgetGame = (appid: number) =>
   invoke<{ appid: number; deleted: boolean }>("forget_game", appid);
+
+/**
+ * Round 79: loader hand-off (user-approved red-line change, scoped to
+ * user-configured games). `openLoaderPage` hands the catalog's official page
+ * to the browser; `installLoader` extracts the ZIP the user downloaded into
+ * the game's loader root — two-phase, journaled, backed up, rollback-able.
+ * Built-in games answer E_CAPABILITY_DISABLED.
+ */
+export const openLoaderPage = (loaderId: string) =>
+  invoke<{ url: string; loader: string; opened: boolean }>("open_loader_page", loaderId);
+export const installLoader = (zipPath: string, afterConfirm: boolean) =>
+  invoke<ConfirmData | OpResultData>("install_loader", zipPath, afterConfirm) as Promise<OpEnvelope>;
+
+/**
+ * Round 80: delete the source ZIP of an already-committed install. Opt-in —
+ * the panel only calls this behind an explicit "install and delete" action,
+ * and the backend refuses anything outside a declared import root.
+ */
+export const deleteZipSource = (zipPath: string) =>
+  invoke<{ removed: string }>("delete_zip_source", zipPath);
 export const listInbox = () => invoke<InboxData>("list_inbox");
 export const inspectZip = (zipPath: string) => invoke<InspectData>("inspect", zipPath);
 export const getHistory = (limit = 50) => invoke<HistoryData>("history", limit);
@@ -328,6 +348,8 @@ export const callableHandles = {
   open_browse_page: callable<[string], Envelope<BrowsePageData>>("open_browse_page"),
   handover_mods: callable<[boolean], Envelope<HandoverData>>("handover_mods"),
   reclaim_quarantine: callable<[string[], boolean], Envelope<ReclaimData>>("reclaim_quarantine"),
+  open_loader_page: callable<[string], Envelope<{ url: string; loader: string; opened: boolean }>>("open_loader_page"),
+  install_loader: callable<[string, boolean], OpEnvelope>("install_loader"),
 };
 
 /** Convenience: extract a localized, friendly error string for toasts. */

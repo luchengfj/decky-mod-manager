@@ -41,3 +41,7 @@ DeckyModManager-*.zip
 .idea/
 .DS_Store
 Thumbs.db
+
+# Session leftovers
+.workbuddy/
+/tmp*/

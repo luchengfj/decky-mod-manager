@@ -45,7 +45,8 @@ class TestRpcSurface(unittest.TestCase):
     def test_public_rpc_count(self):
         plugin, _ = _plugin_methods()
         rpc = [b.name for b in _public_rpc(plugin)]
-        self.assertEqual(len(rpc), 33, rpc)
+        # Round 79: +install_loader, +open_loader_page (loader hand-off).
+        self.assertEqual(len(rpc), 36, rpc)
 
     def test_download_rpcs_are_still_present(self):
         plugin, _ = _plugin_methods()

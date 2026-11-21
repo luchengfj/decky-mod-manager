@@ -71,12 +71,17 @@ def _fail(reason: str, detail: str = "") -> Dict[str, object]:
     return {"ok": False, "reason": reason, "detail": detail}
 
 
-def validate_url(url: str) -> Optional[str]:
+def validate_url(url: str, allowed_hosts=None) -> Optional[str]:
     """Return a reason string when the URL is not safe to hand to the client.
 
     Rejecting on whitespace and control characters is not cosmetic: the URL is
     embedded in a ``steam://openurl/...`` argument, so any newline or quote would
     change which URI the client receives.
+
+    ``allowed_hosts`` EXTENDS the built-in list for a caller whose own trust
+    boundary declares more hosts (round 79: the loader catalog ships with the
+    plugin and names the official pages it wants opened). The default list is
+    unchanged, so every existing caller keeps its behaviour.
     """
     from urllib.parse import urlsplit
 
@@ -92,7 +97,9 @@ def validate_url(url: str) -> Optional[str]:
     if parts.scheme != "https":
         return "only https is allowed"
     host = (parts.hostname or "").lower().rstrip(".")
-    if host not in ALLOWED_HOSTS:
+    allowed = ALLOWED_HOSTS if allowed_hosts is None else (
+        frozenset(allowed_hosts) | ALLOWED_HOSTS)
+    if host not in allowed:
         return "host %r is not allowed" % host
     if parts.username or parts.password:
         return "userinfo is not allowed"
@@ -104,14 +111,14 @@ def command_for(url: str) -> List[str]:
     return [STEAM_BIN, "steam://openurl/%s" % url]
 
 
-def open_url(url: str) -> Dict[str, object]:
+def open_url(url: str, allowed_hosts=None) -> Dict[str, object]:
     """Ask the running Steam client to display ``url``.
 
     Note the exit status is deliberately NOT the success criterion. The device
     probe showed that a launcher can exit 0 while displaying nothing (xdg-open
     did exactly that), so a zero code proves only "the client was reached".
     """
-    bad = validate_url(url)
+    bad = validate_url(url, allowed_hosts=allowed_hosts)
     if bad:
         return _fail("url_refused", bad)
     if not os.path.isfile(STEAM_BIN):

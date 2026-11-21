@@ -219,6 +219,10 @@ def descriptor_for(rec: dict) -> dict:
             "mod_root": None,
             "write_roots": roots,
             "root_file_target": first,
+            "loader_root": "${GAME_ROOT}",
+            "loader_root_note": "Loader ZIPs (BepInEx etc.) extract HERE — a "
+                                "loader's doorstop dll must sit next to the game "
+                                "executable, not inside the mod folder.",
             "protected": [],
             "protected_note": "Empty on purpose: write_roots alone bounds every "
                               "write, so a path outside them is refused before it "
@@ -257,7 +261,7 @@ def descriptor_for(rec: dict) -> dict:
             "atomic_state_write": False,
             "gamepad_only": True,
             "history_refresh": True,
-            "loader_install": False,
+            "loader_install": True,
             "launch_option_edit": False,
             "dll_override": False,
             "proton_prefix_write": False,
@@ -274,10 +278,11 @@ def descriptor_for(rec: dict) -> dict:
         "safety": {"never_write_outside": "write_roots",
                    "overwrite_requires_backup": True},
         "known_limitations": [
-            "This plugin does not install the mod loader (BepInEx/MelonLoader/"
-            "UE4SS). Without one, files in the folder may not be loaded by the game.",
+            "This plugin does not edit Steam launch options. If the loader "
+            "needs one (e.g. WINEDLLOVERRIDES for BepInEx on Proton), the "
+            "panel shows the text and you paste it into Steam yourself.",
             "No load order and no conflict resolution: two mods shipping the same "
             "path keep whichever was installed last.",
         ],
-        "known_limitation_keys": ["USER_LIMIT_LOADER", "USER_LIMIT_ORDER"],
+        "known_limitation_keys": ["USER_LIMIT_ORDER", "USER_LIMIT_LAUNCHOPTS"],
     }

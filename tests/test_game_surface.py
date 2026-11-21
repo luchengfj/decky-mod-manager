@@ -154,6 +154,23 @@ class TestGameSurface(unittest.TestCase):
         self.assertFalse(r["ok"])
         self.assertEqual(r["code"], "E_NOT_ALLOWED_ROOT")
 
+    def test_configure_game_refuses_a_built_in_game(self):
+        # Round 79 (device finding): re-configuring Stardew Valley generated a
+        # second root_merge descriptor that shadowed its SMAPI management.
+        r = asyncio.run(self._plugin().configure_game(413150, "Stardew Valley",
+                                                      ["Mods"]))
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["code"], "E_NOT_ALLOWED_ROOT")
+        self.assertIn("built-in descriptor", r.get("detail") or "")
+        # The throwaway config must not exist afterwards.
+        from deckymod import user_games
+        self.assertNotIn(413150, user_games.load_all())
+
+    def test_configure_game_still_accepts_an_ordinary_game(self):
+        r = asyncio.run(self._plugin().configure_game(1868140, "DAVE THE DIVER",
+                                                      ["BepInEx/plugins"]))
+        self.assertTrue(r["ok"], r)
+
     def test_forget_a_non_active_user_game_just_deletes_it(self):
         p = self._plugin()
         asyncio.run(p.configure_game(1868140, "DAVE THE DIVER",

@@ -374,6 +374,35 @@ class FileDropEngine:
         if not os.path.isfile(ap):
             raise ModError("E_INBOX_UNREADABLE", detail=ap)
 
+    def delete_source_zip(self, zip_path: str) -> dict:
+        """Remove the source ZIP after a successful install (round 80, opt-in).
+
+        The user taps "install and delete the ZIP" in the confirm dialog; this
+        is the backend half. Scope guards:
+          * the path must sit inside a DECLARED import root (inbox / Downloads)
+            — the same containment the import path validates, so no caller can
+            turn this into a general file deleter;
+          * it must be a regular file (not a symlink, not a directory);
+          * the removal is logged to the journal for traceability.
+        The ZIP is not user data the journal can restore — it is the SOURCE of
+        an install that already committed — so this is honest about being
+        irreversible, which is exactly why it is a separate, explicit call
+        instead of an automatic side effect.
+        """
+        try:
+            self._gate("local_import")
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        try:
+            self._validate_import_path(zip_path)
+            os.remove(zip_path)
+            self.journal.log("source zip removed: %s" % zip_path)
+            return ok({"removed": str(zip_path)})
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        except OSError as e:
+            return err(map_oserror(e).code, detail=e.strerror)
+
     # ------------------------------------------------------------------ read ops
     def _probe(self, r: paths.ResolvedPaths) -> dict:
         """Descriptor-driven, READ-ONLY detection shared by status/gate.

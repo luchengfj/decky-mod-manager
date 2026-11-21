@@ -39,12 +39,13 @@
   },
   "loader_catalog": {
     "bepinex5": "registry/loaders/bepinex5.json",
+    "bepinex6_il2cpp": "registry/loaders/bepinex6_il2cpp.json",
     "smapi": "registry/loaders/smapi.json",
     "xnvse": "registry/loaders/xnvse.json",
     "ue4ss": "registry/loaders/ue4ss.json",
     "melonloader": "registry/loaders/melonloader.json"
   },
-  "loader_catalog_note": "smapi is DETECT-ONLY for stardew: it is checked for presence, NEVER installed (see loaders/smapi.json). The other 4 loaders remain PLANNED scaffolding refused by the capability gate. No loader is ever installed by this plugin.",
+  "loader_catalog_note": "smapi is DETECT-ONLY for stardew: it is checked for presence, NEVER installed (see loaders/smapi.json). Round 79: bepinex5/bepinex6_il2cpp/melonloader carry browse_url for the browser hand-off, and install_loader may extract a loader ZIP ONLY for descriptors whose capabilities.loader_install is true (user-configured games) — two-phase, journaled, backed up, rollback-able; launch options are NEVER edited. Built-in descriptors keep loader_install=false.",
   "descriptors": {
     "stardew": {
       "file": "registry/games/stardew.json",

@@ -8,6 +8,9 @@
   "applies_to_platform": "windows / windows-proton (unity il2cpp)",
   "detect": { "patterns": ["MelonLoader/Managed/", "version.dll"] },
   "install_files": ["MelonLoader/", "version.dll"],
+  "browse_url": "https://github.com/LavaGang/MelonLoader/releases",
+  "hint": "unity-either",
+  "hint_note": "Works for both Unity MONO and IL2CPP games. Alternative to BepInEx.",
   "launch_requirements": {
     "launch_options_template": "WINEDLLOVERRIDES=\"version.dll=n,b\" %command%",
     "dll_override": "version.dll=n,b",

@@ -199,8 +199,16 @@ class SecondTree:
             f.write(b"ELF")
         ud = os.path.join(self.steam, "userdata", "123", "config")
         os.makedirs(ud, exist_ok=True)
-        launch_options = ('"AppState"\n{\n\t"appid"\t\t"%d"\n\t"LaunchOptions"\t\t'
-                          '"\\"/home/deck/.steam/steam/steamapps/common/%s/%s\\" %%command%%"\n}\n'
+        # Round 79: the fixture now uses the REAL localconfig.vdf shape
+        # (UserLocalConfigStore/Software/Valve/Steam/apps/<appid>). The old
+        # loose substring check passed anything containing the token; the new
+        # parse-based check reads the app's OWN block.
+        launch_options = ('"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n'
+                          '\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n'
+                          '\t\t\t\t"apps"\n\t\t\t\t{\n'
+                          '\t\t\t\t\t"%d"\n\t\t\t\t\t{\n'
+                          '\t\t\t\t\t\t"LaunchOptions"\t\t"\\"/home/deck/.steam/steam/steamapps/common/%s/%s\\" %%command%%"\n'
+                          '\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n'
                           % (APPID, INSTALLDIR, LAUNCHER))
         with open(os.path.join(ud, "localconfig.vdf"), "w", encoding="utf-8") as f:
             f.write(launch_options)
@@ -482,6 +490,60 @@ class TestSecondGameRefusalsAreDescriptorDriven(_Base):
         env = self.t.engine().install(zp)
         self.assertFalse(env["ok"], env)
         self.assertEqual(env["code"], "E_CAPABILITY_DISABLED", env)
+
+
+class TestLaunchOptionsParsing(_Base):
+    """Round 79 device finding: the old substring-anywhere check reported
+    "set" while the active account's app block had NO launch option — which
+    is exactly the state that starts the game without SMAPI. The check now
+    parses the VDF and reads the app's OWN LaunchOptions."""
+
+    def _lc_dir(self, uid):
+        d = os.path.join(self.t.home, ".local", "share", "Steam", "userdata",
+                         uid, "config")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def _write(self, uid, body):
+        with open(os.path.join(self._lc_dir(uid), "localconfig.vdf"), "w",
+                  encoding="utf-8") as f:
+            f.write(body)
+
+    def _read(self):
+        from deckymod.file_drop import check_launch_options
+        return check_launch_options(self.t.home, appid=str(APPID),
+                                    launcher_token=LAUNCHER)
+
+    def test_the_app_block_launch_option_is_set(self):
+        self.assertEqual(self._read(), "set")
+
+    def test_an_app_block_without_launch_options_is_missing(self):
+        self._write("123", '"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n'
+                           '\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n'
+                           '\t\t\t\t"apps"\n\t\t\t\t{\n'
+                           '\t\t\t\t\t"%d"\n\t\t\t\t\t{\n'
+                           '\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n'
+                           % APPID)
+        self.assertEqual(self._read(), "missing")
+
+    def test_the_token_in_another_apps_block_is_not_set(self):
+        # The regression that actually bit on device: the token existed in the
+        # file (another account / another app) while the game's own block had
+        # no launch option. That must read "missing", not "set".
+        self._write("123", '"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n'
+                           '\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n'
+                           '\t\t\t\t"apps"\n\t\t\t\t{\n'
+                           '\t\t\t\t\t"%d"\n\t\t\t\t\t{\n'
+                           '\t\t\t\t\t}\n'
+                           '\t\t\t\t\t"999999"\n\t\t\t\t\t{\n'
+                           '\t\t\t\t\t\t"LaunchOptions"\t\t"%s %%command%%"\n'
+                           '\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n'
+                           % (APPID, LAUNCHER))
+        self.assertEqual(self._read(), "missing")
+
+    def test_a_garbled_localconfig_is_unknown_not_fatal(self):
+        self._write("123", "{ not a vdf ")
+        self.assertEqual(self._read(), "unknown")
 
 
 if __name__ == "__main__":

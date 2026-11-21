@@ -185,6 +185,20 @@ class RootMergeEngine(FileDropEngine):
             return None
         return top
 
+    def _drop_staging(self, r, txn: str) -> None:
+        """Remove this txn's staging dir, then the empty parent shell.
+
+        (Found on device: a finished install left an empty .decky-staging/ in
+        the game folder — harmless but confusing, and the user sees a folder
+        the panel never explains.)
+        """
+        parent = os.path.join(r.game_root, ".decky-staging")
+        shutil.rmtree(os.path.join(parent, txn), ignore_errors=True)
+        try:
+            os.rmdir(parent)   # succeeds only when the last txn just finished
+        except OSError:
+            pass
+
     # ------------------------------------------------------------------ planning
     def _plan_archive(self, zip_path: str) -> dict:
         """Read the archive and decide, for every member, where it would land.
@@ -429,10 +443,10 @@ class RootMergeEngine(FileDropEngine):
                                 version=version or "unknown", dir=pid)
             self.journal.record("MOD_ENABLED", txn, packageId=pid)
             self.journal.committed(txn, {"packageId": pid, "files": len(placed)})
-            shutil.rmtree(os.path.join(r.game_root, ".decky-staging", txn),
-                          ignore_errors=True)
+            self._drop_staging(r, txn)
         except Exception:
             self.journal.rollback_failed(txn, {"packageId": pid})
+            self._drop_staging(r, txn)
             raise
         return ok({
             "installed": pid,
@@ -504,6 +518,158 @@ class RootMergeEngine(FileDropEngine):
         self.journal.committed(txn, {"packageId": package_id, "removed": removed})
         return ok({"uninstalled": package_id, "removed": removed,
                    "restored": restored, "txn": txn})
+
+    # ------------------------------------------------------- loader install
+    # Round 79 (user-approved red-line change): a loader ZIP (BepInEx …) may be
+    # extracted for descriptors whose capabilities.loader_install is TRUE —
+    # user-configured games only; every built-in descriptor keeps it false.
+    # Guardrails that stay in force:
+    #   * two-phase like install: confirm writes nothing;
+    #   * the game must not be running; no pending transaction may exist;
+    #   * the ZIP must come from a declared import root (Downloads);
+    #   * every file is journaled, anything replaced is backed up first, and
+    #     uninstall/rollback restore the originals — the loader is as removable
+    #     as any mod;
+    #   * Steam launch options are NEVER edited (the panel only shows text).
+
+    def _loader_root(self, r) -> tuple:
+        """(absolute loader root, path relative to game_root for the journal).
+
+        Descriptor-driven: paths.loader_root is "${GAME_ROOT}" or a relative
+        subpath ("${GAME_ROOT}/BepInEx" — even nested under the loader's own
+        tree). Relative-to-game_root is what FILE_PLACED rows record, so the
+        generic uninstall/rollback machinery works unchanged.
+        """
+        raw = str((self._paths_cfg() or {}).get("loader_root") or "").strip()
+        raw = _norm(raw.replace("\\", "/"))
+        if raw.startswith("${GAME_ROOT}"):
+            raw = raw[len("${GAME_ROOT}"):].lstrip("/")
+        elif raw in ("", ".", "$GAME_ROOT"):
+            raw = ""
+        loader_root = os.path.join(r.game_root, raw.replace("/", os.sep)) if raw else r.game_root
+        return loader_root, raw
+
+    def _plan_loader(self, zip_path: str, r) -> dict:
+        files = []
+        total = 0
+        loader_root, loader_rel = self._loader_root(r)
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                infos = [i for i in zf.infolist() if not i.is_dir()]
+                if len(infos) > 40000:
+                    raise ModError("E_BAD_ARCHIVE", detail="archive has too many members")
+                for info in infos:
+                    raw = _norm(info.filename)
+                    if not raw or self._is_junk(raw):
+                        continue
+                    if _is_unsafe(raw):
+                        raise ModError("E_NOT_ALLOWED_ROOT",
+                                       detail="unsafe path in loader zip: %s" % raw)
+                    target = (loader_rel + "/" + raw).lstrip("/")
+                    if _is_unsafe(target):
+                        raise ModError("E_NOT_ALLOWED_ROOT",
+                                       detail="unsafe loader target: %s" % target)
+                    total += info.file_size
+                    files.append({"member": raw, "target": target,
+                                  "bytes": info.file_size})
+        except zipfile.BadZipFile as e:
+            raise ModError("E_BAD_ARCHIVE", detail=str(e))
+        return {"files": files, "total_bytes": total, "loader_root": loader_root}
+
+    def _loader_confirm_text(self, pid: str, plan: dict, collisions: list) -> str:
+        lines = ["Install loader %s?" % pid.split(":", 1)[-1],
+                 "%d file(s), %d bytes" % (len(plan["files"]), plan["total_bytes"])]
+        if collisions:
+            lines.append("%d existing file(s) will be REPLACED (backed up first)"
+                         % len(collisions))
+        tops = sorted({f["target"].split("/")[0] for f in plan["files"]})
+        lines.append("Extracts to: " + ", ".join(tops[:6]))
+        lines.append("Steam launch options are NOT edited. If the loader needs "
+                     "WINEDLLOVERRIDES, the panel shows the text to paste yourself.")
+        return "\n".join(lines)
+
+    def install_loader(self, zip_path: str, after_confirm: bool = False) -> dict:
+        """Extract a loader ZIP (BepInEx …) to the descriptor's loader root."""
+        try:
+            self._gate("loader_install")
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        try:
+            r = self._resolve()
+            self._check_not_running()
+            self._check_no_pending()
+            self._validate_import_path(zip_path)
+            plan = self._plan_loader(zip_path, r)
+            if not plan["files"]:
+                raise ModError("E_BAD_ARCHIVE",
+                               detail="no installable file in this loader archive")
+            stem = os.path.splitext(os.path.basename(str(zip_path)))[0].strip()
+            pid = "loader:" + "".join(c for c in stem if c not in "\r\n\t")
+            collisions = [f for f in plan["files"]
+                          if os.path.exists(os.path.join(r.game_root,
+                                                         f["target"].replace("/", os.sep)))]
+            if not after_confirm:
+                return ok({
+                    "phase": "confirm",
+                    "plan": {"op": "install_loader", "packageId": pid},
+                    "files": len(plan["files"]),
+                    "total_bytes": plan["total_bytes"],
+                    "replaces": [f["target"] for f in collisions][:50],
+                    "confirm_text": self._loader_confirm_text(pid, plan, collisions),
+                })
+            txn = new_txn_id()
+            self.journal.begin(txn, "loader_install", {"packageId": pid,
+                                                       "files": len(plan["files"])})
+            self.journal.applying(txn)
+            placed = []
+            try:
+                staging = os.path.join(r.game_root, ".decky-staging", txn)
+                payload = os.path.join(staging, "payload")
+                ensure_dir(payload)
+                loader_root = plan["loader_root"]
+                with zipfile.ZipFile(zip_path) as zf:
+                    for row in plan["files"]:
+                        src = os.path.join(payload, row["target"].replace("/", os.sep))
+                        ensure_dir(os.path.dirname(src))
+                        with zf.open(row["member"]) as rf, open(src, "wb") as wf:
+                            shutil.copyfileobj(rf, wf)
+                        dest = os.path.join(r.game_root, row["target"].replace("/", os.sep))
+                        ensure_dir(os.path.dirname(dest))
+                        backup = None
+                        if os.path.exists(dest):
+                            backup = os.path.join(r.quarantine_root, "backup",
+                                                  row["target"].replace("/", os.sep))
+                            ensure_dir(os.path.dirname(backup))
+                            shutil.copy2(dest, backup)
+                        os.replace(src, dest)
+                        placed.append(row["target"])
+                        self.journal.record("FILE_PLACED", txn, packageId=pid,
+                                            target=row["target"],
+                                            backup=("backup/" + row["target"]) if backup else None,
+                                            bytes=row["bytes"])
+                self.journal.record("MOD_INSTALLED", txn, packageId=pid, name=pid,
+                                    version="loader", dir=pid)
+                self.journal.committed(txn, {"packageId": pid, "files": len(placed)})
+                self._drop_staging(r, txn)
+            except Exception:
+                self.journal.rollback_failed(txn, {"packageId": pid})
+                self._drop_staging(r, txn)
+                raise
+            return ok({
+                "installed": pid,
+                "packageId": pid,
+                "files": len(placed),
+                "replaced": len(collisions),
+                "txn": txn,
+            })
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        except OSError as e:
+            return err(map_oserror(e).code, detail=e.strerror)
+        except Exception as e:
+            self.journal.log("install_loader unexpected: %s: %s"
+                             % (type(e).__name__, e))
+            return err("E_UNKNOWN", detail=f"{type(e).__name__}: {e}")
 
     # ------------------------------------------------------------- unsupported
     def _set_enabled_inner(self, package_id: str, enabled: bool, after_confirm: bool) -> dict:

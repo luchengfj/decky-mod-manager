@@ -286,6 +286,59 @@ def _source_cfg(name: str) -> dict:
     return cfg if isinstance(cfg, dict) else {}
 
 
+def _loader_offers(install_path: str) -> list:
+    """Loader catalog entries that can be opened in a browser (round 79).
+
+    Read-only: which loaders APPLY is a hint from stat'ing two well-known
+    Unity files (GameAssembly.dll = IL2CPP, Assembly-CSharp.dll = mono), never
+    a guess that blocks anything — every loader with a browse_url is listed
+    and the user picks. ``installed`` mirrors the catalog's own detect
+    patterns so the panel can say "already there".
+    """
+    try:
+        reg = Registry()
+    except Exception:  # noqa: BLE001 - display-only helper
+        return []
+    il2cpp = bool(install_path) and os.path.isfile(
+        os.path.join(install_path, "GameAssembly.dll"))
+    mono = bool(install_path) and os.path.isfile(
+        os.path.join(install_path, "_managed", "Assembly-CSharp.dll"))
+    out = []
+    for lid, doc in sorted((reg.loaders or {}).items()):
+        if not isinstance(doc, dict):
+            continue
+        url = str(doc.get("browse_url") or "").strip()
+        if not url:
+            continue  # no official page declared -> nothing to open
+        patterns = ((doc.get("detect") or {}).get("patterns")) or []
+        installed = False
+        if install_path:
+            installed = any(os.path.exists(
+                os.path.join(install_path, str(p).rstrip("/"))) for p in patterns)
+        hint = str(doc.get("hint") or "")
+        if hint in ("unity-either", "", "unknown"):
+            fits = True       # generic: never hidden, never ranked first
+        elif hint == "unity-il2cpp":
+            fits = il2cpp
+        elif hint == "unity-mono":
+            fits = mono
+        else:
+            fits = True       # unknown hint: show, but it earns no top rank
+        out.append({
+            "id": str(lid),
+            "name": str(doc.get("name") or lid),
+            "browse_url": url,
+            "version": str(doc.get("version") or ""),
+            "hint": hint,
+            "hint_note": str(doc.get("hint_note") or ""),
+            "hint_fits": bool(fits),
+            "installed": installed,
+        })
+    # Loaders that stat-fit the detected Unity flavour first, then the rest.
+    out.sort(key=lambda x: (not x["hint_fits"], x["name"]))
+    return out
+
+
 class Plugin:
     """One instance per plugin load. Public async methods == RPC callables.
 
@@ -402,6 +455,7 @@ class Plugin:
                 except (TypeError, ValueError):
                     continue
             existing = user_games.load_all().get(want)
+            loaders = _loader_offers(install_path)
             return ok({
                 "appid": want,
                 "name": name or ("App %d" % want),
@@ -410,13 +464,32 @@ class Plugin:
                 "refused": user_games.is_refused_game(name),
                 "configured": existing is not None,
                 "write_roots": (existing or {}).get("write_roots") or [],
+                "loaders": loaders,
             })
         return _guard(_run)
 
     async def configure_game(self, appid: int, name: str, write_roots: list):
-        """Save the mod folders for one game, then rebuild the engine."""
+        """Save the mod folders for one game, then rebuild the engine.
+
+        Round 79 (device finding): a user was able to re-configure a game the
+        plugin ALREADY ships a descriptor for — Stardew Valley got a second,
+        root_merge descriptor that shadowed its SMAPI management. A built-in
+        descriptor is an adaptation, not a default: refuse the duplicate.
+        """
         def _run():
             from deckymod import user_games
+            for gid, d in (Registry().descriptors or {}).items():
+                if gid.startswith("user_"):
+                    continue
+                try:
+                    builtin_appid = int((d.get("identity") or {}).get("appid") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if builtin_appid and builtin_appid == int(appid):
+                    return err("E_NOT_ALLOWED_ROOT",
+                               detail="[configure_game] %r is already managed by the "
+                                      "built-in descriptor %r — its mod folders are "
+                                      "adapted, not configurable" % (name, gid))
             rec = user_games.save(appid, name, write_roots)
             self.engine = None
             return ok(rec)
@@ -446,6 +519,74 @@ class Plugin:
                         break
             self.engine = None
             return ok({"appid": int(appid), "deleted": gone, "switched_to": switched})
+        return _guard(_run)
+
+    async def install_loader(self, zip_path: str, after_confirm: bool = False):
+        """Extract a loader ZIP (BepInEx …) into the game's loader root.
+
+        Round 79 (user-approved red-line change, scoped): ONLY a descriptor
+        whose capabilities.loader_install is TRUE may do this — user-configured
+        games; every built-in descriptor keeps it false and is refused with
+        E_CAPABILITY_DISABLED. The guardrails that stay in force:
+
+        * two-phase: after_confirm=False plans and writes NOTHING;
+        * the game must not be running; no unfinished transaction may exist;
+        * the ZIP must sit in a declared import root (Downloads);
+        * every file is journaled, replaced files are backed up first, and the
+        existing uninstall/rollback machinery removes the loader exactly;
+        * Steam launch options are NEVER edited — the confirm text says what
+        to paste, the user pastes it.
+        """
+        def _run():
+            engine = self._engine()
+            if not hasattr(engine, "install_loader"):
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[install_loader] this engine has no loader "
+                                  "install path")
+            _progress("loader:start", op="install_loader")
+            r = engine.install_loader(str(zip_path or ""),
+                                      after_confirm=bool(after_confirm))
+            _progress("loader:done", op="install_loader",
+                      pct=100 if r.get("ok") else 0)
+            return r
+        return _guard(_run)
+
+    async def open_loader_page(self, loader_id: str):
+        """Open a loader's official download page in the signed-in browser.
+
+        The address is built here from the loader catalog's ``browse_url``
+        (registry/loaders/<id>.json) — the caller passes the catalog id, never
+        a URL. Nothing is downloaded by the plugin: the browser hand-off is
+        the same contract as the Nexus page openers.
+        """
+        def _run():
+            lid = str(loader_id or "").strip()
+            try:
+                reg = Registry()
+            except Exception as e:  # noqa: BLE001 - boundary
+                return err("E_UNKNOWN", detail="[open_loader_page] %s: %s"
+                           % (type(e).__name__, e))
+            doc = (reg.loaders or {}).get(lid)
+            if not isinstance(doc, dict):
+                return err("E_PATH_INVALID",
+                           detail="[open_loader_page] unknown loader id: %s" % lid)
+            url = str(doc.get("browse_url") or "").strip()
+            if not url:
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[open_loader_page] loader %s declares no "
+                                  "browse_url" % lid)
+            # The trust boundary is the loader catalog that ships with the
+            # plugin: only the host IT declares may be handed to the browser.
+            from urllib.parse import urlsplit
+            host = (urlsplit(url).hostname or "").lower().rstrip(".")
+            got = openurl.open_url(url, allowed_hosts={host} if host else None)
+            if not got.get("ok"):
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[open_loader_page] %s: %s" % (
+                               got.get("reason"), got.get("detail") or ""),
+                           data={"url": url, "reason": got.get("reason")})
+            _progress("open_loader_page:done")
+            return ok({"url": url, "loader": lid, "opened": True})
         return _guard(_run)
 
     async def status(self):
@@ -511,6 +652,25 @@ class Plugin:
             _progress("install:done", op="install", package_id=(r.get("data") or {}).get("packageId", "")
                       if isinstance(r.get("data"), dict) else "", pct=100 if r.get("ok") else 0)
             return r
+        return _guard(_run)
+
+    async def delete_zip_source(self, zip_path: str):
+        """Delete the source ZIP of an already-committed install (round 80).
+
+        Opt-in by design: the frontend only calls this after a successful
+        install, behind a separate "install and delete the ZIP" action —
+        never as an automatic side effect, because a deleted source cannot be
+        restored from the journal. The backend still refuses anything outside
+        a declared import root, so this can never become a general file
+        deleter.
+        """
+        def _run():
+            engine = self._engine()
+            if not hasattr(engine, "delete_source_zip"):
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[delete_zip_source] this engine has no "
+                                  "source-ZIP path")
+            return engine.delete_source_zip(str(zip_path or ""))
         return _guard(_run)
 
     async def set_enabled(self, package_id: str, enabled: bool, after_confirm: bool = False):
@@ -839,6 +999,36 @@ class Plugin:
         domain = str(cfg.get("game_domain") or "").strip()
         return domain or None
 
+    def _nexus_browse_domain(self):
+        """The Nexus SITE domain for the three website-page openers.
+
+        Round 78 fix: ``open_mod_page`` / ``open_search_page`` /
+        ``open_browse_page`` never need an API key — they hand a URL to the
+        signed-in browser. Requiring the ``nexus_metadata`` block (the API
+        shape) meant a descriptor that declares only the browse-only
+        ``nexus_game_domain`` (Cyberpunk 2077) answered E_CAPABILITY_DISABLED
+        for pages the browser could perfectly well open. Both shapes are now
+        honoured, ``nexus_metadata`` first; the API RPCs (nexus_recent /
+        nexus_mod / nexus_download_link / nexus_validate) keep using
+        ``_nexus_domain()`` because those genuinely need the API block and a
+        stored key.
+        """
+        try:
+            _, desc = Registry().active_descriptor()
+        except Exception:
+            return None
+        sources = desc.get("download_sources") or {}
+        nm = sources.get("nexus_metadata")
+        if isinstance(nm, dict) and nm.get("enabled", False):
+            domain = str(nm.get("game_domain") or "").strip()
+            if domain:
+                return domain
+        # Browse-only alias: a plain string domain (cyberpunk.json shape).
+        domain = sources.get("nexus_game_domain")
+        if isinstance(domain, str) and domain.strip():
+            return domain.strip()
+        return None
+
     def _nexus_key(self):
         try:
             return credentials.read_key(), None
@@ -945,12 +1135,16 @@ class Plugin:
           leaves the device: this hands a URI to a process that is already
           running and already has network access of its own. Gating it would
           mean "viewing a page is a download", which is not true.
+
+        Round 78: reads the browse domain (``_nexus_browse_domain``), so a
+        game that declares only ``nexus_game_domain`` still opens its pages.
         """
         def _run():
-            domain = self._nexus_domain()
+            domain = self._nexus_browse_domain()
             if domain is None:
                 return err("E_CAPABILITY_DISABLED",
-                           detail="[open_mod_page] nexus_metadata source disabled")
+                           detail="[open_mod_page] no Nexus domain declared "
+                                  "for this game (download_sources)")
             try:
                 mid = int(mod_id)
             except (TypeError, ValueError):
@@ -989,12 +1183,15 @@ class Plugin:
         Same two properties as ``open_mod_page``: the caller supplies only the
         keyword (the address is built here from ``game_domain``), and no
         ``_network_download_gate()`` applies because nothing is downloaded.
+
+        Round 78: reads the browse domain (``_nexus_browse_domain``).
         """
         def _run():
-            domain = self._nexus_domain()
+            domain = self._nexus_browse_domain()
             if domain is None:
                 return err("E_CAPABILITY_DISABLED",
-                           detail="[open_search_page] nexus_metadata source disabled")
+                           detail="[open_search_page] no Nexus domain declared "
+                                  "for this game (download_sources)")
             text, problem = nexus.clean_query(query)
             if problem is not None:
                 return err("E_PATH_INVALID",
@@ -1014,17 +1211,22 @@ class Plugin:
     async def open_browse_page(self, sort: str):
         """Open the website's Trending / Newest / Updated listing — NO API key.
 
-        The API's recent() needs a personal key that a free account may not have
-        configured. The website already shows these sorts to a signed-in browser,
-        so this is the honest no-key way to deliver "热门/最新/更新". The caller
-        passes one of the sort KEYS (trending/latest_added/latest_updated), never
+        The API's recent() needs a personal key that a free account may not
+        have configured. The website already shows these sorts to a signed-in
+        browser, so this is the honest no-key way to deliver "热门/最新/更新". The
+        caller passes one of the sort KEYS (trending/latest_added/latest_updated), never
         a URL: the address is built here from the descriptor's game_domain.
+
+        Round 78: reads the browse domain (``_nexus_browse_domain``) — the
+        Cyberpunk 2077 descriptor declares ``nexus_game_domain`` (browse only)
+        and used to be refused here for no good reason.
         """
         def _run():
-            domain = self._nexus_domain()
+            domain = self._nexus_browse_domain()
             if domain is None:
                 return err("E_CAPABILITY_DISABLED",
-                           detail="[open_browse_page] nexus_metadata source disabled")
+                           detail="[open_browse_page] no Nexus domain declared "
+                                  "for this game (download_sources)")
             url = nexus.browse_page_url(domain, sort)
             if url is None:
                 return err("E_PATH_INVALID",

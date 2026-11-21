@@ -18,6 +18,17 @@ historical regression target. For the authoritative current scope, see
 > [VERIFICATION.md](VERIFICATION.md) (G3 gate) and [ACCEPTANCE.md](ACCEPTANCE.md) (DoD)
 > before shipping. Do not treat this as a release.
 >
+> **状态更正（2026-11-21 Round 79 加载器交接，用户批准的红线收窄，非状态变更）**：
+> 「永不安装加载器」红线由用户显式批准**收窄为按描述符能力限定**：内置游戏（stardew /
+> cyberpunk）`loader_install: false` 维持"只检测、永不装"；**用户自定义游戏**
+> `loader_install: true` —— 面板可打开加载器官方下载页（bepinex5 / bepinex6_il2cpp /
+> melonloader，按 Unity 形态排序提示），并把用户在浏览器下载的 ZIP **一键解压进游戏
+> 目录**（两阶段确认、逐文件 journal、覆盖先备份、可像普通 MOD 一样卸载）。
+> **不变项**：Steam 启动项永不代改（面板只显示要粘贴的文本）；Proton prefix 永不写；
+> exe 安装器永不运行。真机证据：真实 BepInEx_win_x64_5.4.23.6.zip 经 GitHub 下载 →
+> 安装 22 文件落盘（winhttp.dll 落游戏根）→ 普通 uninstall 完全移除，16/16 全过，
+> 见 [VERIFICATION.md](VERIFICATION.md) §K.2。本地 949 测试全绿。
+>
 > **状态更正（2026-11-21 Round 78 部署 + 真机写回证据，非状态变更）**：上一条
 > （2026-11-20）「Cyberpunk 与用户自定义游戏的真机写回尚无真值」已被本日证据**取代**：
 > Round 78 部署（备份 `plugin-before-round78` → `py_modules/` 布局推送 → md5 逐字一致 →

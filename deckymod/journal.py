@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import tempfile
 import time
 import uuid
 from typing import Dict, List, Optional
@@ -31,6 +33,89 @@ from .json_safe import to_json_safe
 
 def new_txn_id() -> str:
     return time.strftime("%Y%m%dT%H%M%S", time.gmtime()) + "-" + uuid.uuid4().hex[:8]
+
+
+_TMP_PREFIX = ".journal-tmp-"
+
+
+def _fsync_dir(path: str) -> None:
+    """Best-effort fsync of a directory so the rename becomes durable.
+
+    Windows and several filesystems refuse to open a directory; OSError is
+    swallowed so a successful write is never turned into a failure just
+    because the directory cannot be fsynced.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+def _atomic_write(final_path: str, data: bytes) -> None:
+    """Durably write *data* to *final_path* without ever exposing a partial file.
+
+    The bytes go to a temp file in the SAME directory (no EXDEV), the file is
+    flushed + fsynced, then atomically os.replace()d over the target. The temp
+    file is always removed on failure. The existing target's permission mode is
+    preserved so an atomic replace does not silently change it.
+    """
+    parent = os.path.dirname(final_path) or "."
+    if not os.path.isdir(parent):
+        raise ModError("E_PATH_INVALID", detail=f"parent missing: {parent}")
+    if os.path.islink(final_path):
+        raise ModError("E_STATE_SYMLINK", detail=final_path)
+
+    # Remember the target mode (0o644 for a brand-new file) so the temp file
+    # can be chmod'ed before the swap -- mkstemp creates with 0o600.
+    mode = 0o644
+    try:
+        st = os.stat(final_path)
+    except OSError:
+        st = None
+    if st is not None:
+        mode = stat.S_IMODE(st.st_mode)
+
+    fd, tmp = -1, None
+    try:
+        fd, tmp = tempfile.mkstemp(prefix=_TMP_PREFIX, dir=parent)
+        with os.fdopen(fd, "wb") as f:
+            fd = -1  # fd is now owned by the file object
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+            fchmod = getattr(os, "fchmod", None)
+            if fchmod is not None:
+                try:
+                    fchmod(f.fileno(), mode)
+                except OSError:
+                    pass  # non-POSIX mount: mode preservation is best-effort
+        os.replace(tmp, final_path)  # same dir, same fs -> never EXDEV
+        tmp = None
+        # Directory fsync is best-effort; guard twice so a failure here can
+        # never roll back an already-committed rename.
+        try:
+            _fsync_dir(parent)
+        except OSError:
+            pass
+    except ModError:
+        raise
+    except OSError as e:
+        raise ModError("E_OP_FAILED", detail=f"journal atomic write failed: {e}")
+    finally:
+        if fd != -1:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 class Journal:
@@ -47,12 +132,35 @@ class Journal:
         os.makedirs(self.log_dir, exist_ok=True)
 
     # ---- low level ----
+    def _valid_lines(self) -> List[str]:
+        """Raw, stripped lines from the current journal that read_all() accepts.
+
+        read_all() skips blank / malformed lines. We rebuild from exactly those
+        accepted lines so the read semantics stay identical while the rewrite
+        never manufactures a truncated record.
+        """
+        if not os.path.isfile(self.journal_path):
+            return []
+        out: List[str] = []
+        with open(self.journal_path, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                out.append(stripped)
+        return out
+
     def _append(self, record: dict):
         record = to_json_safe(record)
         line = json.dumps(record, ensure_ascii=False, allow_nan=False, sort_keys=True)
-        with open(self.journal_path, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-            f.flush()
+        lines = self._valid_lines()
+        lines.append(line)
+        data = ("\n".join(lines) + "\n").encode("utf-8")
+        _atomic_write(self.journal_path, data)
         self.log(f"journal {record.get('event')} txn={record.get('txn')}")
 
     def log(self, msg: str):
@@ -142,10 +250,7 @@ class Journal:
     def write_snapshot(self, txn: str, name: str, data: bytes) -> str:
         d = self.snapshot_dir(txn)
         p = os.path.join(d, name)
-        with open(p, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
+        _atomic_write(p, data)
         self._append({"event": "SNAPSHOT", "txn": txn, "path": p, "bytes": len(data)})
         return p
 

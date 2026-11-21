@@ -13,9 +13,12 @@ Design:
   * The device has NO Factorio install (no appmanifest_427520), so this is a
     SYNTHETIC TREE only. It is NOT a real-game write-back sign-off and does NOT
     close G3. See registry/games/factorio.json note.
-  * ``paths.resolve()`` pins ``mod_root = <game_root>/Mods`` (paths.py:231), so
-    the synthetic tree places info.json mod dirs under game_root/Mods. The
-    descriptor's own ``paths.mod_root`` is reference metadata only.
+  * ``paths.resolve()`` used to pin ``mod_root = <game_root>/Mods``, so the
+    synthetic tree placed info.json mod dirs under game_root/Mods and the
+    descriptor's own ``paths.mod_root`` was reference metadata only. As of
+    Round 43 that block is honoured, so this tree places Factorio's mods at
+    ``<HOME>/.factorio/mods`` -- which is both the descriptor's declared value
+    and the real Factorio location on Linux.
   * ``force_read_only: true`` in the descriptor makes every write RPC return
     E_CAPABILITY_DISABLED before any file access (zero-damage proof).
 
@@ -116,8 +119,15 @@ class FactorioTree:
         self.steam = os.path.join(self.base, "Steam")
         self.sapps = os.path.join(self.steam, "steamapps")
         self.game = os.path.join(self.sapps, "common", "Factorio")
-        self.mods = os.path.join(self.game, "Mods")
+        # Round 43: the descriptor declares ``mod_root: "${HOME}/.factorio/mods"``
+        # -- the real Factorio location, OUTSIDE the game directory and not named
+        # ``Mods``. Since Round 43 that block is honoured, so the tree has to put
+        # the mods where the descriptor says. Before, this line was
+        # ``os.path.join(self.game, "Mods")`` purely to accommodate the
+        # hard-coded folder name in ``paths.resolve()``.
+        self.mods = os.path.join(self.home, ".factorio", "mods")
         os.makedirs(self.mods, exist_ok=True)
+        os.makedirs(self.game, exist_ok=True)
 
         def put_mod(dirname, info):
             d = os.path.join(self.mods, dirname)
@@ -290,7 +300,13 @@ class TestFactorioReadOnlyEngine(_PinnedTreeMixin, unittest.TestCase):
         self.assertEqual(d["game"]["name"], "Factorio")
         self.assertEqual(d["game"]["platform"], "linux-native")
         self.assertIsNone(d["paths"]["w1_state_file"], "file_drop has NO W1 state file")
-        self.assertTrue(d["paths"]["w2_mod_root"].endswith(os.path.join("Factorio", "Mods")))
+        # Round 43: the descriptor's ``paths.mod_root`` is now READ, not inert
+        # reference metadata. Factorio's real mod folder is ``~/.factorio/mods``
+        # -- outside the game directory and not called ``Mods`` -- so this
+        # assertion is what proves a second game needs no ``paths.py`` edit.
+        self.assertEqual(
+            os.path.normcase(d["paths"]["w2_mod_root"]),
+            os.path.normcase(os.path.join(self.t.home, ".factorio", "mods")))
 
         st = d["state"]
         self.assertEqual(st["strategy"], "file_drop")

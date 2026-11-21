@@ -37,6 +37,12 @@ from .errors import ModError
 
 INDEX_URL = "https://smapi.io/api/v2.2/mods"
 INDEX_HOST = "smapi.io"
+# Round 74: hand-checked entries for dependencies the SMAPI index does not
+# cover. Without them, a required mod can only be reported as "not in the
+# index" with no address to send the user to.
+KNOWN_DEPS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "registry", "deps_known.json")
 MAX_CANDIDATES_PER_DEP = 4
 MAX_DEPS = 20
 MAX_INDEX_BYTES = 4 * 1024 * 1024
@@ -85,6 +91,36 @@ def _segments(uid: str) -> str:
     """Last dotted segment of a mod id, lowercased: 'selph.FurnitureMachine'
     -> 'furnituremachine'. Used only to ORDER candidates, never to accept one."""
     return str(uid or "").strip().split(".")[-1].lower()
+
+
+def known_deps() -> dict:
+    """Local fallback: UniqueID -> {name, nexusID}, for ids the index omits.
+
+    Kept in registry/ so a correction is a data edit, not a code change. A
+    missing or malformed file must never break the index path, so every failure
+    here degrades to "no extra entries".
+    """
+    try:
+        with open(KNOWN_DEPS_PATH, encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for key, rec in raw.items():
+        if str(key).startswith("_") or not isinstance(rec, dict):
+            continue
+        uid = str(key).strip().lower()
+        if not uid:
+            continue
+        nexus = rec.get("nexusID")
+        if not isinstance(nexus, int) or isinstance(nexus, bool):
+            nexus = (int(nexus) if isinstance(nexus, str) and nexus.strip().isdigit()
+                     else None)
+        out[uid] = {"id": rec.get("id") or key, "name": rec.get("name"),
+                    "nexusID": nexus}
+    return out
 
 
 def lookup_index(opener, ids, *, timeout=download.DEFAULT_TIMEOUT) -> dict:
@@ -144,10 +180,36 @@ def lookup_index(opener, ids, *, timeout=download.DEFAULT_TIMEOUT) -> dict:
         if not uid:
             continue
         repo = meta.get("gitHubRepo")
+        # Round 74: the same index record carries the mod's display name and
+        # its Nexus id. Dropping them left only "no repo" as an explanation,
+        # so a dependency published on Nexus could not even be pointed at --
+        # the panel said "cannot fetch" with nowhere to go. Keep both.
+        name = meta.get("name")
+        nexus = meta.get("nexusID")
+        if not isinstance(nexus, int) or isinstance(nexus, bool):
+            nexus = int(nexus) if isinstance(nexus, str) and nexus.strip().isdigit() else None
         entries[uid.lower()] = {
             "id": uid,
+            "name": str(name) if name else None,
+            "nexusID": nexus,
             "gitHubRepo": str(repo) if repo else None,
         }
+    # Round 74: fill what the index leaves out (a required mod that never made
+    # it into the public index still has a Nexus page). Only ids we were asked
+    # about are touched, and a value from the index always wins.
+    wanted_lower = set(str(w).lower() for w in wanted)
+    for uid_l, rec in known_deps().items():
+        if uid_l not in wanted_lower:
+            continue
+        cur = entries.get(uid_l)
+        if not isinstance(cur, dict):
+            cur = {"id": rec.get("id") or uid_l, "name": None,
+                   "nexusID": None, "gitHubRepo": None}
+            entries[uid_l] = cur
+        if not cur.get("nexusID") and rec.get("nexusID"):
+            cur["nexusID"] = rec["nexusID"]
+        if not cur.get("name") and rec.get("name"):
+            cur["name"] = str(rec["name"])
     return _ok(entries=entries)
 
 
@@ -263,12 +325,24 @@ def plan(missing_ids, *, lookup, candidates_for, limit=MAX_DEPS) -> dict:
     for uid in ids:
         row = {
             "uniqueId": uid,
+            # Round 74: name + Nexus id ride along so the panel can name the
+            # dependency and open its download page when we cannot fetch it.
+            "name": None,
+            "nexusID": None,
             "repo": None,
             "resolvable": False,
             "reason": "",
             "candidates": [],
         }
         meta = (resolved.get(uid.lower()) or {}) if isinstance(resolved, dict) else {}
+        name = meta.get("name")
+        if name:
+            row["name"] = str(name)
+        nexus = meta.get("nexusID")
+        if isinstance(nexus, int) and not isinstance(nexus, bool):
+            row["nexusID"] = nexus
+        elif isinstance(nexus, str) and nexus.strip().isdigit():
+            row["nexusID"] = int(nexus)
         repo = meta.get("gitHubRepo")
         if not repo:
             # The index knows the mod but names no repository we can download

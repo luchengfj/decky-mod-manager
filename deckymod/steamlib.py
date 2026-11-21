@@ -40,6 +40,59 @@ _EXTRA_LIBRARY_PARENTS = ("/run/media",)
 
 _STATE_INSTALLED = 4
 
+# Steam installs its own compatibility runtimes as ordinary appmanifests under
+# steamapps/, so a naive "every appmanifest is a game" scan lists Proton and the
+# Steam Linux Runtime alongside the games the user actually plays. These are
+# infrastructure, never moddable, and were 8 of the 29 entries on the device
+# (measured 2026-11-20). Filter them out at the SOURCE so every consumer
+# (list_games UI counts, catalog, summarise) sees only real games.
+#
+# Two layers, both read-only and both from data Steam itself writes:
+#   1. exact AppIDs Steam uses for its runtimes (stable, authoritative);
+#   2. name / installdir prefixes, as a forward-compat net for new versions
+#      (e.g. "Proton 12.0") whose AppID is not in the set yet. Prefixes are
+#      deliberately specific so an ordinary game whose name merely contains
+#      "Proton" is not dropped.
+_RUNTIME_APPIDS = frozenset({
+    228980,    # Steamworks Common Redistributables
+    1070560,   # Steam Linux Runtime 1.0 (scout)
+    1391110,   # Steam Linux Runtime 2.0 (soldier)
+    1628350,   # Steam Linux Runtime 3.0 (sniper)
+    4183110,   # Steam Linux Runtime 4.0
+    1493710,   # Proton Experimental
+    3658110,   # Proton 10.0
+    4628710,   # Proton 11.0
+})
+
+# Prefix net is applied ONLY to installdir, never to the display name: a real
+# game can be *named* "Proton Glow Racing" and must not be dropped. The Proton
+# runtime's installdir is "Proton <number>" / "Proton - Experimental", so the
+# regex requires that shape; the runtime dirs are exact known prefixes.
+import re as _re
+
+_RUNTIME_DIR_PATTERNS = (
+    _re.compile(r"^proton\s+\d"),            # Proton 10.0, Proton 99, ...
+    _re.compile(r"^proton\s+-\s+experimental$"),
+    _re.compile(r"^steamlinuxruntime"),       # scout/soldier/sniper/4/...
+    _re.compile(r"^steamworks shared$"),
+)
+
+
+def _is_runtime_component(appid: int, name: str, installdir: str) -> bool:
+    """True when this manifest is a Steam runtime/tool, not a playable game.
+
+    ``name`` is intentionally unused for prefix matching (only the AppID set
+    and the installdir shape decide): display names are free-form and matching
+    them would drop legitimate games that merely mention "Proton".
+    """
+    if appid in _RUNTIME_APPIDS:
+        return True
+    d = (installdir or "").strip().lower()
+    for pattern in _RUNTIME_DIR_PATTERNS:
+        if pattern.match(d):
+            return True
+    return False
+
 
 def _default_home() -> str:
     """The invoking user's home, from the same resolver the path layer uses.
@@ -210,6 +263,12 @@ def scan_games(user_home: Optional[str] = None,
             seen_appids.add(appid)
             info = _read_manifest(acf)
             installdir = info.get("installdir") or ""
+            name = info.get("name") or installdir or str(appid)
+            # Steam ships Proton / the Linux Runtime as ordinary appmanifests.
+            # They are infrastructure, not games: never list them, and never
+            # let them inflate game_count. Read-only, based on Steam's own data.
+            if _is_runtime_component(appid, name, installdir):
+                continue
             flags_raw = info.get("stateflags") or ""
             state_flags = int(flags_raw) if flags_raw.isdigit() else None
             if state_flags is None:
@@ -222,7 +281,7 @@ def scan_games(user_home: Optional[str] = None,
             install_path = os.path.join(steamapps, "common", installdir) if installdir else ""
             games.append({
                 "appid": appid,
-                "name": info.get("name") or installdir or str(appid),
+                "name": name,
                 "installdir": installdir,
                 "library": lib_path,
                 "install_path": install_path,

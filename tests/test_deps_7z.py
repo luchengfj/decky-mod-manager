@@ -113,8 +113,9 @@ class TestReasonWordingMatchesCapability(unittest.TestCase):
             zh = f.read()
         self.assertIn('"DEPS_R_NO_ZIP": "the repository publishes no zip or 7z"', en)
         self.assertIn('"DEPS_R_NO_ZIP": "该仓库没有发布 zip 或 7z"', zh)
-        # The wire key stays stable: only the wording changed.
-        with open(os.path.join(root, "src", "index.tsx"), encoding="utf-8") as f:
+        # The wire key stays stable: only the wording changed. Round 74 moved
+        # the mapping out of the panel into the self-contained dependency flow.
+        with open(os.path.join(root, "src", "depsFlow.tsx"), encoding="utf-8") as f:
             index = f.read()
         self.assertIn('"no_zip_asset"', index)
 

@@ -34,8 +34,9 @@ except ImportError:  # dev / CI box: provide a harmless shim
 
 from deckymod.engine import Engine
 from deckymod.smapi import FileDropEngine
+from deckymod.root_merge import RootMergeEngine
 from deckymod.envelope import err, ok
-from deckymod.errors import ERRORS
+from deckymod.errors import ERRORS, ModError
 from deckymod.registry import Registry
 # Downloads come from GitHub Releases (the one source that works on this device)
 # plus a plain https URL fallback. deckymod.download is the shared low-level
@@ -59,6 +60,9 @@ PROGRESS_EVENT = "deckymod:progress"
 ENGINE_FACTORY = {
     "file_drop": FileDropEngine,
     "xml_list": Engine,
+    # Round 76: games whose mods are files scattered across several roots
+    # (Cyberpunk 2077) install per file, not "one folder into Mods/".
+    "root_merge": RootMergeEngine,
 }
 
 
@@ -199,10 +203,21 @@ def _progress(stage: str, *, op: str = "", package_id: str = "", pct: int = 0) -
 def _guard(fn, *args, **kwargs):
     """Last-resort net around every RPC method: convert ANY exception into a
     stable E_* envelope so a traceback never reaches the frontend bridge.
+
+    Round 78: a ``ModError`` is NOT flattened to E_UNKNOWN any more — it
+    reaches the panel under its own code (E_CAPABILITY_DISABLED for a refused
+    switch, E_NOT_ALLOWED_ROOT for an anti-cheat game, …), with the localized
+    message from errors.py and the original detail. Flattening it made every
+    refusal look like a plugin bug instead of the answer it was.
     """
     try:
         result = fn(*args, **kwargs)
         return result
+    except ModError as e:
+        _log("info", f"{getattr(fn, '__name__', 'rpc')} refused: {e.code}: {e.detail}")
+        data = dict(e.context) if e.context else None
+        return err(e.code, detail=e.detail, rollback_available=e.rollback_available,
+                   data=data)
     except Exception as e:  # noqa: BLE001 - deliberate catch-all at the boundary
         _log("error", f"{getattr(fn, '__name__', 'rpc')} unhandled: {type(e).__name__}: {e}")
         _log("debug", traceback.format_exc())
@@ -344,6 +359,94 @@ class Plugin:
         must keep working for games no descriptor covers.
         """
         return _guard(lambda: ok(_with_game_mods(steamlib.summarize())))
+
+    async def switch_game(self, game_id: str):
+        """Make another SUPPORTED game the one this panel manages.
+
+        Round 76: exactly one game is active at a time (max_enabled_games_in_mvp
+        is 1), so supporting a second game is a switch, not a merge. Only a
+        descriptor with status=enabled is selectable; planned/unsupported ones
+        keep answering E_CAPABILITY_DISABLED.
+
+        The cached engine is dropped on success, so the next RPC rebuilds
+        against the new descriptor -- no plugin reload, no Decky restart.
+        """
+        def _run():
+            res = Registry().switch_active_game(str(game_id or ""))
+            self.engine = None
+            return ok(res)
+        return _guard(_run)
+
+    async def game_setup(self, appid: int):
+        """What the panel needs to configure a game the plugin ships no descriptor for.
+
+        Round 77: the honest "every game" story. The plugin can move files for
+        any game, but only the user knows where that game's loader reads. This
+        returns the usual candidate folders (flagged by whether they already
+        exist on disk) plus whether the game is one we refuse outright.
+        """
+        def _run():
+            from deckymod import user_games
+            try:
+                want = int(appid)
+            except (TypeError, ValueError):
+                raise ModError("E_PATH_INVALID", detail="appid must be a number")
+            name = ""
+            install_path = ""
+            for g in (steamlib.summarize().get("games") or []):
+                try:
+                    if int(g.get("appid") or 0) == want:
+                        name = str(g.get("name") or "")
+                        install_path = str(g.get("install_path") or "")
+                        break
+                except (TypeError, ValueError):
+                    continue
+            existing = user_games.load_all().get(want)
+            return ok({
+                "appid": want,
+                "name": name or ("App %d" % want),
+                "install_path": install_path,
+                "candidates": user_games.candidate_roots(install_path),
+                "refused": user_games.is_refused_game(name),
+                "configured": existing is not None,
+                "write_roots": (existing or {}).get("write_roots") or [],
+            })
+        return _guard(_run)
+
+    async def configure_game(self, appid: int, name: str, write_roots: list):
+        """Save the mod folders for one game, then rebuild the engine."""
+        def _run():
+            from deckymod import user_games
+            rec = user_games.save(appid, name, write_roots)
+            self.engine = None
+            return ok(rec)
+        return _guard(_run)
+
+    async def forget_game(self, appid: int):
+        """Remove a user-defined configuration (never touches the game files).
+
+        If the removed game was the ACTIVE one, the plugin would be left with
+        no enabled descriptor and every later RPC would answer
+        E_CAPABILITY_DISABLED. So fall back to a built-in game in that case.
+        """
+        def _run():
+            from deckymod import user_games
+            gone = user_games.forget(int(appid))
+            gid = user_games.game_id(int(appid))
+            switched = None
+            reg = Registry()
+            if reg.raw.get("active_game") == gid and gid not in reg.descriptors:
+                for cand in ("stardew", "cyberpunk"):
+                    if cand in reg.descriptors:
+                        try:
+                            reg.switch_active_game(cand)
+                            switched = cand
+                        except ModError:
+                            continue
+                        break
+            self.engine = None
+            return ok({"appid": int(appid), "deleted": gone, "switched_to": switched})
+        return _guard(_run)
 
     async def status(self):
         """Bootstrap call: game info, resolved W1/W2 paths, enabled mods,
@@ -906,4 +1009,32 @@ class Plugin:
                                  "reason": got.get("reason")})
             _progress("open_search_page:done")
             return ok({"url": url, "query": text, "opened": True})
+        return _guard(_run)
+
+    async def open_browse_page(self, sort: str):
+        """Open the website's Trending / Newest / Updated listing — NO API key.
+
+        The API's recent() needs a personal key that a free account may not have
+        configured. The website already shows these sorts to a signed-in browser,
+        so this is the honest no-key way to deliver "热门/最新/更新". The caller
+        passes one of the sort KEYS (trending/latest_added/latest_updated), never
+        a URL: the address is built here from the descriptor's game_domain.
+        """
+        def _run():
+            domain = self._nexus_domain()
+            if domain is None:
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[open_browse_page] nexus_metadata source disabled")
+            url = nexus.browse_page_url(domain, sort)
+            if url is None:
+                return err("E_PATH_INVALID",
+                           detail="[open_browse_page] unknown sort: %r" % sort)
+            got = openurl.open_url(url)
+            if not got.get("ok"):
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[open_browse_page] %s: %s" % (
+                               got.get("reason"), got.get("detail") or ""),
+                           data={"url": url, "reason": got.get("reason")})
+            _progress("open_browse_page:done")
+            return ok({"url": url, "sort": sort, "opened": True})
         return _guard(_run)

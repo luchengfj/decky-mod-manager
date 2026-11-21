@@ -130,6 +130,27 @@ class TestPlanIsPure(unittest.TestCase):
                          lambda repo, uid: [])
         self.assertEqual(got["deps"][0]["reason"], "no_zip_asset")
 
+    def test_plan_carries_the_nexus_id_and_name_for_a_repo_less_dependency(self):
+        """Round 74: an unfetchable dependency must still say WHERE it lives.
+
+        Before this, the row held only "no_repo_in_index", so the panel could
+        report the gap but had no way to send the user to the mod page.
+        """
+        got = self._plan(
+            ["b.two"],
+            {"b.two": {"gitHubRepo": None, "nexusID": 1234, "name": "B Two"}},
+            lambda repo, uid: [])
+        row = got["deps"][0]
+        self.assertFalse(row["resolvable"])
+        self.assertEqual(row["reason"], "no_repo_in_index")
+        self.assertEqual(row["nexusID"], 1234)
+        self.assertEqual(row["name"], "B Two")
+
+    def test_nexus_id_is_absent_rather_than_invented(self):
+        got = self._plan(["c.three"], {}, lambda repo, uid: [])
+        self.assertIsNone(got["deps"][0]["nexusID"])
+        self.assertIsNone(got["deps"][0]["name"])
+
     def test_ids_are_deduplicated_case_insensitively_and_ordered(self):
         seen = []
 
@@ -155,6 +176,64 @@ class TestPlanIsPure(unittest.TestCase):
         got = deps.plan([], lookup=lambda i: {}, candidates_for=lambda r, u: [])
         self.assertTrue(got["ok"])
         self.assertEqual(got["total"], 0)
+
+
+class TestIndexKeepsNexusId(unittest.TestCase):
+    """Round 74: the SMAPI index also names the mod's Nexus id.
+
+    The plugin used to keep only ``gitHubRepo`` from each record, so a mod
+    published solely on Nexus resolved to "no repo" and the panel had nowhere
+    to send the user. Parsing must keep the id, and must not invent one.
+    """
+
+    def _opener(self, rows):
+        body = json.dumps(rows).encode("utf-8")
+
+        def opener(method, url, headers, timeout, payload):
+            return _Resp(200, {"Content-Type": "application/json"}, body)
+        return opener
+
+    def test_lookup_index_keeps_the_nexus_id_and_name(self):
+        rows = [{"id": "selph.ExtraMachineConfig",
+                 "metadata": {"id": ["selph.ExtraMachineConfig"],
+                              "name": "Extra Machine Configs",
+                              "nexusID": 22256,
+                              "gitHubRepo": None}}]
+        got = deps.lookup_index(self._opener(rows), ["selph.ExtraMachineConfig"])
+        self.assertTrue(got["ok"], got)
+        entry = got["entries"]["selph.extramachineconfig"]
+        self.assertEqual(entry["nexusID"], 22256)
+        self.assertEqual(entry["name"], "Extra Machine Configs")
+        self.assertIsNone(entry["gitHubRepo"])
+
+    def test_a_numeric_string_is_accepted_and_garbage_is_not(self):
+        rows = [{"id": "a.one", "metadata": {"id": ["a.one"], "nexusID": "777",
+                                             "gitHubRepo": "o/r"}},
+                {"id": "b.two", "metadata": {"id": ["b.two"], "nexusID": "nope"}}]
+        got = deps.lookup_index(self._opener(rows), ["a.one", "b.two"])
+        self.assertEqual(got["entries"]["a.one"]["nexusID"], 777)
+        self.assertIsNone(got["entries"]["b.two"]["nexusID"])
+
+    def test_the_local_table_fills_an_id_the_index_omits(self):
+        # hxw.tilesheets is a required dependency of several mods but is NOT in
+        # the public SMAPI index -- the exact case where the panel used to have
+        # nothing to offer. registry/deps_known.json covers it.
+        got = deps.lookup_index(self._opener([]), ["hxw.tilesheets"])
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["entries"]["hxw.tilesheets"]["nexusID"], 20139)
+
+    def test_index_values_win_over_the_local_table(self):
+        rows = [{"id": "hxw.tilesheets",
+                 "metadata": {"id": ["hxw.tilesheets"], "name": "From index",
+                              "nexusID": 99999}}]
+        got = deps.lookup_index(self._opener(rows), ["hxw.tilesheets"])
+        entry = got["entries"]["hxw.tilesheets"]
+        self.assertEqual(entry["nexusID"], 99999)
+        self.assertEqual(entry["name"], "From index")
+
+    def test_ids_that_were_not_asked_about_are_not_added(self):
+        got = deps.lookup_index(self._opener([]), ["other.mod"])
+        self.assertNotIn("hxw.tilesheets", got["entries"])
 
 
 class TestCandidateOrdering(unittest.TestCase):

@@ -7,11 +7,22 @@ It answers one question: **which mods does this game actually have, and can I tu
 It reads the Steam library and the game's mod folder, imports a mod, enables or disables it, uninstalls it,
 and rolls back an install that went wrong.
 
-> **Scope, honestly stated.** One game is fully managed today: Stardew Valley (AppID 413150) with SMAPI,
-> and even there the plugin is **detect-only** — it never installs SMAPI, never edits your launch options,
-> and never writes into a Proton prefix. Every other game in your library is **identified read-only**: the
-> plugin tells you which folder that game's mods live in and how many are there, and refuses to write.
-> There is no universal one-click install, and this README will not pretend otherwise.
+> **Scope, honestly stated.** Three tiers of game support, one active at a time:
+>
+> 1. **Stardew Valley** (AppID 413150) with SMAPI — the `file_drop` engine: one folder per mod into
+>    `Mods/`, with enable / disable / uninstall / rollback. SMAPI itself is **detect-only** — the plugin
+>    never installs it and never edits launch options.
+> 2. **Cyberpunk 2077** (AppID 1091500) — the `root_merge` engine: a mod archive is routed **file by file**
+>    into declared write roots (`archive/pc/mod`, `mods/`, `bin/x64/plugins`, `r6/scripts`, `red4ext`),
+>    never into game payload; every file is journaled and anything replaced is backed up, so uninstall and
+>    rollback are exact.
+> 3. **Any other Steam game, configured by you** — the panel asks where that game's loader reads mods from;
+>    the same `root_merge` engine then writes only inside the folder you picked. Games with anti-cheat are
+>    refused outright, and no loader is ever installed: files dropped for a loader you have not installed
+>    will simply not load, and the panel says so.
+>
+> Exactly one game is managed at a time (`switch_game` moves the panel between supported games). There is
+> no universal one-click install, and this README will not pretend otherwise.
 
 ## What it does
 
@@ -20,12 +31,13 @@ and rolls back an install that went wrong.
 | **Library** | Lists installed Steam games from every library folder, including SD cards mounted at either `/run/media/mmcblk0p1` or `/run/media/<user>/mmcblk0p1`. Identifies each game's mod directory from its own manifest, never by guessing a folder list. |
 | **Mods on disk** | Shows what is actually in the mod folder right now — including mods you installed yourself, which the plugin has no record of. Dot-directories are ignored, because loaders ignore them. |
 | **By game** | Groups your installed mods per game, so a library with several modded games is readable instead of one flat list. |
-| **Import** | Takes a local ZIP (and `.7z` on a device that has `/usr/bin/7z`), rejects path traversal, symlinks, executable installers, and archives that expand beyond a size cap. A wrapper directory inside the archive is stripped automatically. |
+| **Switch games** | Stardew and Cyberpunk ship as descriptors; any other game can be configured once (you name the mod folder) from the Games section. Switching rewrites `active_game` atomically and rebuilds the engine — no restart. A wrong configuration can be changed or removed from the panel. |
+| **Import** | Takes a local ZIP (and `.7z` on a device that has `/usr/bin/7z`), rejects path traversal, symlinks, executable installers, and archives that expand beyond a size cap. A wrapper directory inside the archive is stripped automatically. For Cyberpunk and user-configured games the archive is routed file-by-file into the declared mod folders instead. |
 | **Install / enable / disable / uninstall** | Moves the mod directory between the game's mod folder and a sibling park directory on the same filesystem — so it is an atomic rename, not a copy. |
 | **Rollback** | Every mutation is journalled. A bad install can be rolled back to the exact previous state, or the plugin reports honestly that it could not. |
 | **Dependencies** | Reads each mod's declared dependencies, reports which are missing, and can fetch a missing dependency **only** when the downloaded archive's own manifest names the same mod ID. |
 | **Download (optional)** | HTTPS download from an allow-listed host into an inbox, then the same import path. Two-phase: a read-only plan, then an explicit confirm. |
-| **Errors** | 50 stable error codes, each with a category and a suggested next step, shown in the QAM — never a raw traceback. |
+| **Errors** | 52 stable error codes, each with a category and a suggested next step, shown in the QAM — never a raw traceback. |
 
 ## Hard limits (by design, not by accident)
 
@@ -78,7 +90,12 @@ A game is a JSON descriptor, not a code change:
   "id": "mygame",
   "status": "planned",
   "identity": { "appid": 123456, "name": "My Game" },
-  "paths": { "mod_root": "${GAME_ROOT}/Mods" },
+  "paths": {
+    "mod_root": "${GAME_ROOT}/Mods",
+    "staging": "${GAME_ROOT}/.decky-staging",
+    "quarantine": "${GAME_ROOT}/.decky-quarantine/${TXN_ID}",
+    "disabled": "${GAME_ROOT}/.decky-disabled"
+  },
   "mod_package": {
     "manifest_globs": ["manifest.json", "*/manifest.json"],
     "manifest_format": "json",
@@ -88,8 +105,13 @@ A game is a JSON descriptor, not a code change:
 }
 ```
 
-Drop it in `registry/games/` and add it to `registry/registry.json`. `status: "planned"` keeps it discoverable
-in the UI but refuses writes until you have verified the paths on a real install.
+Drop it in `registry/games/` and add it to `registry/registry.json`. The `paths` block is now real
+configuration: `mod_root`, `staging`, `quarantine` and `disabled` are resolved from it, with
+`${GAME_ROOT}`, `${HOME}` and `${XDG_CONFIG}` expanded. A `quarantine` value may end in `/${TXN_ID}`;
+the plugin stores the root and appends the transaction id itself. Unknown placeholders are refused.
+`status: "planned"` keeps the game discoverable in the UI but refuses writes until you have verified the
+paths on a real install; the synthetic Factorio tree exercises a mod folder outside the game directory,
+but it is **not** a second real-game write sign-off.
 
 ## Status and documentation
 
@@ -100,10 +122,17 @@ tests, and what is still open is recorded per item in [`docs/VERIFICATION.md`](d
 
 Known gaps, stated plainly:
 
-- Stardew Valley is the only game with a write path, and it is detect-only.
-- The Nexus Mods integration is **not** included; see [`docs/NEXUS_ROADMAP.md`](docs/NEXUS_ROADMAP.md) for why
-  (free accounts cannot obtain a download link through the API) and what a manual `nxm://` hand-off would require.
-- Dependency resolution goes one level deep. A dependency that itself needs a dependency is not chased.
+- Stardew Valley's write path is folder-based only (SMAPI detect-only); Cyberpunk and user-configured
+  games install files but have no enable/disable switch — "installed" means "present", because their
+  loaders have no state file the plugin could edit.
+- Only the two built-in games have device-verified descriptors. A user-configured game works the way
+  its descriptor says (synthetic-tree proven), but your own folder choice has not been verified against
+  your game — start with a mod you can afford to lose, and check the game still launches.
+- Nexus Mods is **metadata and browser hand-off only**. The plugin can browse and open pages; the API gives
+  download links to premium accounts, and free accounts must download in the browser. See
+  [`docs/NEXUS_ROADMAP.md`](docs/NEXUS_ROADMAP.md).
+- Dependency resolution goes up to three levels and can fetch manifest-verified dependencies, but it does not
+  solve load order or chase arbitrary transitive graphs.
 
 ## License
 

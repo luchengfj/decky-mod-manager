@@ -297,6 +297,24 @@ export interface ManagedMod {
  * planned / unsupported rows are grey "catalog-only, not installable".
  * Showing more games here never lifts the single-active-game write gate.
  */
+/** Round 77: what the panel needs to configure a game it ships no descriptor for. */
+export interface GameSetupData {
+  appid: number;
+  name: string;
+  install_path: string;
+  candidates: Array<{ path: string; exists: boolean }>;
+  refused: boolean;
+  configured: boolean;
+  write_roots: string[];
+}
+
+/** Round 76: result of switching which supported game the panel manages. */
+export interface SwitchGameData {
+  active_game: string;
+  changed: boolean;
+  previous?: string | null;
+}
+
 export interface CatalogEntry {
   id: string;
   name: string;
@@ -309,6 +327,9 @@ export interface CatalogEntry {
   engine: string;
   display_label: string;
   loaders: string[];
+  /** Nexus site prefix for this game (e.g. "stardewvalley"), from the
+   *  descriptor's download source. null when the game declares none. */
+  nexus_domain?: string | null;
   capabilities: Record<string, boolean>;
 }
 
@@ -728,7 +749,20 @@ export interface KeyDeleteData {
   reason?: string;
 }
 
-export interface NexusValidateData {
+/**
+ * Optional payload fields the backend attaches to a FAILED Nexus call.
+ *
+ * `hint` / `problem` are short, backend-curated sentences safe to echo;
+ * `server_message` is the raw upstream body and must never be shown in the UI.
+ */
+export interface NexusErrorExtras {
+  configured?: boolean;
+  hint?: string;
+  problem?: string;
+  server_message?: string;
+}
+
+export interface NexusValidateData extends NexusErrorExtras {
   status: number;
   name?: string;
   is_premium?: boolean;
@@ -796,11 +830,29 @@ export interface OpenModPageData {
  */
 export interface SearchPageData { url: string; query: string; opened: boolean }
 
-export interface NexusDownloadLinkData {
+/** Round 73: no-key browse page (trending / newest / updated). */
+export interface BrowsePageData { url: string; sort: string; opened: boolean }
+
+/** One row in the `links` array of a successful download_link.json answer. */
+export interface NexusDownloadUri {
+  URI?: string;
+  uri?: string;
+  short_name?: string;
+}
+
+/** Normally an array; tolerate the object form a few responses use. */
+export type NexusDownloadLinks =
+  | NexusDownloadUri[]
+  | { uri?: string | string[] | NexusDownloadUri[] }
+  | null;
+
+export interface NexusDownloadLinkData extends NexusErrorExtras {
   /** True for every free account: the API issues download links to premium only. */
   premium_required: boolean;
   browser_url: string;
-  server_message?: string;
+  status?: number;
+  /** Present on success: the raw download_link.json body (URI rows). */
+  links?: NexusDownloadLinks;
 }
 
 /** Union for a two-phase op result: either the confirm payload or the commit. */

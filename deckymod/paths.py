@@ -141,6 +141,74 @@ def _resolve_install_dir(library_root: str, appid: int) -> Optional[str]:
         return None
 
 
+#: Round 43: folder names used when a descriptor declares no ``paths`` block.
+#: These are the historical literals and MUST stay exactly as they were, so
+#: every pre-Round-43 descriptor resolves byte-for-byte identically.
+_LAYOUT_DEFAULTS = {
+    "mod_root": "Mods",
+    "staging": ".decky-staging",
+    "quarantine": ".decky-quarantine",
+    "disabled": ".decky-disabled",
+}
+
+_LAYOUT_PLACEHOLDERS = ("GAME_ROOT", "HOME", "XDG_CONFIG")
+
+
+def _expand_layout(value: str, game_root: str, user_home: str, xdg_config: str) -> str:
+    """Expand a descriptor ``paths`` template into an absolute path.
+
+    Unknown ``${...}`` placeholders are an error, not an empty string: a typo in
+    a descriptor must not silently resolve to a path under ``/``. Relative
+    results are anchored at ``game_root`` (the historical behaviour), so a
+    descriptor that says ``"Mods"`` and one that says ``"${GAME_ROOT}/Mods"``
+    mean the same thing.
+    """
+    out = str(value)
+    subs = {"GAME_ROOT": game_root, "HOME": user_home, "XDG_CONFIG": xdg_config}
+    for name, replacement in subs.items():
+        out = out.replace("${%s}" % name, replacement)
+    if "${" in out:
+        raise ModError("E_PATH_INVALID", detail=f"unknown placeholder in descriptor path: {value!r}")
+    if not os.path.isabs(out):
+        out = os.path.join(game_root, out)
+    # Normalise separators: a descriptor writes ``${GAME_ROOT}/Mods`` with a
+    # forward slash, while ``os.path.join`` produces a native separator. Without
+    # this, the same folder would have two spellings depending on whether it
+    # came from the descriptor or the fallback, and every ``endswith``/
+    # string comparison in the plugin and its tests would have to tolerate both.
+    return os.path.normpath(out)
+
+
+def _layout_value(layout: dict | None, key: str, game_root: str,
+                  user_home: str, xdg_config: str) -> str:
+    """One folder from the descriptor's ``paths`` block, or the historical name.
+
+    Round 43 / P1#5: before this, ``paths.resolve()`` hard-coded ``Mods``,
+    ``.decky-staging``, ``.decky-quarantine`` and ``.decky-disabled`` and never
+    read the descriptor's ``paths`` block at all -- the block was documentation
+    that happened to agree with the code. Any second game whose mod folder was
+    not literally ``Mods/`` could not be added by descriptor alone.
+    """
+    value = None
+    if isinstance(layout, dict):
+        value = layout.get(key)
+    if value is None or value == "":
+        value = _LAYOUT_DEFAULTS[key]
+    value = str(value)
+    # The descriptor spells ``quarantine`` as the per-TRANSACTION directory
+    # (``"${GAME_ROOT}/.decky-quarantine/${TXN_ID}"``) because that is what a
+    # human reading the file needs to know. ``ResolvedPaths`` stores the ROOT,
+    # and every caller appends ``os.path.join(root, txn)`` itself, so the
+    # variable must be dropped here -- not passed through (an unexpanded
+    # placeholder is an error, and a literal ``${TXN_ID}`` folder name would
+    # silently create a directory nobody ever looks in).
+    if value.endswith("/${TXN_ID}"):
+        value = value[: -len("/${TXN_ID}")]
+    elif "${TXN_ID}" in value:
+        raise ModError("E_PATH_INVALID", detail=f"misplaced ${{TXN_ID}} in descriptor path: {value!r}")
+    return _expand_layout(value, game_root, user_home, xdg_config)
+
+
 def _containment_check(base: str, candidate: str):
     """realpath containment: candidate must be inside base (anti-escape)."""
     b = os.path.realpath(base)
@@ -150,7 +218,8 @@ def _containment_check(base: str, candidate: str):
 
 
 def resolve(appid: int = 294100, *, preflight: bool = False,
-            no_state_file: bool = False) -> ResolvedPaths:
+            no_state_file: bool = False,
+            descriptor_paths: dict | None = None) -> ResolvedPaths:
     """Resolve all paths for a game. Does NOT create or write anything.
 
     ``no_state_file=True`` (selection B / SMAPI file_drop): the game has NO
@@ -158,6 +227,12 @@ def resolve(appid: int = 294100, *, preflight: bool = False,
     empty and skip all state-file preflight. The RimWorld default (False) is
     byte-for-byte unchanged — 33 synthetic-tree tests + the 41-green real-machine
     path depend on that.
+
+    ``descriptor_paths`` (Round 43 / P1#5) is the game descriptor's own
+    ``paths`` block. When given, ``mod_root``/``staging``/``quarantine``/
+    ``disabled`` come from it (with ``${GAME_ROOT}``/``${HOME}``/``${XDG_CONFIG}``
+    expanded); when omitted, the historical literals under ``game_root`` are
+    used, which is what every caller did before this parameter existed.
     """
     r = ResolvedPaths()
     r.appid = appid
@@ -233,14 +308,20 @@ def resolve(appid: int = 294100, *, preflight: bool = False,
     r.game_root = game_dir
 
     # step 7: W2 mod root + siblings (NOT inside Mods/)
-    r.mod_root = os.path.join(r.game_root, "Mods")
-    r.staging = os.path.join(r.game_root, ".decky-staging")
-    r.quarantine_root = os.path.join(r.game_root, ".decky-quarantine")
+    # Round 43: these four names now come from the descriptor's ``paths`` block
+    # when it declares them, and fall back to the historical literals when it
+    # does not. Both the RimWorld descriptor and Stardew's declare the same
+    # names as the old constants, so their resolution is unchanged.
+    layout = descriptor_paths if isinstance(descriptor_paths, dict) else None
+    xdg = _xdg_config(r.user_home)
+    r.mod_root = _layout_value(layout, "mod_root", r.game_root, r.user_home, xdg)
+    r.staging = _layout_value(layout, "staging", r.game_root, r.user_home, xdg)
+    r.quarantine_root = _layout_value(layout, "quarantine", r.game_root, r.user_home, xdg)
     # Round 25: file_drop disables a mod by moving its directory out of Mods/,
     # because presence in Mods/ IS the enabled state for SMAPI. The parking area
     # must be a SIBLING of Mods/ (same filesystem) so os.replace works; a path
     # under the user's home or on a microSD would fail with EXDEV(18).
-    r.disabled_root = os.path.join(r.game_root, ".decky-disabled")
+    r.disabled_root = _layout_value(layout, "disabled", r.game_root, r.user_home, xdg)
     if os.path.commonpath([os.path.realpath(r.staging), os.path.realpath(r.mod_root)]) == os.path.realpath(r.mod_root):
         raise ModError("E_STAGING_IN_MODS", detail="staging resolved inside Mods/")
 

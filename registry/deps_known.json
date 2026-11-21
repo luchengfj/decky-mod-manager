@@ -1,0 +1,7 @@
+{
+  "_comment": "Round 74: dependencies the SMAPI index does not cover. Without this, a mod that requires one of them could not even be pointed at its download page -- the panel could only say 'no repo in the index'. Keys are manifest UniqueIDs (case-insensitive). Only verified Nexus ids belong here; never guess one.",
+  "hxw.tilesheets": {
+    "name": "HxW Tilesheets",
+    "nexusID": 20139
+  }
+}

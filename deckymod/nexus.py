@@ -370,3 +370,26 @@ def search_page_url(game_domain: str, query: str) -> str:
     """
     return "https://www.nexusmods.com/%s/search/?gsearch=%s" % (
         game_domain, urllib.parse.quote(query, safe=""))
+
+
+#: Sort values the website's /mods listing accepts. The caller passes one of
+#: these KEYS (never a URL); we map to the site's own parameter so a free
+#: account can browse "trending / newest / updated" with no API key at all.
+_BROWSE_SORTS = {
+    "trending": "trending",
+    "latest_added": "newest",
+    "latest_updated": "updated",
+}
+
+
+def browse_page_url(game_domain: str, sort: str) -> str | None:
+    """WEBSITE browse/sort page for a game. Returns None for an unknown sort.
+
+    This is the no-key replacement for the API's recent() endpoint: the site
+    already shows Trending / Newest / Updated, and the browser is signed in.
+    Nothing is fetched here — the caller hands the URL to openurl.
+    """
+    param = _BROWSE_SORTS.get(sort)
+    if param is None:
+        return None
+    return "https://www.nexusmods.com/%s/mods?sort=%s" % (game_domain, param)

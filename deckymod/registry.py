@@ -26,12 +26,30 @@ class Registry:
         self.raw = self._load_json(self.registry_path)
         self.descriptors: Dict[str, dict] = {}
         for gid, meta in self.raw.get("descriptors", {}).items():
+            if not isinstance(meta, dict) or not meta.get("file"):
+                # Round 77: user-defined games carry no file; they are appended
+                # from the data dir below. Never index a None path.
+                continue
             path = os.path.join(self.base_dir, *meta["file"].split("/"))
             self.descriptors[gid] = self._load_json(path)
         self.loaders: Dict[str, dict] = {}
         for lid, path in self.raw.get("loader_catalog", {}).items():
             fp = os.path.join(self.base_dir, *path.split("/"))
             self.loaders[lid] = self._load_json(fp)
+        # Round 77: games the user configured themselves live in the DATA dir
+        # (not in the plugin), so they survive a plugin update. They are added
+        # as ordinary descriptors -- no engine code knows the difference.
+        try:
+            from . import user_games
+            for appid, rec in user_games.load_all().items():
+                gid = user_games.game_id(appid)
+                if gid in self.descriptors:
+                    continue
+                # Kept OUT of self.raw: switch_active_game() persists raw to
+                # disk, and a null "file" entry there would break the next load.
+                self.descriptors[gid] = user_games.descriptor_for(rec)
+        except Exception:  # noqa: BLE001 - a broken user file must not unload the plugin
+            pass
 
     @staticmethod
     def _load_json(path: str) -> dict:
@@ -53,12 +71,52 @@ class Registry:
         descriptor(s) decide."""
         return os.environ.get("DECKYMOD_GAME_ID") or None
 
+    def switch_active_game(self, game_id: str) -> dict:
+        """Point ``active_game`` at another enabled descriptor, atomically.
+
+        Round 76: supporting a second game must not need a hand edit of this
+        file on the device. Only a descriptor whose status equals the gate's
+        ``enabled_game_status`` may be selected -- a planned/unsupported
+        descriptor stays refuse-only, exactly as before.
+
+        Writing is atomic (tmp + os.replace) because a half-written registry
+        would make the whole plugin unloadable.
+        """
+        gid = str(game_id or "").strip()
+        if gid not in self.descriptors:
+            raise ModError("E_CAPABILITY_DISABLED", detail=f"unknown game id: {gid}")
+        want = self.gate().get("enabled_game_status", "enabled")
+        d = self.descriptors.get(gid) or {}
+        if d.get("status") != want:
+            raise ModError("E_CAPABILITY_DISABLED",
+                           detail=f"{gid} status={d.get('status')} is not installable")
+        current = self.raw.get("active_game")
+        if current == gid:
+            return {"active_game": gid, "changed": False}
+        before = self.raw
+        before["active_game"] = gid
+        tmp = self.registry_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(before, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(tmp, self.registry_path)
+        return {"active_game": gid, "changed": True, "previous": current}
+
     def enabled_games(self) -> List[str]:
         pinned = self._pinned_game()
         if pinned:
             return [pinned] if pinned in self.descriptors else []
         g = self.gate()
         want = g.get("enabled_game_status", "enabled")
+        # Round 76: more than one descriptor may be enabled (one per supported
+        # game), but every RPC still acts on exactly ONE. active_game names it.
+        # Without this branch, max_enabled_games_in_mvp would refuse to start
+        # the moment a second game is supported -- the count would be 2.
+        active = self.raw.get("active_game")
+        if isinstance(active, str):
+            d = self.descriptors.get(active)
+            if isinstance(d, dict) and d.get("status") == want:
+                return [active]
         return [gid for gid, d in self.descriptors.items() if d.get("status") == want]
 
     def get_game(self, game_id: str) -> dict:
@@ -151,6 +209,18 @@ class Registry:
                 appid = int(raw_appid) if raw_appid is not None else None
             except (ValueError, TypeError):
                 appid = None
+            # Browse-plane only: the game's Nexus site prefix, read from the
+            # descriptor's declared download source. Never a hard-coded list in
+            # the UI, and never a fetched/derived path. None for games that
+            # declare no nexus_metadata source (the UI then shows no prefix).
+            nexus_domain = None
+            sources = d.get("download_sources")
+            if isinstance(sources, dict):
+                nm = sources.get("nexus_metadata")
+                if isinstance(nm, dict) and nm.get("enabled", False):
+                    nd = nm.get("game_domain")
+                    if isinstance(nd, str) and nd.strip():
+                        nexus_domain = nd.strip()
             is_enabled = status == enabled_status
             out.append({
                 "id": str(gid),
@@ -164,6 +234,7 @@ class Registry:
                 "engine": str(d.get("engine") or "unknown"),
                 "display_label": str(d.get("display_label") or gid),
                 "loaders": norm_loaders,
+                "nexus_domain": nexus_domain,
                 "capabilities": {str(k): bool(v) for k, v in caps.items()},
             })
         return out

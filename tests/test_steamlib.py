@@ -283,5 +283,57 @@ class TestSummarize(_Tree):
         self.assertEqual(s["game_count"], 0)
 
 
+class TestRuntimeFiltering(_Tree):
+    """Steam ships Proton / the Linux Runtime as appmanifests; they are tools,
+    not games. They must never appear in the game list or counts. Regression
+    for the device showing 29 "games" of which 8 were Steam infrastructure.
+    """
+
+    RUNTIMES = [
+        (228980, "Steamworks Common Redistributables", "Steamworks Shared"),
+        (1070560, "Steam Linux Runtime 1.0 (scout)", "SteamLinuxRuntime"),
+        (1391110, "Steam Linux Runtime 2.0 (soldier)", "SteamLinuxRuntime_soldier"),
+        (1628350, "Steam Linux Runtime 3.0 (sniper)", "SteamLinuxRuntime_sniper"),
+        (4183110, "Steam Linux Runtime 4.0", "SteamLinuxRuntime_4"),
+        (1493710, "Proton Experimental", "Proton - Experimental"),
+        (3658110, "Proton 10.0", "Proton 10.0"),
+        (4628710, "Proton 11.0", "Proton 11.0"),
+    ]
+
+    def test_known_runtime_appids_are_filtered(self):
+        for appid, name, installdir in self.RUNTIMES:
+            self._manifest(self.root0, appid, name, installdir, state=4)
+        games = {g["appid"]: g for g in steamlib.scan_games(self.home)}
+        for appid, _, _ in self.RUNTIMES:
+            self.assertNotIn(appid, games, "runtime %s must be filtered" % appid)
+        # Real games from the tree are all still there.
+        for appid in (413150, 1091500, 892970, 570):
+            self.assertIn(appid, games)
+
+    def test_prefix_filters_future_runtime_versions(self):
+        # A future Proton 99 with an unknown AppID is still caught by prefix.
+        self._manifest(self.root0, 9999999, "Proton 99.0", "Proton 99.0", state=4)
+        self._manifest(self.root0, 9999998, "Steam Linux Runtime 9.0",
+                       "SteamLinuxRuntime_9", state=4)
+        ids = {g["appid"] for g in steamlib.scan_games(self.home)}
+        self.assertNotIn(9999999, ids)
+        self.assertNotIn(9999998, ids)
+
+    def test_prefix_does_not_drop_a_real_game_mentioning_proton(self):
+        # A game whose NAME merely contains "Proton" must survive: filtering
+        # uses startswith on specific runtime prefixes, not substring.
+        self._manifest(self.root0, 5555555, "Proton Glow Racing",
+                       "Proton Glow Racing", state=4)
+        ids = {g["appid"] for g in steamlib.scan_games(self.home)}
+        self.assertIn(5555555, ids)
+
+    def test_summarize_counts_only_real_games_with_runtimes_present(self):
+        for appid, name, installdir in self.RUNTIMES:
+            self._manifest(self.root0, appid, name, installdir, state=4)
+        s = steamlib.summarize(self.home)
+        self.assertEqual(s["game_count"], 4, "runtimes must not inflate the count")
+        self.assertEqual(len(s["games"]), 4)
+
+
 if __name__ == "__main__":
     unittest.main()

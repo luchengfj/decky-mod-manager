@@ -30,7 +30,7 @@ features are deliberately excluded.
 | Nexus | **metadata only** — browse and open the mod page; download links are premium-only, by Nexus policy |
 | Know whether the game actually loaded a mod (not just that it is on disk) | works, read-only (Round 40, docs/LOADER_LOG.md) |
 | Refuse writes when Mods/ belongs to another manager, and say why | works, structural (Round 44, docs/MOD_FOLDER_OWNERSHIP.md) |
-| Chinese / English UI | works, 471 keys each, parity enforced |
+| Chinese / English UI | works, 487 keys each, parity enforced |
 | Let a descriptor name its own third-party-manager marker | works (Round 53, docs/DECLARED_VS_READ.md) |
 | Refuse a mod whose manifest names an `EntryDll` it does not ship | works on both ZIP and `.7z` (Round 64, docs/ENTRY_DLL.md) |
 | Make an undo that cannot undo say so | `rollback` of an uninstall refuses instead of reporting a restore that did not happen (Round 65, docs/ROLLBACK.md) |
@@ -40,6 +40,10 @@ features are deliberately excluded.
 | Report a disabled dependency as disabled, not as missing | the fetcher is no longer handed an id the user parked, so a download cannot overwrite it (Round 66, docs/PARKED_DEPENDENCIES.md) |
 | Warn who will stop loading before a library is removed | the reverse dependency map, in both confirmation sites (Round 71, docs/DEPENDENTS.md) |
 | Make a failed rollback retryable instead of a dead end | stuck transactions surface in recovery and never fake a recovery (Round 72, docs/STUCK_ROLLBACK.md) |
+| Keep a crash from truncating the transaction journal | journal and snapshot writes are temp-file + fsync + `os.replace` (Round 43 follow-up, tests/test_journal_atomic.py) |
+| Write a second game's mods | Cyberpunk 2077 ships as a descriptor: the `root_merge` engine routes archive members file-by-file into declared write roots, journals every file, backs up anything replaced, and refuses game payload outright (Round 76, tests/test_root_merge.py) |
+| Write mods for a game the plugin does not ship | the user configures the mod folder(s) once in the panel; the same root_merge engine then writes only inside them, with the same journal + backup guarantees; anti-cheat online games are refused, and the configuration can be changed or removed from the panel (Round 77, tests/test_user_games.py) |
+| Switch which game the panel manages | `switch_game` atomically rewrites `active_game`; exactly one game is managed at a time, unchanged (Round 76) |
 
 0h. **The reverse question: who needs this mod.**
 
@@ -404,9 +408,24 @@ negative proof that reintroducing the duplication fails the suite. See
 
 5. **Only Stardew Valley has a write path.** Every other game is identified
    read-only by design (`templates.py` returns `identification_only`). That is
-   the right default. The missing piece is a documented, tested recipe for
-   adding a descriptor — the README sketch is not yet exercised by a second
-   real game, so its shape is unproven.
+   the right default. Round 43 closed the *layout* half of the recipe: a
+   descriptor's `mod_root` / `staging` / `quarantine` / `disabled` block is now
+   read by `paths.resolve()` (with `${GAME_ROOT}` / `${HOME}` / `${XDG_CONFIG}`
+   expansion), and the synthetic Factorio tree puts mods in the real
+   `~/.factorio/mods` location rather than a forced game-directory `Mods/`.
+   `tests/test_descriptor_paths.py` pins the placeholder and `${TXN_ID}` rules.
+   Round 43 also closed the *write-path* half: `tests/test_second_game.py`
+   (14 cases) drives the real engine through the whole lifecycle for a
+   synthetic game that differs in AppID, installdir, mod-folder location,
+   manifest file name, manifest field names, launcher marker, launch-option
+   token, external-manager marker and extension policy -- everything the
+   engine could have hard-coded. `docs/ADDING_A_GAME.md` is the resulting
+   recipe, including the four things that still need code (a new manifest
+   dialect, a new engine shape, a second operable game, a second `xml_list`
+   game) and the descriptor keys that are declared but **not** read.
+   **Still OPEN:** no second *real* game install has been used for a write
+   sign-off. A synthetic tree proves the mechanism, not a game's truth, so this
+   is still not a claim of multi-game support and does not touch original G3.
 6. ~~**No conflict detection beyond duplicate UniqueIDs.**~~ **SHIPPED in Round 47** -- see `docs/MOD_FOLDER_CONFLICTS.md`. Shared paths are reported for `shared_tree` loaders and honestly declared inapplicable for per-mod-directory ones; nothing is reordered. Two mods editing the
    same game file, or load-order-sensitive mods, are silently accepted. The
    plugin should not solve ordering (that needs game knowledge), but it should

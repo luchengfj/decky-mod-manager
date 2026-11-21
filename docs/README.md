@@ -1,15 +1,47 @@
-# Decky MOD Manager — MVP (RimWorld native)
+# Decky MOD Manager — current scope and historical MVP record
 
 A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for Steam Deck
-**Game Mode** that manages local MODs for **one** game: RimWorld (AppID `294100`,
-Linux-native build). Everything is done with the gamepad (D-pad + A/B) inside the
-Quick Access Menu (QAM) panel.
+**Game Mode** that manages local MODs from the Quick Access Menu (QAM) with the
+gamepad. The current write path is **Stardew Valley (AppID `413150`) with SMAPI
+detect-only**; RimWorld (`294100`) remains `planned` and is kept only as a
+historical regression target. For the authoritative current scope, see
+[`../README.md`](../README.md).
+
+> **Document status.** The body below was originally written for the RimWorld
+> MVP and is retained as a historical implementation/verification record. Its
+> "one game: RimWorld" statements are not the current product scope. This
+> cleanup changes no `V#`/`F#` status, adds no `CLOSED`, and ticks no checklist.
 
 > **Status: implemented + locally self-tested, NOT yet verified on a real Steam Deck.**
 > The frontend bundle is **uncompiled / un-type-checked** on this Windows dev box and
 > the Decky/template version pins are **not confirmed**. See
 > [VERIFICATION.md](VERIFICATION.md) (G3 gate) and [ACCEPTANCE.md](ACCEPTANCE.md) (DoD)
 > before shipping. Do not treat this as a release.
+>
+> **状态更正（2026-11-21 Round 78 部署 + 真机写回证据，非状态变更）**：上一条
+> （2026-11-20）「Cyberpunk 与用户自定义游戏的真机写回尚无真值」已被本日证据**取代**：
+> Round 78 部署（备份 `plugin-before-round78` → `py_modules/` 布局推送 → md5 逐字一致 →
+> `plugin_loader.service` 重载 → deckymod.log loaded 行）后，真机探针
+> `rounds/r78_device_probe.py` **34/34 全过**：Cyberpunk `archive/pc/mod` 与用户配置的
+> `Dave the Diver`（1868140）`BepInEx/plugins` 两条写路径真实落盘 + 卸载还原 + 零残留；
+> planned/防作弊拒绝以自身码到达（`_guard` 修复）；forget 兜底回 stardew。
+> 本机同轮 `tsc --noEmit` strict 零错误 + `rollup -c` 产出 `dist/index.js`（232416 B，
+> `cd054455…`）。逐字证据见 [VERIFICATION.md](VERIFICATION.md) §K。**上限不变**：
+> QAM/手柄目视仍无人工贴回、真实 mod 加载效果未测、`V2–V20 / F1–F3` 仍全 `OPEN`、
+> G3 仍 `OPEN`、未写新 `CLOSED`。**仍不是 release。**
+>
+> **状态更正（2026-11-20 Round 76/77 补记，非状态变更）**：自本轮起产品范围不再是
+> 「只有一个可写游戏」。新增第二内置游戏 **Cyberpunk 2077（1091500）**：`root_merge`
+> 引擎按文件路由进声明的 write_roots（archive/pc/mod、mods/、bin/x64/plugins、
+> r6/scripts、red4ext），逐文件记 journal、覆盖前备份，uninstall/rollback 精确还原；
+> 游戏本体 payload（archive/pc/content、engine/ 等）永远拒绝。新增 **用户自定义游戏**：
+> 任何 Steam 游戏由用户在面板里指定加载器读取的文件夹（`data/games/<appid>.json`，
+> 不进本仓库），同一 root_merge 引擎、同样的写入边界与备份保证；带反作弊的在线游戏
+> 直接拒绝。`switch_game` 原子改写 `active_game`，一次仍只有一个游戏被管理
+> （`max_enabled_games_in_mvp=1` 的语义不变）。验证状态：后端 923 测试全绿
+> （含 test_root_merge / test_user_games / test_second_game）；Cyberpunk 与用户
+> 自定义游戏的真机写回**尚无真值**，`V2–V20 / F1–F3 / G3` 状态一律未动、仍全
+> `OPEN`、G3 仍 `OPEN`、未写新 `CLOSED`。**仍不是 release。**
 >
 > **状态更正（2026-11-13 证据回写补记，非状态变更）**：以上「uncompiled /
 > un-type-checked / 未在本机构建」是**实现轮历史快照**。2026-11-13 已在一台联网
@@ -37,15 +69,15 @@ Quick Access Menu (QAM) panel.
 
 ## What this MVP is — and is NOT
 
-| In scope | Out of scope (first version) |
+| Current in scope | Out of scope (unchanged hard limits) |
 | --- | --- |
-| One sample game: RimWorld native `294100` | Any other enabled game |
-| Local ZIP import from a fixed drop-folder (+ optional OSK path box) | Network / Steam Workshop / any download |
-| Install, enable, disable, uninstall (to quarantine), rollback | Installing BepInEx / SMAPI / xNVSE / UE4SS / MelonLoader |
-| Transaction journal, snapshots, quarantine, recovery | Writing Proton `pfx` / compatdata prefixes |
-| Atomic, surgical edit of `ModsConfig.xml` | Editing game launch options / `WINEDLLOVERRIDES` |
-| Pure-gamepad UI + structured error codes | Running Windows `.exe` / `.msi` installers |
-| — | Load-order / dependency solving, "one-click for any game" |
+| Stardew Valley `413150` via file-drop + SMAPI detect-only · Cyberpunk 2077 `1091500` via root_merge per-file install · user-configured games (Round 77) via root_merge | Universal write access for every descriptor |
+| Local ZIP / `.7z` import with traversal, symlink, size and manifest checks | Installing BepInEx / SMAPI / xNVSE / UE4SS / MelonLoader |
+| Install, enable, disable, uninstall (to quarantine), rollback | Writing Proton `pfx` / compatdata prefixes |
+| Transaction journal, snapshots, quarantine, recovery | Editing game launch options / `WINEDLLOVERRIDES` |
+| GitHub Releases / direct HTTPS downloads into an inbox; Nexus metadata only | Running Windows `.exe` / `.msi` installers |
+| Dependency reporting and manifest-verified fetch, up to three levels | Load-order solving, "one-click for any game", bypassing Nexus account policy |
+| Pure-gamepad UI + structured error codes | Root, `steamos-readonly disable`, cloud sync, telemetry |
 
 **Hard constraints (self-certified in §6 of the plan):**
 - SteamOS read-only root is **never** disabled (`requires_readonly_toggle:false`). All
@@ -55,15 +87,16 @@ Quick Access Menu (QAM) panel.
   resolved via `DECKY_USER` / `pwd.getpwnam`; `chown` runs only when `geteuid()==0`;
   a wrong-owner file is refused (`E_ROOT_OWNED` / `E_STATE_OWNED`), never `chmod`-ed
   into place. Non-POSIX mounts skip ownership checks instead.
-- **No universal one-click**: `universal_one_click:false`,
-  `max_enabled_games_in_mvp:1`, only `rimworld` has `status:enabled`; every other
-  descriptor is `planned` and the capability gate refuses it (`E_CAPABILITY_DISABLED`).
+- **No universal one-click**: `universal_one_click:false`; the active descriptor
+  is `stardew` (`status:enabled`, file-drop, SMAPI detect-only). RimWorld and the
+  other descriptors remain `planned` and the capability gate refuses writes
+  (`E_CAPABILITY_DISABLED`) until a real install has been verified.
 
 ## Repository layout
 
 ```
-main.py                       Decky entry point: class Plugin, 16 async positional RPCs,
-                              _main/_unload/_uninstall/_migration
+main.py                       Decky entry point: class Plugin, 28 public async
+                              positional RPCs plus _main/_unload/_uninstall/_migration
 plugin.json                   Decky manifest (name, api_version, flags, publish tags)
 package.json / tsconfig.json / rollup.config.js
                               frontend build (@decky/rollup -> dist/index.js, esm + SP_* globals)
@@ -73,7 +106,7 @@ src/
   api.ts                      @decky/api call/callable bridge, invoke() guard
   types.ts                    TS mirror of the JSON-safe envelope + per-RPC payload types
   i18n.ts                     t() / errorText() / categoryText(), zh-CN via navigator.language
-  i18n/en.json, zh-CN.json    471 keys each, parity enforced by validate_i18n.py
+  i18n/en.json, zh-CN.json    487 keys each, parity enforced by validate_i18n.py
   components/
     Modal.tsx                 gamepad-first showInfo / showListModal / showErrorModal / showFomodModal
     ConfirmModal.tsx          two-phase confirm (A=confirm, B=cancel)
@@ -81,7 +114,7 @@ src/
     ModRow.tsx                mod row: enable/disable / details / uninstall
     ImportBox.tsx             optional OSK path input (fully skippable)
 deckymod/                     stdlib-only Python backend (no third-party deps)
-  errors.py                   50 user-facing codes -> (category, message, rollback?); E_RECOVERY_PENDING only gates writes from Round 51
+  errors.py                   52 user-facing codes -> (category, message, rollback?); E_RECOVERY_PENDING only gates writes from Round 51
   envelope.py                 unified {ok,code,message,detail,data,rollback_available,log_path,ts}
   json_safe.py                to_json_safe(): Path/bytes/set/bigint/NaN -> JSON-safe
   fsops.py                    atomic writes, os.replace, chown/fchmod guards, errno mapping
@@ -122,7 +155,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        59 modules, 850 cases (`Ran 850 tests ... OK (skipped=15)`)
+tests/                        62 modules, 878 cases (`Ran 878 tests ... OK (skipped=15)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -232,19 +265,21 @@ docs/                         see the index below
 These are the ones a user will actually meet, and they are surfaced in the panel
 rather than hidden in a file:
 
-- **Stardew Valley is the only game this build can write to.** Cyberpunk 2077 and
-  DAVE THE DIVER have identification templates (their mod directories are read
-  and shown), but the plugin will not install into them. `max_enabled_games_in_mvp`
-  is still 1, and `universal_one_click` is still `false`.
+- **Two built-in games can be written, plus any game you configure.** Stardew Valley (SMAPI
+  detect-only, folder-per-mod) and Cyberpunk 2077 (root_merge, per-file into declared write roots)
+  ship as descriptors. A game with no descriptor can be configured once in the panel: you name the
+  folder(s) its loader reads, and root_merge writes only inside them. `max_enabled_games_in_mvp`
+  is still 1 — one game is managed at a time — and `universal_one_click` is still `false`.
 - **SMAPI must already be installed by the user.** The plugin detects
   `StardewModdingAPI` and the launch option, and refuses with `E_LOADER_MISSING` /
   `E_LAUNCH_OPTIONS_MISSING` when they are absent. It never installs a loader and
-  never edits Steam launch options.
+  never edits Steam launch options — for every game, including user-configured ones.
 - **file_drop means "in `Mods/`" == enabled.** There is no load-order state to
   edit: disabling moves the folder to a sibling `.decky-disabled/`, enable moves
   it back, uninstall moves it to `.decky-quarantine/`. Nothing is ever deleted.
-- **No load-order or dependency solver.** `dependencies` from a manifest are shown
-  as information (and missing ones are listed), never resolved or reordered.
+- **No load-order solver.** `dependencies` from a manifest are shown, missing or
+  outdated ones are listed, and manifest-verified downloads may be fetched up to
+  three levels deep. The plugin never reorders mods or claims load-order safety.
 - **Downloads are GitHub Releases or a direct HTTPS URL.** No Workshop. Nexus
   was retired — see [GOAL_RECORD_DOWNLOAD_SOURCE.md](GOAL_RECORD_DOWNLOAD_SOURCE.md)
   for why its 403 is an account policy rather than a rate limit.
@@ -255,15 +290,15 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 714 tests ... OK (skipped=14)  (LASTEXITCODE=0)
+python -m unittest discover -s tests -v  -> Ran 864 tests ... OK (skipped=15)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
-.decky-probe/validate_i18n.py            -> EN 470 / ZH 470, parity [] , EXIT=0
+.decky-probe/validate_i18n.py            -> EN 487 / ZH 487, parity [] , EXIT=0
 .decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 28, ALL_STATIC_CHECKS True
 .decky-probe/validate_download_wiring.py -> DOWNLOAD_WIRING_ALL_OK=True, EXIT=0
-.decky-probe/validate_api_arity.py       -> BACKEND_RPCS 26 / FRONTEND_CALLS 26 / BAD 0
+.decky-probe/validate_api_arity.py       -> BACKEND_RPCS 28 / FRONTEND_CALLS 28 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
-.decky-probe/r4_tar_drift.py             -> TAR_COUNT 124 / CUR_COUNT 124, drift 0
+.decky-probe/r4_tar_drift.py             -> TAR_COUNT 126 / CUR_COUNT 126, drift 0
 ```
 
 Backend is stdlib-only and **runs** on this box (the Windows-portability fix in
@@ -274,12 +309,16 @@ libraries, appmanifests, `ModsConfig.xml`, ZIP and `.7z` archives under
 rollback plus conflict/zip-slip/path-escape/game-running/drift/state-missing and
 the duplicate-UniqueID guard.
 
-**The frontend is NOT type-checked on this box** — there is no TypeScript here.
-`tsc --noEmit` and `rollup -c` run on the Deck (`/home/deck/deckymod-build`), and
-their green result is what makes `dist/index.js` trustworthy. The last such run
-was `TSC_EXIT=0 / ROLLUP_EXIT=0` producing `dist/index.js`
-`0c402ba30500fa53e01300b3e15cb737c125fd9261dd39c314b7e0a63d0579df` (147394 B),
-deployed byte-identical to `/home/deck/homebrew/plugins/decky-mod-manager/`.
+**The frontend can now be type-checked and built on this box.** After installing
+the pinned dependencies with `corepack pnpm install --frozen-lockfile`,
+`corepack pnpm run typecheck` and `corepack pnpm run build` both exited 0 and
+produced `dist/index.js`
+`bce1d29eb9a5b699e50c2b2c7c7769b9f0af72c51424d594af0eef436c822fb2` (241622 B).
+This is a **local build**, not a claim that the new bundle has been loaded on
+the Deck; the previously deployed bundle hash remains a historical record. The
+matching local package is `DeckyModManager-0.1.0-improved.zip`, 323406 B,
+sha256 `a3f8f6d340991ab7e39ea14beceed34e90d4e18ef62e5e81eaf26d24c794243e`,
+50 entries, `testzip()` clean. It has NOT been installed on the Deck.
 
 **What is still not proven anywhere:** a real SD card (none is inserted — the two
 `/run/media` layouts and a full write flow are proven against a card-shaped tree,
@@ -308,6 +347,7 @@ Reading order for a newcomer, and what each file is for:
 | [QAM_R25_PANEL.md](QAM_R25_PANEL.md) / [QAM_VISUAL_CHECK.md](QAM_VISUAL_CHECK.md) | earlier panel visual checks and the checker's checklist |
 | [VERIFICATION.md](VERIFICATION.md) | §7 "verify on device / locked versions" ledger (V1–V20, F1–F3, G3) — the authority on status |
 | [ACCEPTANCE.md](ACCEPTANCE.md) | Definition of Done and the 50-code error table |
+| [ADDING_A_GAME.md](ADDING_A_GAME.md) | the descriptor recipe for a second game, proven by a synthetic full write lifecycle — and the four things that still need code |
 | [RUNBOOK.md](RUNBOOK.md) / [ONDEVICE.md](ONDEVICE.md) | offline handover and on-device debugging checklists |
 | [NEXUS_ROADMAP.md](NEXUS_ROADMAP.md) | historical round notes, incl. §6.7 the Nexus metadata surface and why download links stay premium-only; snapshots are never backfilled |
 | [QUARANTINE.md](QUARANTINE.md) | what "uninstall" keeps, and when a kept folder can no longer be restored |

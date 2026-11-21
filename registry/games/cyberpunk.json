@@ -1,0 +1,131 @@
+{
+  "schema": "deckymod/game-descriptor@1",
+  "id": "cyberpunk",
+  "status": "enabled",
+  "engine": "root_merge",
+  "display_label": "Cyberpunk 2077 / file drop (no framework install)",
+  "engine_note": "Cyberpunk mods are NOT 'one folder into Mods/'. A single archive scatters files across archive/pc/mod, mods/, bin/x64/plugins, r6/scripts and red4ext. root_merge therefore installs FILE BY FILE, journals every target path, and backs up any file it is about to overwrite. It never touches archive/pc/content, archive/pc/ep1, engine/ or the game executables.",
+  "identity": {
+    "appid": 1091500,
+    "name": "Cyberpunk 2077",
+    "platform": "proton",
+    "status": "enabled",
+    "note": "AppID 1091500. Proton (Windows build), but every path this plugin writes is INSIDE the game folder, never in the Proton prefix. Framework installers (CET/RED4ext/ArchiveXL) are user-managed: this plugin only drops their files, it never runs an .exe/installer."
+  },
+  "paths": {
+    "game_root": "${GAME_ROOT}",
+    "mod_root": null,
+    "write_roots": [
+      "archive/pc/mod",
+      "mods",
+      "bin/x64/plugins",
+      "r6/scripts",
+      "red4ext"
+    ],
+    "write_roots_note": "Every install target must be under one of these. archive/pc/mod is the classic .archive drop; mods/ is REDmod; bin/x64/plugins is Cyber Engine Tweaks; r6/scripts is redscript; red4ext is the RED4ext plugin loader. A file whose target is not covered is REJECTED, never written elsewhere.",
+    "protected": [
+      "archive/pc/content",
+      "archive/pc/ep1",
+      "engine",
+      "bin/x64/Cyberpunk2077.exe",
+      "bin/x64/*.dll",
+      "r6/cache",
+      "tools"
+    ],
+    "protected_note": "Original game payload. A mod that wants to write here is either a patch tool (not a mod) or trying to replace shipped data; both are refused. Overwriting a file that already exists inside a write root is allowed ONLY with a backup recorded in the journal.",
+    "state_file": null,
+    "state_staging": null,
+    "staging": "${GAME_ROOT}/.decky-staging",
+    "quarantine": "${GAME_ROOT}/.decky-quarantine/${TXN_ID}",
+    "journal": "${DECKY_DATA}/journal/cyberpunk.jsonl",
+    "snapshots": "${DECKY_DATA}/snapshots/${TXN_ID}",
+    "notes": [
+      "Cyberpunk has no game-managed mod list file: a mod is present because its files are present. state_file/state_staging are null and all state-file preflight/snapshot/drift logic is skipped, exactly like SMAPI.",
+      "staging and quarantine sit on the SAME filesystem as GAME_ROOT so os.replace() never hits EXDEV(18)."
+    ]
+  },
+  "loaders": [
+    "REDmod",
+    "Cyber Engine Tweaks",
+    "redscript",
+    "RED4ext",
+    "ArchiveXL"
+  ],
+  "loaders_note": "Listing a loader does NOT mean this plugin installs it. Users install CET/RED4ext/ArchiveXL themselves; a mod that needs them shows a dependency note.",
+  "mod_package": {
+    "archive_format": "zip",
+    "magic": "504b0304",
+    "parser": "path_map",
+    "manifest_globs": [
+      "mods/*/info.json",
+      "*/info.json"
+    ],
+    "manifest_format": "json",
+    "manifest_note": "Only REDmod packages carry info.json (name/version). Classic .archive drops have no manifest at all, so the package id is derived from the archive name and the file set, never from a guessed UniqueID.",
+    "strip_single_root": false
+  },
+  "import_roots": [
+    {
+      "label": "downloads",
+      "path": "${XDG_DOWNLOAD}",
+      "note": "Where the Game Mode browser saves files. READ ONLY: nothing here is ever created, moved or deleted."
+    }
+  ],
+  "import_roots_note": "Same contract as the SMAPI descriptor: the inbox stays first, this is a read-only courtesy so a mod downloaded in the browser can be imported.",
+  "conflict_policy": {
+    "duplicate": "reject_with_replace_option",
+    "file_collision": "backup_then_replace",
+    "case_handling": "case_insensitive_listdir",
+    "symlink_policy": "reject"
+  },
+  "capabilities": {
+    "local_import": true,
+    "detection_only": false,
+    "enable_disable": false,
+    "uninstall_quarantine": true,
+    "rollback": true,
+    "atomic_state_write": false,
+    "gamepad_only": true,
+    "history_refresh": true,
+    "loader_install": false,
+    "launch_option_edit": false,
+    "dll_override": false,
+    "proton_prefix_write": false,
+    "exe_installer": false,
+    "network_download": true,
+    "workshop": false,
+    "load_order_solver": false,
+    "dependency_solver": false,
+    "requires_root": false,
+    "requires_readonly_toggle": false,
+    "universal_one_click": false
+  },
+  "capabilities_note": "enable_disable=false on purpose: Cyberpunk has no on/off switch for a dropped .archive. Claiming it would produce a button that silently does nothing. uninstall_quarantine=true because every install is journaled per FILE, so removal is exact and reversible.",
+  "download_sources": {
+    "nexus_game_domain": "cyberpunk2077",
+    "browse_url": "https://www.nexusmods.com/cyberpunk2077",
+    "note": "Nexus is browsed in the signed-in browser; downloads land in ~/Downloads and are imported from there. No API key is used."
+  },
+  "safety": {
+    "never_write_outside": "write_roots + the .decky-staging/.decky-quarantine siblings",
+    "never_touch": [
+      "archive/pc/content",
+      "archive/pc/ep1",
+      "engine",
+      "bin/x64/*.exe",
+      "bin/x64/*.dll"
+    ],
+    "overwrite_requires_backup": true,
+    "note": "An install that would replace an existing file records a byte-exact backup first. Uninstall restores it; a rollback restores it too."
+  },
+  "known_limitations": [
+    "Framework installers (CET, RED4ext, ArchiveXL, redscript) must be installed by the user; this plugin only drops their files.",
+    "No load order: Cyberpunk resolves archives by name, so two mods editing the same record still conflict and the game decides.",
+    "REDmod packages are detected but not compiled; run `redmod` yourself if a mod ships uncompiled scripts."
+  ],
+  "known_limitation_keys": [
+    "CP_LIMIT_FRAMEWORKS",
+    "CP_LIMIT_LOADORDER",
+    "CP_LIMIT_REDMOD_COMPILE"
+  ]
+}

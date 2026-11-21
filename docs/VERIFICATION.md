@@ -1445,4 +1445,132 @@ C = 抽象层 path resolver 重构（**独立门控，本计划不执行**，触
 
 **诚实边界（常驻）**：CDP DOM 文本 ≠ 人眼手柄目视（items 9/10 PARTIAL、item 2 PARTIAL）；`read_only=true` 下 install/uninstall/rollback/set_enabled 全被 `E_EXTERNAL_MANAGER` 拒绝，confirm 中文弹窗不可达（GAP1 只证字典/bundle，§J.9 @1389-1391、**QAM_VISUAL_CHECK.md:42-46**）；**Step 5**（写回闭环 + 故障注入）`OUT OF SCOPE`；**Track C**（path resolver / schema 校验 / 收编 force_read_only + external_manager_markers，触及 41 绿历史路径）**独立门控、本轮未执行、须单独批准**；原 G3（RimWorld 294100）`OPEN / NOT SHIPPABLE`，PART I 星露谷是独立验收对象、不签核原 G3；端点 `:{{HELPER_PORT}}` 无鉴权（S9）与 V8 翻转（S10）**只报告、待用户显式裁决**；`V1` 唯一 `CLOSED`。**夸大声明一律避免**：不写「10 项全部 PASS / 无任何英文残留 / 已人眼目视 / 已证明加载包=ee218850」。
 
+
+
+### §K — Round 78：第二游戏（Cyberpunk）+ 用户自定义游戏 真机部署与真实写回（2026-11-21，加性证据回写，状态字一律不动）
+
+> 授权链：用户在本会话明示「/goal 完成steam游戏适配，可以写入其他游戏的MOD」→ 部署阶段
+> 用户主动提供 SSH（192.168.66.191，用户 deck / 口令 1234，已装 agent 公钥
+> `deck_key`，位于本机 `C:\ai\node-portable\ssh\`）。本节是**加性证据回写**：§A–§J
+> 原样保留、状态字一律不动；`V1` 仍唯一 `CLOSED`，V2–V20/F1–F3 全 `OPEN`，
+> 原 G3（RimWorld 294100）仍 `OPEN / NOT SHIPPABLE`。**不写 `CLOSED`。**
+
+**证据类别 `DEVICE-RPC`**：真实 Steam Deck（SteamOS holo / neptune 内核
+`7.2.7-valve2-2-neptune-72`，Decky Loader `plugin_loader.service`），以 deck 用户在
+设备本机 `python3 3.14.6` 内 import **已部署插件**（`py_modules/`），直接驱动
+`main.Plugin()` 的位置参数 RPC。强于 §H.9 的合成树回归（那次写路径只在 `/tmp` 假树上
+跑）；**上限**：这是后端 RPC 层真值，**不是 QAM/手柄目视**（DoD 11 项仍无人工 PASS-FAIL
+贴回），也不是真实 mod 内容的加载验证（探针写入的是占位文件，游戏未启动验证加载效果）。
+
+**部署链（2026-11-21 00:4x–00:5x 本地时间，逐字命令与输出）**：
+1. 部署前置 diff：设备在档 tarball `decky-mod-manager-any-game.tar.gz`（Nov 20 23:40）
+   vs 本地工作树 = **本地为严格超集**（唯一后端差异 `deckymod/root_merge.py` 的
+   `_is_root_doc` 两段 —— **设备上发现但未重新部署的 readme 修复**，见
+   `tests/test_root_merge.py:145-154` 注释 "found on device"；其余 main.py 差异 = 本轮
+   `_guard` ModError 透传修复；`__init__.py` XML shim 两侧一致，未覆盖丢失）。
+2. 备份（沿用设备自己的 Archive 惯例）：
+   `cp -a ~/homebrew/plugins/decky-mod-manager ~/DeckyModManager-Archive/backups/plugin-before-round78`
+   → `BACKUP_OK`（含 dist/ main.py package.json plugin.json py_modules/）。
+3. 推送 `round78.tgz`（60 entries：dist/index.js + main.py + plugin.json + package.json +
+   `py_modules/{deckymod,registry}`）→ 因插件顶层目录 root 属主（ZIP 安装所致），
+   `sudo tar -xzf … --no-same-owner` + `sudo chown -R deck:deck`。
+4. 部署后逐字校验（md5sum）：
+   ```text
+   cd054455fb3d4fbc58a49e93c65d2cbf  dist/index.js   (232416 B, == 本地构建)
+   cb34ad588f51ee20ac5279d7907ccfb2  main.py         (== 本地, 含 _guard 修复)
+   2e4f47be76ce62634d1f6ca1e3a7ab14  py_modules/deckymod/root_merge.py (== 本地)
+   18774508de90174943ef098dc0f36b92  py_modules/deckymod/user_games.py (== 本地)
+   ```
+5. `sudo systemctl restart plugin_loader.service` → `active`；插件子进程
+   `pgrep -af`：`Decky MOD Manager (/home/deck/homebrew/plugins/decky-mod-manager/main.py)`；
+   `~/homebrew/logs/decky-mod-manager/deckymod.log` 逐字：
+   ```text
+   2026-11-20T16:53:10Z [info] Decky MOD Manager unloading; no state changes on unload
+   2026-11-20T16:53:17Z [info] Decky MOD Manager loaded (Stardew Valley / SMAPI (detect-only))
+   2026-11-20T16:53:17Z plugin loaded
+   ```
+6. 本机侧本轮一并跑绿：`pnpm install --frozen-lockfile`（便携 Node 20.20.2 +
+   pnpm 9.15.9，与 CI 同版本策略）→ `tsc --noEmit` strict **零错误**
+   （修复 1 个本轮引入的 `TS7006`，`src/index.tsx:365` ListRow 显式标注）→
+   `rollup -c` 产出上述 `dist/index.js`；本地全量
+   `932 tests OK (skipped=15)` + `validate_i18n EN 500/ZH 500` +
+   `validate_p0 ALL_STATIC_CHECKS True (33 RPC)` + `validate_api_arity BAD 0`。
+
+**真机探针 `rounds/r78_device_probe.py`**（归档于设备
+`~/DeckyModManager-Archive/rounds/r78_device_probe.py`，已按惯例入档）：
+34 项 check，**34 PASS / 0 FAIL**（逐字 stdout，`python3 -I /tmp/r78_device_probe.py`）：
+
+```text
+PASS A_STATUS_OK
+PASS A_ACTIVE_STARDEW  | Stardew Valley
+PASS A_CATALOG_CYBERPUNK_ENABLED
+PASS B_PLANNED_REFUSED_CODE  | E_CAPABILITY_DISABLED/rimworld status=planned is not installable
+PASS C_SWITCH_OK
+PASS C_STATUS_CYBERPUNK  | Cyberpunk 2077
+PASS C_WRITE_ROOTS  | ['archive/pc/mod', 'mods', 'bin/x64/plugins', 'r6/scripts', 'red4ext']
+PASS D_PHASE_CONFIRM_NO_WRITE
+PASS D_INSTALL_OK  | None|
+PASS D_FILE_ON_DISK  | /home/deck/.local/share/Steam/steamapps/common/Cyberpunk 2077/archive/pc/mod/probe_r78.archive
+PASS D_UNINSTALL_OK
+PASS D_FILE_GONE
+PASS D_ROLLBACK_ANSWERED  | E_UNKNOWN
+PASS E_BACK_TO_STARDEW
+PASS F_SETUP_OK
+PASS F_DAVE_IDENTIFIED  | /home/deck/.local/share/Steam/steamapps/common/Dave the Diver
+PASS F_NOT_REFUSED
+PASS F_CANDIDATES  | {'BepInEx/plugins': False, 'BepInEx': False, 'mods': False, 'Mods': False, 'plugins': False, 'mod': False, 'Game/Content/Paks/~mods': False, 'Content/Paks/~mods': False, 'Binaries/Win64/Mods': False}
+PASS G_CONFIGURE_OK
+PASS G_CONFIG_FILE_SAVED  | /home/deck/homebrew/data/decky-mod-manager/data/games/1868140.json
+PASS H_SWITCH_USER_GAME
+PASS H_STATUS_DAVE  | DAVE THE DIVER
+PASS H_USER_WRITE_ROOTS
+PASS I_PHASE_CONFIRM_NO_WRITE
+PASS I_INSTALL_OK  | None|
+PASS I_FILE_ON_DISK  | /home/deck/.local/share/Steam/steamapps/common/Dave the Diver/BepInEx/plugins/ProbeMod/probe_r78.txt
+PASS I_UNINSTALL_OK
+PASS I_FILE_GONE
+PASS I_NO_EMPTY_DIRS_LEFT
+PASS J_ANTICHEAT_REFUSED  | E_NOT_ALLOWED_ROOT/Warframe is an online game with anti-cheat: modding it risks
+PASS K_FORGET_OK
+PASS K_FALLBACK_BUILTIN  | stardew
+PASS K_CONFIG_FILE_GONE
+PASS K_STATUS_MANAGED_AGAIN
+TOTAL 34 checks: 34 PASS / 0 FAIL
+```
+
+**这 34 项证明了什么（逐条对应目标）**：
+- **C/D：Cyberpunk 2077（1091500）真机真实写回有真值** —— `switch_game` 原子切到
+  真实 descriptor；install **两阶段**（confirm 相位确认「不写盘」后文件不存在）→
+  确认相位后 `archive/pc/mod/probe_r78.archive` **真实落盘**、内容逐字节一致 →
+  `uninstall` 后文件消失。写入只发生在声明的 write_root 内。
+- **F/G/H/I：任意 Steam 游戏（用户自定义路径）真机真实写回有真值** ——
+  `game_setup(1868140)` 在真机识别出真实安装路径
+  `…/common/Dave the Diver`（installdir 与商店名大小写不同的真实案例）；`configure_game`
+  落盘 `data/games/1868140.json`；`switch_game("user_1868140")` 后
+  `BepInEx/plugins/ProbeMod/probe_r78.txt` **在用户声明的单一 root 内真实落盘** →
+  卸载消失 + 探针清理空目录（零残留）。
+- **B/J：round-78 `_guard` 修复真机生效** —— 拒绝以**自己的码**到达
+  （`E_CAPABILITY_DISABLED` / `E_NOT_ALLOWED_ROOT`），不再是压平的 `E_UNKNOWN`。
+- **K：forget 兜底** —— 删除活跃的用户游戏后自动回落 `stardew`，插件不处于
+  「无游戏可管」状态。
+- **只读面**：A（status/catalog）全链路。
+
+**残留核对（探针收尾逐字）**：
+`active_game: "stardew"`（还原）；`data/games/` 空（无遗留用户配置）；
+Cyberpunk `archive/pc/mod` 0 文件；`Dave the Diver/BepInEx` 不存在；
+探针 zip 已从 `~/Downloads` 删除；`/tmp` 探针文件已删。
+**保留项**：`~/homebrew/data/decky-mod-manager/data/journal/` 里探针产生的
+append-only 记录（Cyberpunk / user_1868140 各一组 install+uninstall 事务）——这是
+插件自己的诚实历史，非污染，history RPC 可见。
+
+**本节覆盖 / 未覆盖（状态一律不动）**：
+- 覆盖：多游戏写入的后端 RPC 全链路真值（此前 §H.9 只在合成树）；
+  Cyberpunk + 用户自定义两条写路径的真实落盘/还原；切换/配置/遗忘生命周期；
+  防作弊拒绝；错误码透传。
+- **未覆盖（常驻）**：QAM/手柄 DoD 11 项（游戏pad 目视）仍无人工贴回；
+  真实 mod 内容被游戏**加载**的效果（探针文件不是可加载 mod，游戏未启动）；
+  MicroSD 库（`/run/media`）未测（设备上两游戏均在内置库）；exFAT/跨设备路径未测；
+  `V2–V20 / F1–F3` 状态字一律未动、未写任何 `CLOSED`、原 G3 仍
+  `OPEN / NOT SHIPPABLE`。
+
 **goal 状态**：决定性阻塞已解除（(a)(b) 已升、7/8 已 PASS、「0 真值」不再成立），goal 客观范围已实质达成；但用户 m06789 选的是选项「1」（补齐 7/8 → 写 §J.10 + 附录 + **给 goal 裁定**），**非** option 2（「按当前证据标完成」→ `update_goal(complete)`），且 goal 硬约束含「不新增 `CLOSED` 状态字除非用户显式指令」。收口路径 = 本 §J.10 + 附录 + 注记落盘 → lead/用户显式裁决「CDP DOM 文本是否等价于(现由 agent 代做的)目视」及 9/10 是否非阻塞接受 → 由用户/lead 显式 `update_goal(complete)`。**本节不自行调用 `update_goal(complete)`、不写 `CLOSED`、不勾 §B.4、不宣称 goal 已完成，goal 保持 `active`**，待用户一句显式授权后一次性收口。

@@ -47,24 +47,18 @@ import {
   getRecovery,
   getErrorCodes,
   listGames,
+  switchGame,
+  gameSetup,
+  configureGame,
+  forgetGame,
   installMod,
   setModEnabled,
   uninstallMod,
   rollbackTxn,
-  ghSearch,
-  ghReleases,
-  ghDownload,
-  downloadUrl,
   fetchDependencies,
-  apiKeyStatus,
-  setApiKey,
-  deleteApiKey,
-  nexusValidate,
-  nexusRecent,
-  nexusMod,
-  nexusDownloadLink,
   openModPage,
   openSearchPage,
+  openBrowsePage,
   handoverMods,
   reclaimQuarantine,
 } from "./api";
@@ -79,19 +73,16 @@ import type {
   HistoryItem,
   ProgressPayload,
   CatalogEntry,
-  GhSearchItem,
-  GhReleasesData,
-  GhRelease,
-  GhAsset,
-  GhDownloaded,
   SteamGame,
-  KeyStatusData,
-  NexusModData,
 } from "./types";
 import { isConfirmData } from "./types";
 import { t, errorText, categoryText } from "./i18n";
 import type { ModListEntry } from "./types";
 import { showConfirm } from "./components/ConfirmModal";
+import { runUninstallFlow } from "./uninstallFlow";
+import { autoImportNew, autoImportSilent } from "./autoImport";
+import { runRollbackFlow } from "./rollbackFlow";
+import { runDepsFlow } from "./depsFlow";
 import { showInfo, showListModal, showErrorModal, showFomodModal } from "./components/Modal";
 import type { ListRow, ModalAction } from "./components/Modal";
 import { ModRow } from "./components/ModRow";
@@ -116,6 +107,48 @@ function summarize(item: HistoryItem): string {
   return t("LAST_ENTRY", "Last journal entry: {ev}{pid}{txn}", { ev, pid, txn });
 }
 
+/** Human-readable one-liner for a history transaction.
+ *  Picks the meaningful action event out of a txn's journal rows (a txn has
+ *  PREPARED / APPLYING / MOD_* / COMMITTED) so the row says "Uninstalled
+ *  Automate" instead of a raw txn id + event code. */
+function describeTxn(items: HistoryItem[]): { label: string; mod: string } {
+  // Priority: the action event that names the mod.
+  const actionOrder = ["MOD_UNINSTALLED", "MOD_INSTALLED", "MOD_ENABLED", "MOD_DISABLED"];
+  let hit: HistoryItem | undefined;
+  for (const ev of actionOrder) {
+    hit = items.find((i) => i.event === ev);
+    if (hit) break;
+  }
+  const verbKey: Record<string, [string, string]> = {
+    MOD_UNINSTALLED: ["HIST_UNINSTALLED", "Uninstalled {mod}"],
+    MOD_INSTALLED: ["HIST_INSTALLED", "Installed {mod}"],
+    MOD_ENABLED: ["HIST_ENABLED", "Enabled {mod}"],
+    MOD_DISABLED: ["HIST_DISABLED", "Disabled {mod}"],
+  };
+  // packageId from the action event, or from PREPARED.plan, or COMMITTED.detail.
+  let mod = hit?.packageId || "";
+  if (!mod) {
+    const prep = items.find((i) => i.event === "PREPARED");
+    mod = (prep?.plan?.packageId as string) || "";
+  }
+  if (!mod) {
+    const com = items.find((i) => i.event === "COMMITTED");
+    mod = (com?.detail?.packageId as string) || "";
+  }
+  const evName = hit?.event || "PREPARED";
+  const [key, fallback] = verbKey[evName] || ["HIST_CHANGED", "Changed {mod}"];
+  const label = t(key, fallback, { mod: mod || t("Q_MARK") });
+  return { label, mod };
+}
+
+/** Turn a journal txn id like "20261120T131035-eaa92e1b" into a local time string. */
+function txnTime(txn: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/.exec(txn || "");
+  if (!m) return txn;
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  return Number.isNaN(d.getTime()) ? txn : d.toLocaleString();
+}
+
 /**
  * selection B (Stardew / SMAPI): `file_drop` has NO ModsConfig.xml state file and
  * NO separate enable step (install == enable). Both engines share the 11 RPCs
@@ -131,33 +164,21 @@ function isFileDrop(s: StatusData | null): boolean {
 
 function Content() {
   const [status, setStatus] = useState<StatusData | null>(null);
+  // Installed Steam games, loaded once at mount and shown directly in the
+  // Games tab so picking a game is a single tap, not a buried modal.
+  const [gameList, setGameList] = useState<SteamGame[]>([]);
   const [inbox, setInbox] = useState<InboxData | null>(null);
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState(t("RESOLVING"));
   const [progress, setProgress] = useState<ProgressPayload | null>(null);
   const [error, setError] = useState<Envelope<unknown> | null>(null);
 
-  // Round 19: download-source panel state. GitHub search -> repo -> release ->
-  // asset -> download -> inspect -> confirm, plus a direct-URL fallback. No
-  // credential is held anywhere: the backend has none to give out.
-  const [ghQuery, setGhQuery] = useState("stardew mod");
-  const [ghResults, setGhResults] = useState<GhSearchItem[]>([]);
-  const [ghTotal, setGhTotal] = useState(0);
-  // Round 35: paging. GitHub caps search at 100 pages x 10 results; the
-  // backend clamps anything above that, so the UI only has to stay honest.
-  const [ghPage, setGhPage] = useState(1);
-  const [ghSelected, setGhSelected] = useState<GhSearchItem | null>(null);
-  const [ghRel, setGhRel] = useState<GhReleasesData | null>(null);
-  const [directUrlValue, setDirectUrlValue] = useState("");
-
-  // Round 39: Nexus metadata surface. `keyInput` is the ONLY place a key ever
-  // lives on this side of the bridge, and it is cleared the moment the backend
-  // confirms it wrote the file. It is never rendered back, never logged, never
-  // put in a toast, and never passed to anything except setApiKey().
-  const [keyStatus, setKeyStatus] = useState<KeyStatusData | null>(null);
-  const [keyInput, setKeyInput] = useState("");
-  const [nexusVerify, setNexusVerify] = useState("");
   const [nexusModId, setNexusModId] = useState("");
+  // The game whose Nexus site the ID lookup targets. Set when the user picks a
+  // game in the library; drives the visible prefix and the open-page URL. The
+  // backend still derives the actual domain from the active descriptor, so this
+  // is a display/selection aid, not a way to point the plugin at arbitrary hosts.
+  const [nexusDomain, setNexusDomain] = useState<string | null>(null);
   // Round 43: the keyword is ordinary text, not a secret, so it may be
   // rendered back. It is handed to open_search_page, which refuses control
   // characters and anything over 64 characters, then opens the site's own
@@ -173,7 +194,17 @@ function Content() {
   // Round 30: one section visible at a time. Before this the panel
   // stacked five PanelSections (~40 focusables) at once, so nothing
   // read as the primary action. "" = every section collapsed.
-  const [openSection, setOpenSection] = useState<string>("mods");
+  const [openSection, setOpenSection] = useState<string>("games");
+
+  // The visible Nexus prefix for the selected game. Falls back to the active
+  // game's domain so the panel is useful even before a game is picked.
+  const activeNexusDomain = nexusDomain
+    || (status?.catalog || []).find((c) => c.active)?.nexus_domain
+    || (status?.catalog || []).find((c) => c.operable)?.nexus_domain
+    || null;
+  const nexusPrefix = activeNexusDomain
+    ? `https://www.nexusmods.com/${activeNexusDomain}/mods`
+    : null;
 
   // §5.3 lifecycle refs -----------------------------------------------------
   const generation = useRef(0);        // bumped on unmount -> stale RPCs dropped
@@ -224,22 +255,125 @@ function Content() {
     return [];
   };
 
-  /* ------------------------------------------- round 39: Nexus (metadata only)
-   * Everything below is read-only browsing. The one write is storing the key,
-   * which is a local file action (no network), so it does not go through the
-   * download gate; the metadata calls do, inside the backend.
-   */
-
-  /** Re-read the on-disk key state. Stat only — the backend never opens it. */
-  const refreshKeyStatus = async (): Promise<void> => {
+  // Round 76: exactly one game is active at a time. Switching rewrites
+  // active_game, the backend drops its cached engine, and the next RPC rebuilds
+  // against the new descriptor — so the refresh below is all that is needed.
+  const doSwitchGame = (gameId: string, label: string) => {
+    setBusySafe(true);
     const g = generation.current;
-    try {
-      const r = await apiKeyStatus();
-      if (!mounted.current || generation.current !== g) return;
-      if (r.ok) setKeyStatus(r.data);
-    } catch (_) {
-      /* status is informational; a failure must not break the panel */
-    }
+    (async () => {
+      const r = await switchGame(gameId);
+      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+      if (!r.ok) { setBusySafe(false); setError(r); setLastResult(envelopeError(r)); return; }
+      await reload();
+      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+      setBusySafe(false);
+      toast(t("GAME_SWITCHED_TITLE"), t("GAME_SWITCHED", "Now managing: {name}", { name: label }));
+      setLastResult(t("GAME_SWITCHED", "Now managing: {name}", { name: label }));
+    })().catch((e) => {
+      if (!mounted.current) return;
+      setBusySafe(false);
+      setError(bridgeError(String(e)));
+    });
+  };
+
+  // Round 77: a game with no built-in descriptor can still be managed — the
+  // user points the plugin at the folder that game's loader reads. Nothing is
+  // written until an install runs, and then only inside that folder.
+  const saveGameConfig = (appid: number, name: string, folder: string) => {
+    setBusySafe(true);
+    const g = generation.current;
+    (async () => {
+      const r = await configureGame(appid, name, [folder]);
+      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+      setBusySafe(false);
+      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
+      await reload();
+      toast(t("GS_SAVED_TITLE"), t("GS_SAVED", "{name} → {folder}", { name, folder }));
+      setLastResult(t("GS_SAVED", "{name} → {folder}", { name, folder }));
+    })().catch((e) => {
+      if (!mounted.current) return;
+      setBusySafe(false);
+      setError(bridgeError(String(e)));
+    });
+  };
+
+  // Round 78: a configuration can be wrong — the folder the user picked may
+  // not be where the game's loader reads. Removing it stops the plugin from
+  // writing there at all (the backend also falls back to a built-in game when
+  // the removed one was active). It never touches the game's files.
+  const doForgetGame = (appid: number, name: string) => {
+    setBusySafe(true);
+    const g = generation.current;
+    (async () => {
+      const r = await forgetGame(appid);
+      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+      setBusySafe(false);
+      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
+      await reload();
+      void loadGameGroups().then((gl) => {
+        if (mounted.current && generation.current === g) setGameList(gl);
+      });
+      toast(t("GS_REMOVED_TITLE"), t("GS_REMOVED", "{name} is no longer configured", { name }));
+      setLastResult(t("GS_REMOVED", "{name} is no longer configured", { name }));
+    })().catch((e) => {
+      if (!mounted.current) return;
+      setBusySafe(false);
+      setError(bridgeError(String(e)));
+    });
+  };
+
+  const openGameSetup = (game: SteamGame) => {
+    setBusySafe(true);
+    const g = generation.current;
+    (async () => {
+      const r = await gameSetup(game.appid);
+      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+      setBusySafe(false);
+      if (!r.ok || !r.data) {
+        showInfo(t("GS_TITLE", "Mod folder for {name}", { name: game.name }),
+          [r.ok ? t("GS_FAIL") : envelopeError(r)], []);
+        return;
+      }
+      const d = r.data;
+      if (d.refused) {
+        showInfo(t("GS_REFUSED_TITLE", "Not supported"), [
+          t("GS_REFUSED_BODY", "{name} is an online game with anti-cheat. Modding it risks a ban, so this plugin will not touch it.", { name: d.name }),
+        ], []);
+        return;
+      }
+      const rows: ListRow[] = [];
+      if (d.configured) {
+        // Round 78: reconfiguring is possible by tapping another folder, but
+        // UN-configuring had no surface at all — the only fix for a wrong
+        // folder was deleting a JSON file in Desktop Mode.
+        rows.push({
+          label: t("GS_REMOVE", "Remove this configuration"),
+          sub: t("GS_REMOVE_SUB",
+            "The plugin stops managing {name}. Nothing in the game folder is deleted.",
+            { name: d.name }),
+          onActivate: (close) => { close(); doForgetGame(d.appid, d.name); },
+        });
+      }
+      rows.push(...d.candidates.map((c): ListRow => ({
+        label: c.path,
+        sub: c.exists
+          ? (d.configured && d.write_roots.indexOf(c.path) >= 0
+              ? t("GS_CURRENT", "already configured")
+              : t("GS_EXISTS", "folder exists — A = use it"))
+          : t("GS_WILL_CREATE", "will be created — only if you already installed the loader"),
+        onActivate: (close) => { close(); saveGameConfig(d.appid, d.name, c.path); },
+      })));
+      showListModal(
+        t("GS_TITLE", "Mod folder for {name}", { name: d.name }),
+        rows,
+        t("GS_SUB", "Where does this game load mods from? The plugin only writes inside the folder you pick, and this does not install any loader."),
+      );
+    })().catch((e) => {
+      if (!mounted.current) return;
+      setBusySafe(false);
+      setError(bridgeError(String(e)));
+    });
   };
 
   const reload = async (): Promise<void> => {
@@ -340,10 +474,32 @@ function Content() {
       if (i.ok) setInbox(i.data);
       if (h.ok && h.data && h.data.items.length) setLastResult(summarize(h.data.items[0]));
       else setLastResult(t("STATUS_READY"));
+
+      // Round 70: auto-install newly downloaded mods on panel mount. The common
+      // flow is "download in Game Mode browser -> come back to QAM"; this pass
+      // installs any brand-new valid mod ZIP from Downloads with no taps. Guards
+      // in autoImport.tsx skip non-mods / already-installed / FOMOD, and a module
+      // `seen` set prevents re-installing across remounts. Silent + toast only.
+      const auto = await autoImportSilent();
+      if (!mounted.current || generation.current !== g) return;
+      if (auto.installed.length) {
+        const msg = t("AI_AUTO_DONE", "Auto-installed {n} new mod(s): {names}", {
+          n: String(auto.installed.length), names: auto.installed.join(", "),
+        });
+        setLastResult(msg);
+        toast(t("TOAST_DONE"), msg);
+        // Re-read status so the freshly installed mods appear immediately.
+        const s2 = await getStatus();
+        if (mounted.current && generation.current === g && s2.ok) setStatus(s2.data);
+        const i2 = await listInbox();
+        if (mounted.current && generation.current === g && i2.ok) setInbox(i2.data);
+      }
     })();
-    void loadGameGroups();
-    // Round 39: prime the stored-key state (stat only, no network).
-    void refreshKeyStatus();
+    // Load the installed-game list once and keep it for the Games tab, so the
+    // user can pick a game directly instead of digging through a modal.
+    loadGameGroups().then((gl) => {
+      if (mounted.current && generation.current === g) setGameList(gl);
+    });
 
     return () => {
       // §5.3 onDismount cleanup ---------------------------------------------
@@ -449,8 +605,23 @@ function Content() {
   };
 
   /* -------------------------------------------------------------- §5.1 #2/#3 inbox */
-  const openInbox = () => {
-    const items = inbox?.items || [];
+  const openInbox = async () => {
+    // Round 68: always re-scan when the user opens the inbox. The most common
+    // flow is "download in the Game Mode browser, come back to import" — that
+    // file lands in Downloads AFTER the panel mounted, so the cached `inbox`
+    // state is stale. A fresh listInbox() here is what makes the downloaded ZIP
+    // actually appear (inbox + declared import roots). Read-only.
+    setBusySafe(true);
+    const g = generation.current;
+    const fresh = await listInbox();
+    if (!mounted.current || generation.current !== g) {
+      setBusySafe(false);
+      return;
+    }
+    setBusySafe(false);
+    const data = fresh.ok ? (fresh.data as InboxData) : inbox;
+    if (fresh.ok && data) setInbox(data);
+    const items = data?.items || [];
     // Round 42: a file the plugin downloaded and a file the user fetched in the
     // Game Mode browser can share a name. Showing the root is the only way the
     // user can tell which one they are about to install.
@@ -467,8 +638,8 @@ function Content() {
       rows,
       t("INBOX_SUB",
         "Looking in:\n{roots}\nA = preview / import · B = back. No network, no Workshop.",
-        { roots: (inbox?.roots || []).map((r) => `${r.label}: ${r.path}${r.exists ? "" : " (absent)"}`).join("\n")
-          || (inbox?.inbox || t("NOT_SET")) }),
+        { roots: (data?.roots || []).map((r) => `${r.label}: ${r.path}${r.exists ? "" : " (absent)"}`).join("\n")
+          || (data?.inbox || t("NOT_SET")) }),
     );
   };
 
@@ -704,12 +875,32 @@ function Content() {
    * directly under Mods/ and is not a symlink, still moves it to quarantine
    * (never deletes), and still runs the whole write gate. */
   const doUninstallDir = (dirName: string) => {
-    runTwoPhase(
-      (ac) => uninstallMod(dirName, ac),
-      (res) =>
-        t("UNINSTALL_OK", "Uninstalled {id}. Folder moved to quarantine (NOT deleted): {q}. Use History → Rollback to restore.",
-          { id: res.packageId || dirName, q: res.quarantine || t("Q_MARK") }),
-    );
+    // Round 56: use the self-contained flow (src/uninstallFlow.ts). It owns the
+    // confirm modal at module scope so a Steam-CEF panel remount (triggered by
+    // closing the previous modal) cannot swallow the phase-1 result — the bug
+    // that made "Uninstall" look dead even though the backend answered.
+    setBusySafe(true);
+    runUninstallFlow(dirName, (res) => {
+      setBusySafe(false);
+      if (res.done && res.ok) {
+        toast(
+          t("TOAST_DONE"),
+          t("UNINSTALL_OK", "Uninstalled {id}. Folder moved to quarantine (NOT deleted): {q}. Use History → Rollback to restore.",
+            { id: dirName, q: t("Q_MARK") }),
+        );
+        // Refresh from the on-disk journal. If the panel remounted, this instance
+        // is stale and guarded by reload() itself; the fresh panel bootstraps too.
+        void reload();
+      } else if (!res.ok) {
+        setError({
+          ok: false,
+          code: res.code ?? null,
+          message: res.code || t("STATUS_FAILED", "Failed"),
+          detail: res.detail ?? "",
+        } as Envelope<unknown>);
+      }
+      // Cancelled: no-op (the global modal already closed itself).
+    });
   };
 
   /* -------------------------------------------------------------- §5.1 #7 history/rollback */
@@ -731,66 +922,48 @@ function Content() {
     for (const it of items) {
       if (it.txn && !txns.includes(it.txn)) txns.push(it.txn);
     }
-    const rows: ListRow[] = txns.map((t) => {
-      const first = items.find((i) => i.txn === t)!;
+    const rows: ListRow[] = txns.map((txn) => {
+      const group = items.filter((i) => i.txn === txn);
+      const desc = describeTxn(group);
+      const when = txnTime(txn);
+      const q = group.find((i) => i.event === "MOD_UNINSTALLED")?.quarantine
+        || (group.find((i) => i.event === "COMMITTED")?.detail?.quarantine as string)
+        || status?.paths.quarantine_root || "";
       return {
-        label: t,
-        sub: `${first.event || ""}${first.packageId ? ` · ${first.packageId}` : ""}`,
-        onActivate: (close) => {
-          close();
-          confirmRollback(t);
+        // Say what happened in plain language; the raw txn id moves to sub.
+        label: desc.label,
+        sub: `${when}  ·  ${txn}  ·  ${t("HIST_RESTORE_HINT", "A = restore")}`,
+        onActivate: (_close: () => void) => {
+          // Do NOT _close(): closing a Decky modal remounts the panel and the
+          // global confirm from runRollbackFlow replaces this modal cleanly.
+          confirmRollback(txn, desc.mod || txn, q);
         },
       };
     });
     showListModal(
       t("HISTORY_TITLE", "History — roll back a transaction ({n})", { n: txns.length }),
       rows,
-      t("HISTORY_SUB"),
+      t("HISTORY_SUB2", "Pick an action to restore its mod folder from quarantine. Nothing is deleted."),
     );
   };
 
-  const confirmRollback = (txn: string) => {
-    const fd = isFileDrop(status);
-    // Explicit typed object (no conditional spread) so strict tsc cannot
-    // produce an optional `string | undefined` vs `Record<string,string|null>`.
-    const targets: Record<string, string | null> = {
-      w2_quarantine: status?.paths.quarantine_root || t("ROLLBACK_SEE_STATUS"),
-    };
-    if (!fd) targets.w1_state_file = status?.paths.w1_state_file ?? null;
-    const data: ConfirmData = {
-      phase: "confirm",
-      plan: { op: "rollback" },
-      confirm_text: fd
-        ? t("ROLLBACK_CONFIRM_FD", "Roll back transaction {txn}?\nThis restores the mod folder from quarantine (file_drop: no ModsConfig.xml snapshot).", { txn })
-        : t("ROLLBACK_CONFIRM_XML", "Roll back transaction {txn}?\nThis restores the previous ModsConfig.xml from the journal snapshot (and the mod folder from quarantine).", { txn }),
-      targets,
-      log_path: status?.log_path || "",
-    };
-    showConfirm(data, async (confirmed) => {
-      if (!confirmed || !mounted.current) return;
-      setBusySafe(true);
-      const g = generation.current;
-      const r = await rollbackTxn(txn);
-      if (!mounted.current || generation.current !== g) {
-        setBusySafe(false);
+  const confirmRollback = (txn: string, modLabel?: string, quarantinePath?: string) => {
+    // Round 69: self-contained rollback flow. The old version used showConfirm
+    // + panel mounted/generation guards; closing the History modal remounted the
+    // panel and swallowed the confirm → the rollback RPC never fired. The flow
+    // now lives at module scope (src/rollbackFlow.tsx) with a global modal.
+    const quarantine = quarantinePath || status?.paths.quarantine_root || t("ROLLBACK_SEE_STATUS");
+    runRollbackFlow(txn, modLabel || txn, quarantine, (res) => {
+      if (!res.ok) {
+        setLastResult(t("STATUS_FAILED", "Failed: {msg}", { msg: res.detail || res.code || "?" }));
         return;
       }
-      if (!r.ok) {
-        applyResult(r as Envelope<unknown>, "");
-        setBusySafe(false);
-        return;
+      if (res.restored) {
+        const msg = t("ROLLBACK_DONE", "Rolled back {txn}: restored {d}.", { txn, d: res.restored });
+        setLastResult(msg);
+        toast(t("TOAST_ROLLBACK"), msg);
       }
-      const d = (r.data || {}) as OpResultData;
-      const msg = d.restored
-        ? t("ROLLBACK_DONE", "Rolled back {txn}: restored {d}.", { txn, d: d.restored })
-        : d.recovered
-          ? t("ROLLBACK_RECOVERED", "Recovered pending transaction {txn} from its snapshot.", { txn })
-          : t("ROLLBACK_COMPLETED", "Rollback of {txn} completed.", { txn });
-      setLastResult(msg);
-      toast(t("TOAST_ROLLBACK"), msg);
-      later(() => setProgress(null), 1500);
-      await reload();
-      setBusySafe(false);
+      void reload();
     });
   };
 
@@ -844,16 +1017,14 @@ function Content() {
       ...pending.map((tx) => ({
         label: tx,
         sub: t("RECOVERY_SUB"),
-        onActivate: (close: () => void) => {
-          close();
+        onActivate: (_close: () => void) => {
           confirmRollback(tx);
         },
       })),
       ...stuck.map((tx) => ({
         label: tx,
         sub: t("RECOVERY_STUCK_SUB"),
-        onActivate: (close: () => void) => {
-          close();
+        onActivate: (_close: () => void) => {
           confirmRollback(tx);
         },
       })),
@@ -952,27 +1123,45 @@ function Content() {
           } else if (!adaptedIds.includes(g.appid)) {
             lines.push(t("LIB_UNSUPPORTED_NOTE"));
           }
-          // Round 36: selecting a game leads straight to that game's MOD
-          // search. The phrase comes from the descriptor-driven template when
-          // there is one; otherwise the game's own name, never a guess at its
-          // Mod directory.
-          const searchPhrase = (tpl && tpl.adapted && tpl.search_hint) || g.name;
-          showInfo(g.name, lines, [
-            {
-              label: t("LIB_SEARCH_MODS", "Search mods for {game}", { game: g.name }),
+          // The game's Nexus domain comes from the descriptor-driven catalog,
+          // matched by AppID. No hard-coded name -> domain table in the UI.
+          const gDomain = (status?.catalog || []).find(
+            (c) => c.appid === g.appid)?.nexus_domain || null;
+          const activeAppid = (status?.catalog || []).find((c) => c.active)?.appid;
+          const isActive = activeAppid !== null && activeAppid !== undefined
+            && g.appid === activeAppid;
+          const actions: ModalAction[] = [];
+          // Primary path: this game's MOD list with per-mod actions (manage).
+          actions.push({
+            label: t("GAME_MANAGE_MODS", "Manage mods for {game}", { game: g.name }),
+            onClick: (close) => {
+              close();
+              later(() => openGameMods(g), 250);
+            },
+          });
+          if (gDomain) {
+            // Secondary path: look up a mod by its Nexus ID, prefix pre-filled.
+            actions.push({
+              label: t("LIB_NEXUS_BY_ID", "Find a Nexus mod by ID for {game}", { game: g.name }),
               onClick: (close) => {
                 close();
-                setOpenSection("download");
-                setGhQuery(searchPhrase);
-                setGhResults([]);
-                setGhSelected(null);
-                setGhRel(null);
-                doGhSearch(1, searchPhrase);
+                setNexusDomain(gDomain);
+                setNexusModId("");
+                setOpenSection("import");
+                setLastResult(t("NEXUS_PREFIX_READY", undefined, {
+                  domain: gDomain, prefix: `https://www.nexusmods.com/${gDomain}/mods`,
+                }));
               },
-            },
-          ], t("LIB_GAME_DESC", "AppID {appid} · {state}", {
-            appid: g.appid, state: stateWord(g.state),
-          }));
+            });
+          }
+          showInfo(
+            g.name,
+            [...lines, isActive ? t("GAME_ACTIVE_HINT") : ""].filter((x) => x !== ""),
+            actions,
+            t("LIB_GAME_DESC", "AppID {appid} · {state}", {
+              appid: g.appid, state: stateWord(g.state),
+            }),
+          );
         },
       }));
       showListModal(
@@ -1074,7 +1263,11 @@ function Content() {
                   label: t("BTN_ENABLE"),
                   onClick: (close: () => void) => {
                     close();
-                    toggle({ packageId: m.dir, name: m.name, enabled: false } as ManagedMod);
+                    // Let this detail modal finish closing before the two-phase
+                    // runner opens its confirm modal — Decky's showModal allows
+                    // only one overlay, and a close→open in the same tick drops
+                    // the second modal (the button looked dead).
+                    later(() => toggle({ packageId: m.dir, name: m.name, enabled: false } as ManagedMod), 250);
                   },
                 }]
               : []),
@@ -1083,15 +1276,22 @@ function Content() {
                   label: t("BTN_DISABLE"),
                   onClick: (close: () => void) => {
                     close();
-                    toggle({ packageId: m.dir, name: m.name, enabled: true } as ManagedMod);
+                    later(() => toggle({ packageId: m.dir, name: m.name, enabled: true } as ManagedMod), 250);
                   },
                 }]
               : []),
             ...(canRemove && !isParked
               ? [{
                   label: t("BTN_UNINSTALL"),
-                  onClick: (close: () => void) => {
-                    close();
+                  onClick: (_close: () => void) => {
+                    // Round 56: the confirm must survive the Steam-CEF panel
+                    // remount that closing a Decky modal triggers. The flow is
+                    // now self-contained (src/uninstallFlow.ts) and uses only
+                    // module state + a global modal — no component generation
+                    // guard. We intentionally do NOT close() the detail modal:
+                    // the global confirm overlay replaces it, and closing it
+                    // first was what caused the remount that swallowed the
+                    // old runTwoPhase result.
                     doUninstallDir(m.dir);
                   },
                 }]
@@ -1200,6 +1400,66 @@ function Content() {
     );
   };
 
+  /* ---------------------------------------------------------- game-centric mods */
+  /* Enter a game's mod list. The single active game has FULL metadata in
+     status.state (name/version/deps/nexus keys) and every write RPC works, so
+     its mods reuse openModList() with all actions. Any other installed game is
+     identified read-only from its template (folder names only) -- the plugin
+     never implies it can manage a game it has no descriptor for. */
+  const openGameMods = (game: SteamGame) => {
+    const activeAppid = (status?.catalog || []).find((c) => c.active)?.appid;
+    if (activeAppid !== null && activeAppid !== undefined && game.appid === activeAppid) {
+      openModList();
+      return;
+    }
+    // Round 78: an operable but non-active game used to fall into the
+    // read-only display below — labelled "not managed by this plugin" even
+    // though one tap in the Games section would manage it. Offer the actions
+    // where the user is looking instead of making them hunt for the switch.
+    const cat = (status?.catalog || []).find((c) => c.appid === game.appid);
+    if (cat && cat.operable) {
+      showListModal(
+        game.name,
+        [
+          {
+            label: t("GAME_MGMT_SWITCH", "Make this the managed game"),
+            sub: t("GAME_SWITCH_DESC",
+              "Make this the managed game. Nothing is deleted — the other game's mods stay untouched."),
+            onActivate: (close) => { close(); doSwitchGame(cat.id, cat.name || cat.id); },
+          },
+          {
+            label: t("GAME_MGMT_SETUP", "Change mod folders…"),
+            sub: t("GAME_MGMT_SETUP_SUB",
+              "Re-pick where this game's loader reads mods from, or remove the configuration."),
+            onActivate: (close) => { close(); openGameSetup(game); },
+          },
+        ],
+        t("GAME_MGMT_SUB", "This game can be managed by the plugin."),
+      );
+      return;
+    }
+    const tpl = game.template;
+    const lines: string[] = [];
+    if (tpl && tpl.adapted) {
+      for (const d of tpl.mod_dirs || []) {
+        lines.push(t("LIB_MODDIR_ROW", "{p} ({state})", {
+          p: d.path || "—",
+          state: d.exists ? t("LIB_MODDIR_YES") : t("LIB_MODDIR_NO"),
+        }));
+        for (const n of d.mods || []) lines.push("  " + n);
+        if (d.truncated) lines.push(t("MODS_BY_GAME_TRUNCATED"));
+      }
+    } else {
+      lines.push(t("LIB_UNSUPPORTED_NOTE"));
+    }
+    showInfo(
+      game.name,
+      [...lines, "", t("GAME_MODS_READONLY")],
+      [],
+      t("GAME_MODS_SUBTITLE", "Identified read-only — not managed by this plugin"),
+    );
+  };
+
   /* -------------------------------------------------------------- P0 (round 2) read-only game catalog */
   /* Display-only "Plane 1": shows every descriptor as browsable metadata.
      It NEVER calls an install/enable RPC and never lifts the single-active-game
@@ -1258,413 +1518,46 @@ function Content() {
    * error modal — never hidden, never bypassed, never retried.
    */
 
-  /** Human-readable asset size; the raw byte count stays in the label too. */
-  const assetSize = (n: number): string => {
-    if (!Number.isFinite(n) || n <= 0) return String(n);
-    if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MiB`;
-    if (n >= 1024) return `${Math.round(n / 1024)} KiB`;
-    return `${n} B`;
-  };
 
-  /** Step 1: search GitHub. Read-only, 60 req/h unauthenticated. */
-  const doGhSearch = (page: number, rawQuery?: string) => {
-    // `rawQuery` exists because setState is async: a caller that just called
-    // setGhQuery(...) would otherwise search the previous term.
-    const q = (rawQuery ?? ghQuery).trim();
-    if (!q) return;
-    setBusySafe(true);
-    const g = generation.current;
-    (async () => {
-      const r = await ghSearch(q, page);
-      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
-      setBusySafe(false);
-      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
-      // Envelope.data is `T | null`; keep the same optional-chain style the
-      // rest of this file uses (see the inbox/history handlers).
-      const items = r.data?.items || [];
-      const total = r.data?.total_count ?? 0;
-      setGhResults(items);
-      setGhTotal(total);
-      setGhPage(page);
-      setGhQuery(q);
-      setGhRel(null);
-      setGhSelected(null);
-      const label = t("GH_SEARCH_DONE", "Found {total} (showing {n})", {
-        total, n: items.length,
-      });
-      setLastResult(label);
-      if (!items.length) showInfo(t("GH_SEARCH_DONE", "Found {total} (showing {n})", {
-        total: 0, n: 0,
-      }), [t("GH_NO_RESULTS")], []);
-    })().catch((e) => {
-      if (!mounted.current) return;
-      setBusySafe(false);
-      setError(bridgeError(String(e)));
-    });
-  };
-
-  /** Step 2: pick a repo -> list its releases and assets. */
-  const doGhReleases = (item: GhSearchItem) => {
-    setGhSelected(item);
-    setBusySafe(true);
-    const g = generation.current;
-    const owner = item.owner;
-    const repo = item.repo;
-    (async () => {
-      const r = await ghReleases(owner, repo);
-      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
-      setBusySafe(false);
-      if (!r.ok || !r.data) { setError(r); setLastResult(envelopeError(r)); return; }
-      setGhRel(r.data);
-      const n = r.data.releases.length;
-      setLastResult(t("GH_RELEASES_LOADED", "Releases: {n}", { n }));
-      if (!n) {
-        showInfo(t("GH_RELEASES_LOADED", "Releases: {n}", { n: 0 }), [t("GH_NO_RELEASES")], []);
-      }
-    })().catch((e) => {
-      if (!mounted.current) return;
-      setBusySafe(false);
-      setError(bridgeError(String(e)));
-    });
-  };
-
-  /** Step 3: download an asset into the inbox and inspect it (NO write). */
-  const doGhDownload = (asset: GhAsset) => {
-    if (!ghSelected || !asset.usable) return;
-    // Primitive consts for the async closure (see the round-18 note pattern).
-    const owner = ghSelected.owner;
-    const repo = ghSelected.repo;
-    const assetId = asset.id;
-    const filename = asset.name;
-    setBusySafe(true);
-    const g = generation.current;
-    (async () => {
-      const r = await ghDownload(owner, repo, assetId, filename, false, false);
-      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
-      setBusySafe(false);
-      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
-      setLastResult(describeDownload(filename, r.data));
-      toast(t("TOAST_DONE"), t("GH_DOWNLOADED", "Downloaded {name} (inbox only, nothing installed)", {
-        name: filename,
-      }));
-      void reload();
-    })().catch((e) => {
-      if (!mounted.current) return;
-      setBusySafe(false);
-      setError(bridgeError(String(e)));
-    });
-  };
-
-  /** Step 4: import that inbox file through the two-phase confirm. */
-  const doGhImport = (asset: GhAsset) => {
-    if (!ghSelected || !asset.usable) return;
-    const owner = ghSelected.owner;
-    const repo = ghSelected.repo;
-    const assetId = asset.id;
-    const filename = asset.name;
-    runTwoPhase(
-      (afterConfirm) => ghDownload(owner, repo, assetId, filename, true, afterConfirm),
-      (_res) => t("GH_IMPORT_TITLE"),
-    );
-  };
-
-  /**
-   * Say what was actually VERIFIED, not just what was downloaded.
-   *
-   * The backend reports `verified` as the list of checks that really ran. An
-   * empty list means the source declared no size/hash, so we say "no checksum
-   * available" instead of implying we checked something. This is the honest
-   * half of criterion 4: measuring a file is not verifying it.
-   */
-  const describeDownload = (name: string, data: unknown): string => {
-    const d = (data || {}) as { downloaded?: GhDownloaded } | null;
-    const got = d && d.downloaded ? d.downloaded : null;
-    if (!got) return t("GH_DOWNLOADED", "Downloaded {name} (inbox only, nothing installed)", { name });
-    const verified = got.verified || [];
-    const base = t("GH_DOWNLOADED", "Downloaded {name} (inbox only, nothing installed)", { name });
-    if (verified.indexOf("sha256") >= 0) {
-      return base + " · " + t("GH_VERIFIED_HASH", "size + SHA-256 verified", {});
-    }
-    if (verified.indexOf("size") >= 0) {
-      return base + " · " + t("GH_VERIFIED_SIZE", "size verified ({n} bytes)", { n: String(got.size) });
-    }
-    return base + " · " + t("GH_NOT_VERIFIED", "no checksum published by the source", {});
-  };
-
-  /** Direct-URL fallback — accepts any HTTPS zip the user pastes. Same three phases. */
-  const doDirectDownload = () => {
-    const raw = directUrlValue.trim();
-    if (!raw) return;
-    setBusySafe(true);
-    const g = generation.current;
-    (async () => {
-      const name = "direct-download.zip";
-      const r = await downloadUrl(raw, name, false, false);
-      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
-      setBusySafe(false);
-      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
-      setLastResult(describeDownload(name, r.data));
-      toast(t("TOAST_DONE"), t("GH_DIRECT_DONE"));
-      void reload();
-    })().catch((e) => {
-      if (!mounted.current) return;
-      setBusySafe(false);
-      setError(bridgeError(String(e)));
-    });
-  };
-
-  const doDirectImport = () => {
-    const raw = directUrlValue.trim();
-    if (!raw) return;
-    const name = "direct-download.zip";
-    runTwoPhase(
-      (afterConfirm) => downloadUrl(raw, name, true, afterConfirm),
-      (_res) => t("GH_IMPORT_TITLE"),
-    );
-  };
 
 
   /* ----------------------------------------------------- §5.3b dependencies */
-  // Round 38: a mod whose required dependencies are missing is skipped by
-  // SMAPI, so the install looks successful and the game ignores it. These two
-  // buttons close that gap; the acceptance rule (manifest UniqueID must match)
-  // lives in the backend, not here.
-  const depReason = (r: string | undefined): string => {
-    switch (r) {
-      case "no_repo_in_index": return t("DEPS_R_NO_REPO");
-      case "no_zip_asset": return t("DEPS_R_NO_ZIP");
-      case "candidate_failed":
-      case "no_candidate_matched": return t("DEPS_R_NO_MATCH");
-      case "install_refused": return t("DEPS_R_REFUSED");
-      case "install_raised": return t("DEPS_R_RAISED");
-      case "": return t("DEPS_R_OK");
-      default: return t("DEPS_R_UNRESOLVABLE");
-    }
-  };
-
-  const describeDeps = (d: unknown): string[] => {
-    const box = (d || {}) as {
-      deps?: Array<Record<string, unknown>>;
-      rounds?: number;
-      still_missing?: string[];
-      note?: string;
-    };
-    const list = box.deps || [];
-    // Round 45: a dependency can pull in another one, so the same question is
-    // re-asked after each round. Show the round only when there was more than
-    // one -- printing "round 1" on every single-level install would be noise.
-    const multi = (box.rounds ?? 0) > 1;
-    const out: string[] = [];
-    if (!list.length) return [t("DEPS_NONE")];
-    for (const row of list) {
-      const uid = String(row.uniqueId || "");
-      const done = row.installed === true;
-      const reason = depReason(String(row.reason ?? ""));
-      const asset = row.asset ? String(row.asset) : "";
-      const detail = row.detail ? String(row.detail) : "";
-      const roundNo = typeof row.round === "number" ? row.round : 0;
-      const head = t("DEPS_ROW", "{id} · {state}", {
-        id: multi && roundNo > 1 ? t("DEPS_ROW_DEEP", "{id} (depth {n})", { id: uid, n: String(roundNo) }) : uid,
-        state: done ? t("DEPS_OK") : reason,
-      });
-      const tail = done ? asset : detail;
-      out.push(tail ? head + "\n  " + tail : head);
-    }
-    const still = box.still_missing || [];
-    if (still.length) out.push(t("DEPS_STILL", "Still missing: {ids}", { ids: still.join(", ") }));
-    if (box.note) out.push(String(box.note));
-    return out;
-  };
-
-  const doDepsPlan = () => {
-    setBusySafe(true);
-    const g = generation.current;
-    (async () => {
-      const r = await fetchDependencies(false, false);
-      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
-      setBusySafe(false);
-      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
-      const d = (r.data || {}) as { phase?: string; total?: number; fetchable?: number };
-      const lines = describeDeps(r.data);
-      setLastResult(t("DEPS_PLAN_DONE", "{n} missing", { n: String(d.total ?? 0) }));
-      showInfo(
-        t("DEPS_TITLE", "Missing dependencies ({n})", { n: String(d.total ?? 0) }),
-        lines,
-        d.fetchable
-          ? [{ label: t("DEPS_INSTALL_BTN"), onClick: (close) => { close(); doDepsInstall(); } }]
-          : [],
-        t("DEPS_SUB", "{n} can be downloaded from GitHub", { n: String(d.fetchable ?? 0) }),
-      );
-    })().catch((e) => {
-      if (!mounted.current) return;
-      setBusySafe(false);
-      setError(bridgeError(String(e)));
-    });
-  };
-
-  const doDepsInstall = () => {
-    runTwoPhase(
-      (afterConfirm) => fetchDependencies(true, afterConfirm),
-      () => t("DEPS_DONE"),
-    );
-  };
-
-  /* ------------------------------------------- round 39: Nexus (metadata only)
-   * Everything below is read-only browsing. The one write is storing the key,
-   * which is a local file action (no network), so it does not go through the
-   * download gate; the metadata calls do, inside the backend.
-   * refreshKeyStatus() lives further up, next to reload(), so the mount effect
-   * can prime it.
-   */
-
-  /** One-line description of the stored key state, for the panel body. */
-  const keyStatusLine = (): string => {
-    if (!keyStatus) return "";
-    if (!keyStatus.configured || keyStatus.state === "missing") {
-      return t("NEXUS_KEY_NONE");
-    }
-    // The backend formats the mode itself ("0o600"). Render it verbatim: a
-    // device probe showed `oct()` crosses the bridge as a string, so treating
-    // it as a number produced "00o600".
-    const mode = keyStatus.mode_actual === null ? "—" : keyStatus.mode_actual;
-    if (keyStatus.state === "unreadable") {
-      return t("NEXUS_KEY_STATE_UNREADABLE", undefined, { mode });
-    }
-    const head = t("NEXUS_KEY_STATE_PRESENT", undefined, { size: String(keyStatus.size ?? 0) });
-    const perm = !keyStatus.posix
-      ? t("NEXUS_KEY_NO_POSIX")
-      : (keyStatus.mode_ok ? t("NEXUS_KEY_MODE_OK", undefined, { mode })
-                           : t("NEXUS_KEY_MODE_BAD", undefined, { mode }));
-    return head + " · " + perm;
-  };
-
-  const doSaveKey = () => {
-    const value = keyInput.trim();
-    if (!value) return;
-    setBusySafe(true);
-    const g = generation.current;
-    (async () => {
-      const r = await setApiKey(value);
-      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
-      // Clear the field on EVERY outcome: on success the backend owns the key,
-      // on failure the user must re-paste from the source anyway, and in both
-      // cases leaving a secret in component state serves no purpose.
-      setKeyInput("");
-      setBusySafe(false);
-      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
-      // `data` is `T | null` on the envelope (an ok:false reply can carry null),
-      // so narrow before reading. A missing payload is not an error worth a
-      // modal here — the key WAS stored, we simply have no mode to report.
-      const set = r.data;
-      const mode = !set || set.mode_actual === null ? "—" : set.mode_actual;
-      setLastResult(t("NEXUS_KEY_SAVED", undefined, { mode }));
-      toast(t("NEXUS_KEY_TITLE"), t("NEXUS_KEY_SAVED", undefined, { mode }));
-      await refreshKeyStatus();
-    })().catch((e) => {
-      if (!mounted.current) return;
-      setKeyInput("");
-      setBusySafe(false);
-      setError(bridgeError(String(e)));
-    });
-  };
-
-  const doClearKey = () => {
-    setBusySafe(true);
-    const g = generation.current;
-    (async () => {
-      const r = await deleteApiKey();
-      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
-      setBusySafe(false);
-      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
-      setNexusVerify("");
-      const del = r.data;
-      setLastResult(del && del.deleted ? t("NEXUS_KEY_CLEARED") : t("NEXUS_KEY_CLEAR_NONE"));
-      await refreshKeyStatus();
-    })().catch((e) => {
-      if (!mounted.current) return;
-      setBusySafe(false);
-      setError(bridgeError(String(e)));
-    });
-  };
-
-  /** Ask Nexus who the stored key belongs to. Takes no arguments on purpose. */
-  const doValidateKey = () => {
-    setBusySafe(true);
-    const g = generation.current;
-    (async () => {
-      const r = await nexusValidate();
-      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
-      setBusySafe(false);
-      if (!r.ok) {
-        // A rejected key is an expected outcome, not a crash: show the server's
-        // own wording, which the backend already put in `detail`.
-        setError(r);
-        setLastResult(envelopeError(r));
-        setNexusVerify("");
-        return;
-      }
-      const d = r.data;
-      if (!d) {
-        setNexusVerify("");
-        setLastResult(t("NEXUS_KEY_NONE"));
-        return;
-      }
-      const tier = d.is_premium ? t("NEXUS_VALIDATE_PREMIUM") : t("NEXUS_VALIDATE_FREE");
-      const supp = d.is_supporter ? " · " + t("NEXUS_VALIDATE_SUPPORTER") : "";
-      const line = t("NEXUS_VALIDATE_OK", undefined, { name: d.name || "—" }) + " · " + tier + supp;
-      setNexusVerify(line);
-      setLastResult(line);
-    })().catch((e) => {
-      if (!mounted.current) return;
-      setBusySafe(false);
-      setError(bridgeError(String(e)));
-    });
-  };
+  // Round 74: one entry point. The old pair of buttons split "look at the
+  // plan" from "install", and neither could do anything when the SMAPI index
+  // named no GitHub repo — the panel just said 0 of N. runDepsFlow() now owns
+  // planning, installing what it can, and opening the Nexus page for the rest.
+  const doDepsInstall = () => runDepsFlow();
 
   /** Browse one of the three feeds. There is no search because there is no endpoint. */
   const doNexusRecent = (kind: string) => {
+    // Round 73: no API key needed. The Nexus API's recent() requires a personal
+    // key a free account may not have; the WEBSITE shows the same sorts to a
+    // signed-in browser. Open that page instead of failing with E_CAPABILITY_*.
     setBusySafe(true);
     const g = generation.current;
     (async () => {
-      const r = await nexusRecent(kind);
+      const r = await openBrowsePage(kind);
       if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
       setBusySafe(false);
-      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
-      const mods = (r.data && r.data.mods) || [];
-      setLastResult(t("NEXUS_RECENT_ROWS", undefined, { n: String(mods.length) }));
-      if (!mods.length) {
-        showInfo(t("NEXUS_RECENT_TITLE"), [t("NEXUS_FILES_EMPTY")], []);
+      if (!r.ok) {
+        const url = (r.data && r.data.url) || "";
+        setLastResult(t("OPEN_PAGE_FAIL", undefined, { reason: r.detail || r.code || "—" }));
+        showInfo(
+          t("NEXUS_RECENT_TITLE"),
+          [
+            t("OPEN_PAGE_FAIL", undefined, { reason: r.detail || r.code || "—" }),
+            "",
+            t("OPEN_PAGE_WHY"),
+            url ? t("NEXUS_BROWSER_URL", undefined, { url }) : "",
+          ],
+          [],
+          t("NEXUS_SECTION"),
+        );
         return;
       }
-      const rows: ListRow[] = mods.map((m) => ({
-        label: m.name || String(m.mod_id),
-        sub: t("NEXUS_ROW_DESC", undefined, {
-          version: m.version || "—",
-          author: m.author || t("NEXUS_ROW_NO_AUTHOR"),
-        }),
-        onActivate: () => {
-          showInfo(
-            m.name || String(m.mod_id),
-            [
-              m.summary || "",
-              t("NEXUS_BROWSER_URL", undefined, { url: m.mod_page_url }),
-              "",
-              t("NEXUS_OPEN_PAGE"),
-            ],
-            [
-              {
-                label: t("OPEN_PAGE_BTN"),
-                onClick: (close) => {
-                  close();
-                  doOpenPage(m.mod_id);
-                },
-              },
-            ],
-            t("NEXUS_SECTION"),
-          );
-        },
+      setLastResult(t("NEXUS_BROWSE_OPENED", undefined, {
+        url: (r.data && r.data.url) || "",
       }));
-      showListModal(t("NEXUS_RECENT_TITLE"), rows, t("NEXUS_RECENT_DESC"));
     })().catch((e) => {
       if (!mounted.current) return;
       setBusySafe(false);
@@ -1679,69 +1572,11 @@ function Content() {
       showInfo(t("NEXUS_MOD_TITLE"), [t("NEXUS_BAD_ID")], []);
       return;
     }
-    setBusySafe(true);
-    const g = generation.current;
-    (async () => {
-      const r = await nexusMod(Number(raw));
-      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
-      setBusySafe(false);
-      if (!r.ok) { setError(r); setLastResult(envelopeError(r)); return; }
-      if (!r.data) {
-        // ok:true with a null payload should not happen, but inventing a mod
-        // detail screen from nothing would be worse than saying so.
-        showInfo(t("NEXUS_MOD_TITLE"), [t("NEXUS_FILES_ERROR", undefined, { detail: r.code || "—" })], []);
-        return;
-      }
-      openModDetail(r.data);
-    })().catch((e) => {
-      if (!mounted.current) return;
-      setBusySafe(false);
-      setError(bridgeError(String(e)));
-    });
-  };
-
-  /** The mod detail modal: metadata, the page URL, and the file list. */
-  const openModDetail = (d: NexusModData) => {
-    const files = d.files || [];
-    const lines: string[] = [];
-    const info = d.info || {};
-    if (info.summary) lines.push(info.summary, "");
-    lines.push(t("NEXUS_BROWSER_URL", undefined, { url: d.browser_url }));
-    lines.push("", t("NEXUS_FILES_TITLE", undefined, { n: String(files.length) }));
-    if (d.files_error) {
-      lines.push(t("NEXUS_FILES_ERROR", undefined, { detail: d.files_error }));
-    } else if (!files.length) {
-      lines.push(t("NEXUS_FILES_EMPTY"));
-    } else {
-      for (const f of files) {
-        const kb = f.size_kb === undefined ? "" : " · " + t("NEXUS_FILE_SIZE", undefined, { kb: String(f.size_kb) });
-        lines.push(t("NEXUS_FILE_ROW", undefined, { name: f.name || "—", version: f.version || "—" }) + kb);
-      }
-    }
-    lines.push("", t("NEXUS_OPEN_PAGE"));
-    // First action: actually put the page on screen. Asking for a file's link is
-    // the only honest way to show that a free account is refused -- a disabled
-    // button would look like a plugin bug instead of a Nexus rule. Both lists are
-    // capped so the focus ring stays walkable.
-    const actions: ModalAction[] = [
-      {
-        label: t("OPEN_PAGE_BTN"),
-        onClick: (close) => {
-          close();
-          doOpenPage(d.mod_id);
-        },
-      },
-    ];
-    for (const f of files.slice(0, 5)) {
-      actions.push({
-        label: t("NEXUS_FILE_LINK_BTN", undefined, { id: String(f.file_id) }),
-        onClick: (close) => {
-          close();
-          doNexusLink(d.mod_id, f.file_id, f.name || "");
-        },
-      });
-    }
-    showInfo(String(info.name || t("NEXUS_MOD_TITLE")), lines, actions, t("NEXUS_SECTION"));
+    // Round 73: open the mod's page directly — no API key needed. The old path
+    // called nexusMod(), which needs a personal key and failed with
+    // E_CAPABILITY_DISABLED for accounts that never configured one. The browser
+    // is already signed in, so it shows the real page + download button.
+    doOpenPage(Number(raw));
   };
 
   /**
@@ -1826,38 +1661,6 @@ function Content() {
         return;
       }
       setLastResult(t("SEARCH_OK"));
-    })().catch((e) => {
-      if (!mounted.current) return;
-      setBusySafe(false);
-      setError(bridgeError(String(e)));
-    });
-  };
-
-  /**
-   * Ask for one file's download link. For a free account this is REFUSED by
-   * Nexus — the point of having the RPC is that the refusal is reported as a
-   * refusal (premium gate + browser URL), not dressed up as a broken download.
-   */
-  const doNexusLink = (modId: number, fileId: number, fileName: string) => {
-    setBusySafe(true);
-    const g = generation.current;
-    (async () => {
-      const r = await nexusDownloadLink(modId, fileId);
-      if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
-      setBusySafe(false);
-      if (!r.ok) {
-        // Show the honest explanation rather than the generic error modal: the
-        // user cannot fix this by retrying, so it must not read like a bug.
-        const data = (r.data || {}) as { premium_required?: boolean; browser_url?: string };
-        const lines = [t("NEXUS_PREMIUM_ONLY")];
-        if (r.detail) lines.push("", t("NEXUS_PREMIUM_WHY", undefined, { detail: r.detail }));
-        if (data.browser_url) lines.push("", t("NEXUS_BROWSER_URL", undefined, { url: data.browser_url }));
-        lines.push("", t("NEXUS_OPEN_PAGE"));
-        showInfo(fileName || t("NEXUS_FILES_TITLE", undefined, { n: "1" }), lines, [], t("NEXUS_SECTION"));
-        setLastResult(t("NEXUS_PREMIUM_ONLY"));
-        return;
-      }
-      setLastResult(t("NEXUS_LOADING"));
     })().catch((e) => {
       if (!mounted.current) return;
       setBusySafe(false);
@@ -2019,7 +1822,7 @@ function Content() {
   // Round 19: localized progress line (the key-status line is gone with the
   // retired credential surface).
   const progressLine = progress
-    ? t("GH_PROGRESS", "Progress: {stage}{pct}", {
+    ? t("PROGRESS_LINE", "Progress: {stage}{pct}", {
         stage: progress.stage || "",
         pct: progress.pct ? ` (${progress.pct}%)` : "",
       })
@@ -2145,10 +1948,9 @@ function Content() {
         <PanelSectionRow>
           <Focusable style={{ display: "flex", gap: "4px", width: "100%" }}>
             {([
-              ["mods", t("NAV_MODS"), String(st?.mods?.length ?? 0)],
-              ["download", t("NAV_DOWNLOAD"), String(inbox?.items.length ?? "")],
-              ["games", t("NAV_GAMES"), String(status?.catalog?.length ?? 0)],
-              ["system", t("NAV_SYSTEM"), ""],
+              ["games", t("NAV_GAMES"), String((status?.catalog || []).filter((c) => c.operable).length)],
+              ["import", t("NAV_IMPORT"), String(inbox?.items.length ?? "")],
+              ["more", t("NAV_MORE"), ""],
             ] as [string, string, string][]).map(([key, label, badge]) => {
               const active = openSection === key;
               return (
@@ -2181,9 +1983,116 @@ function Content() {
         </PanelSectionRow>
       </PanelSection>
 
-      {/* ── 3a. 我的 MOD：导入 + 已安装 ──────────────────────────────── */}
-      {openSection === "mods" ? (
+      {/* ── 3a. 游戏（主入口）：已安装游戏直接列出，点一个进它的 MOD 列表 ── */}
+      {openSection === "games" ? (
         <PanelSection>
+          <PanelSectionRow>
+            <div style={{ fontSize: "11px", opacity: 0.7, wordBreak: "break-word" }}>
+              {t("GAMES_HINT")}
+            </div>
+          </PanelSectionRow>
+          {/* Round 76: only these descriptors are installable, and exactly one
+              is active at a time. Switching rewrites active_game and the engine
+              is rebuilt on the next RPC, so nothing else has to change. */}
+          <PanelSectionRow>
+            <div style={{ fontSize: "11px", opacity: 0.65, fontWeight: 700, marginTop: "8px" }}>
+              {t("GAMES_SUPPORTED", "Installable games")}
+            </div>
+          </PanelSectionRow>
+          {(status?.catalog || []).filter((c) => c.enabled).map((c) => (
+            <ButtonItem
+              key={c.id}
+              label={(c.active ? "▶ " : "") + (c.name || c.id)}
+              description={c.active
+                ? t("GAME_CURRENT_DESC", "The panel manages this game right now.")
+                : t("GAME_SWITCH_DESC", "Make this the managed game. Nothing is deleted — the other game's mods stay untouched.")}
+              disabled={busy || c.active}
+              onClick={() => doSwitchGame(String(c.id), c.name || String(c.id))}
+            >
+              {c.active ? t("GAME_CURRENT", "Current") : t("GAME_SWITCH", "Switch")}
+            </ButtonItem>
+          ))}
+          <PanelSectionRow>
+            <div style={{ fontSize: "11px", opacity: 0.65, fontWeight: 700, marginTop: "8px" }}>
+              {t("GAMES_ALL", "All installed games (read-only)")}
+            </div>
+          </PanelSectionRow>
+          {gameList.length ? (
+            <Focusable style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%" }}>
+              {/* Playable games first (active / with mods), so the game the user
+                  actually manages is the first stop instead of buried at #20. */}
+              {[...gameList]
+                .sort((a, b) => {
+                  const score = (g: SteamGame) => {
+                    const cat = (status?.catalog || []).find((c) => c.appid === g.appid);
+                    const mods = (g.template?.total_mods ?? 0);
+                    return (cat?.active ? 2 : 0) + (mods > 0 ? 1 : 0);
+                  };
+                  return score(b) - score(a);
+                })
+                .map((g) => {
+                  const cat = (status?.catalog || []).find((c) => c.appid === g.appid);
+                  const isActive = cat && cat.active;
+                  const modCount = (g.template?.total_mods ?? 0);
+                  return (
+                    <DialogButton
+                      key={g.appid}
+                      disabled={busy}
+                      onClick={() => (cat ? openGameMods(g) : openGameSetup(g))}
+                      style={{ width: "100%", textAlign: "left", padding: "8px 10px" }}
+                    >
+                      <div style={{ fontSize: "13px", fontWeight: 500 }}>
+                        {isActive ? "▶ " : ""}{g.name}
+                      </div>
+                      <div style={{ fontSize: "11px", opacity: 0.7 }}>
+                        {t("GAME_ROW_SUB", "AppID {appid} · {n} mods{active}", {
+                          appid: String(g.appid),
+                          n: String(modCount),
+                          active: isActive ? " · " + t("GAME_ACTIVE_BADGE") : "",
+                        })}
+                        {cat ? "" : "  ·  " + t("GAME_SETUP_HINT", "tap to set mod folder")}
+                      </div>
+                    </DialogButton>
+                  );
+                })}
+            </Focusable>
+          ) : (
+            <PanelSectionRow>
+              <div style={{ fontSize: "12px", opacity: 0.75 }}>{t("LIB_NO_GAMES")}</div>
+            </PanelSectionRow>
+          )}
+          <ButtonItem
+            label={t("LIB_REFRESH")}
+            description={t("LIB_REFRESH_DESC")}
+            disabled={busy}
+            onClick={() => void loadGameGroups().then((gl) => setGameList(gl))}
+          >
+            {t("LIB_SECTION")}
+          </ButtonItem>
+        </PanelSection>
+      ) : null}
+
+      {/* ── 3b. 下载：Nexus 按 ID / 本地 ZIP / 关键词搜索 ──────────────── */}
+      {openSection === "import" ? (
+        <PanelSection>
+          <PanelSectionRow>
+            <div style={{ fontSize: "11px", opacity: 0.85, wordBreak: "break-word", fontWeight: 700 }}>
+              {t("DOWNLOAD_TITLE")}
+            </div>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word" }}>
+              {t("DOWNLOAD_HINT")}
+            </div>
+          </PanelSectionRow>
+          <ButtonItem
+            label={t("AI_BTN", "Import new downloads (auto)")}
+            description={t("AI_BTN_DESC", "Scan Downloads + inbox, auto-install every new mod ZIP already downloaded in the browser. Skips installed mods and install-options archives.")}
+            disabled={busy}
+            onClick={() => autoImportNew()}
+          >
+            {t("AI_BTN_SUB", "One tap → install all")}
+          </ButtonItem>
           <ButtonItem
             label={t("INBOX_LABEL", "Inbox — local ZIPs ({n}) (A)", { n: inbox?.items.length ?? 0 })}
             description={t("INBOX_DESC")}
@@ -2192,226 +2101,31 @@ function Content() {
           >
             {t("INBOX_FIXED")}
           </ButtonItem>
-          <ButtonItem label={t("MODLIST_BTN")} description={t("MODLIST_BTN_DESC")} disabled={busy} onClick={openModList}>
-            {t("MODLIST_SUB")}
-          </ButtonItem>
-          <ButtonItem
-            label={t("MODS_BY_GAME")}
-            description={t("MODS_BY_GAME_BTN_DESC")}
-            disabled={busy}
-            onClick={() => void openModsByGame()}
-          >
-            {t("MODS_BY_GAME_BTN_SUB")}
-          </ButtonItem>
-          {/* The list below is a different set of mods from "Detected mods" above:
-              that one scans disk, this one is what the plugin installed. Without
-              this heading the rows appear to belong to the button. */}
-          <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65, marginTop: "4px" }}>
-              {t("INSTALLED_FILEDROP", "Mods installed by this plugin ({n})", { n: installed.length })}
-            </div>
-          </PanelSectionRow>
-          {installed.length === 0 ? (
-            <PanelSectionRow>
-              <div style={{ fontSize: "12px", opacity: 0.75 }}>
-                {t("NO_MANAGED_MODS")}
-              </div>
-            </PanelSectionRow>
-          ) : (
-            installed.map((mod) => (
-              <ModRow
-                key={mod.packageId}
-                mod={mod}
-                busy={busy}
-                canToggle={canToggle}
-                onToggle={toggle}
-                onUninstall={doUninstall}
-                onDetail={showModDetail}
-              />
-            ))
-          )}
           <PanelSectionRow>
             <div style={{ fontSize: "11px", opacity: 0.65 }}>{t("IMPORT_OSK")}</div>
           </PanelSectionRow>
           <ImportBox busy={busy} onSubmit={(p) => void inspectAndImport(p)} />
-        </PanelSection>
-      ) : null}
 
-      {/* ── 3b. 下载 MOD ─────────────────────────────────────────────── */}
-      {openSection === "download" ? (
-        <PanelSection>
-          <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word" }}>
-              {t("GH_SECTION_DESC")}
-              {t("GH_FROM_GAME_HINT")}
-            </div>
-          </PanelSectionRow>
 
-          <PanelSectionRow>
-            <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
-              <TextField
-                label={t("GH_QUERY")}
-                value={ghQuery}
-                disabled={busy}
-                onChange={(e) => setGhQuery(e?.target?.value ?? "")}
-              />
-            </Focusable>
-          </PanelSectionRow>
-          <ButtonItem
-            label={t("GH_SEARCH")}
-            description={t("GH_SEARCH_DESC")}
-            disabled={busy || !ghQuery.trim()}
-            onClick={() => doGhSearch(1)}
-          >
-            {t("GH_SEARCH")}
-          </ButtonItem>
-
-          {ghResults.length ? (
-            <PanelSectionRow>
-              <div style={{ fontSize: "11px", opacity: 0.7, wordBreak: "break-word" }}>
-                {t("GH_SEARCH_DONE", "Found {total} (showing {n})", {
-                  total: ghTotal, n: ghResults.length,
-                })}{" · "}{t("GH_PAGE_INFO", "page {p}", { p: ghPage })}
-              </div>
-            </PanelSectionRow>
-          ) : null}
-          {ghResults.map((item) => (
-            <ButtonItem
-              key={item.full_name}
-              label={`${item.full_name} · ★${item.stars}`}
-              description={item.archived ? t("GH_ARCHIVED") : (item.description || t("GH_NO_DESC"))}
-              disabled={busy}
-              onClick={() => doGhReleases(item)}
-            >
-              {item.full_name}
-            </ButtonItem>
-          ))}
-
-          {ghResults.length ? (
-            <PanelSectionRow>
-              <Focusable style={{ display: "flex", flexDirection: "row", gap: "4px", width: "100%" }}>
-                <DialogButton
-                  style={{ flex: 1, minWidth: 0, height: "auto", padding: "5px 2px", fontSize: "12px" }}
-                  disabled={busy || ghPage <= 1}
-                  onClick={() => doGhSearch(ghPage - 1)}
-                >
-                  {t("GH_PAGE_PREV", "Prev")}
-                </DialogButton>
-                <DialogButton
-                  style={{ flex: 1, minWidth: 0, height: "auto", padding: "5px 2px", fontSize: "12px" }}
-                  disabled={busy || ghResults.length === 0 || ghPage >= 100}
-                  onClick={() => doGhSearch(ghPage + 1)}
-                >
-                  {t("GH_PAGE_NEXT", "Next")}
-                </DialogButton>
-              </Focusable>
-            </PanelSectionRow>
-          ) : null}
-
-          {ghSelected ? (
-            <PanelSectionRow>
-              <div style={{ fontSize: "11px", opacity: 0.7, wordBreak: "break-word" }}>
-                {t("GH_SELECTED", "Selected: {name}", { name: ghSelected.full_name })}
-              </div>
-            </PanelSectionRow>
-          ) : null}
-          {ghRel && !ghRel.releases.length ? (
-            <PanelSectionRow>
-              <div style={{ fontSize: "11px", opacity: 0.7, wordBreak: "break-word" }}>
-                {t("GH_NO_RELEASES")}
-              </div>
-            </PanelSectionRow>
-          ) : null}
-          {ghRel
-            ? ghRel.releases.map((rel: GhRelease) =>
-                rel.assets.map((asset) => (
-                  <ButtonItem
-                    key={`${rel.id}-${asset.id}`}
-                    label={`${rel.tag_name} · ${assetSize(asset.size)}`}
-                    description={`${asset.name} · ${asset.usable ? t("GH_ASSET_USABLE") : t("GH_ASSET_UNUSABLE")}`}
-                    disabled={busy || !asset.usable}
-                    onClick={() => doGhDownload(asset)}
-                  >
-                    {asset.name}
-                  </ButtonItem>
-                )),
-              )
-            : null}
-          {ghRel
-            ? ghRel.releases.map((rel: GhRelease) =>
-                rel.assets.map((asset) =>
-                  asset.usable ? (
-                    <ButtonItem
-                      key={`imp-${rel.id}-${asset.id}`}
-                      label={t("GH_IMPORT_TITLE")}
-                      description={`${asset.name} · ${t("GH_IMPORT_DESC")}`}
-                      disabled={busy}
-                      onClick={() => doGhImport(asset)}
-                    >
-                      {t("GH_IMPORT_TITLE")}
-                    </ButtonItem>
-                  ) : null,
-                ),
-              )
-            : null}
-
-          <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word", marginTop: "6px" }}>
-              {t("GH_DIRECT_DESC")}
-            </div>
-          </PanelSectionRow>
-          <PanelSectionRow>
-            <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
-              <TextField
-                label={t("GH_DIRECT_URL")}
-                value={directUrlValue}
-                disabled={busy}
-                onChange={(e) => setDirectUrlValue(e?.target?.value ?? "")}
-              />
-            </Focusable>
-          </PanelSectionRow>
-          <ButtonItem
-            label={t("GH_DIRECT_FETCH")}
-            description={t("GH_DIRECT_DESC")}
-            disabled={busy || !directUrlValue.trim()}
-            onClick={doDirectDownload}
-          >
-            {t("GH_DIRECT_FETCH")}
-          </ButtonItem>
-          <ButtonItem
-            label={t("GH_DIRECT_IMPORT")}
-            description={t("GH_IMPORT_DESC")}
-            disabled={busy || !directUrlValue.trim()}
-            onClick={doDirectImport}
-          >
-            {t("GH_DIRECT_IMPORT")}
-          </ButtonItem>
-
+          {/* Round 74: one button. Splitting "check" from "install" left the
+              user with a plan and no way to act on it when no GitHub asset
+              existed; the merged flow installs what it can and opens the
+              Nexus page for the rest. */}
           <ButtonItem
             label={t("DEPS_BTN")}
             description={t("DEPS_BTN_DESC")}
             disabled={busy}
-            onClick={doDepsPlan}
+            onClick={doDepsInstall}
           >
             {t("DEPS_BTN_SUB")}
           </ButtonItem>
-          {readOnly ? null : (
-            <ButtonItem
-              label={t("DEPS_INSTALL_BTN")}
-              description={t("DEPS_INSTALL_DESC")}
-              disabled={busy}
-              onClick={doDepsInstall}
-            >
-              {t("DEPS_INSTALL_SUB")}
-            </ButtonItem>
-          )}
           {progressLine ? (
             <PanelSectionRow>
               <div style={{ fontSize: "12px", opacity: 0.8, wordBreak: "break-word" }}>{progressLine}</div>
             </PanelSectionRow>
           ) : null}
 
-          {/* ── round 39: Nexus, metadata only ───────────────────────────── */}
+          {/* ── Nexus: browse & open in browser (no API key) ─────────────── */}
           <PanelSectionRow>
             <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word", marginTop: "10px", fontWeight: 700 }}>
               {t("NEXUS_SECTION")}
@@ -2423,59 +2137,12 @@ function Content() {
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.7, wordBreak: "break-word" }}>
-              {keyStatusLine()}
+            <div style={{ fontSize: "11px", opacity: 0.85, wordBreak: "break-all", fontWeight: 700 }}>
+              {nexusPrefix
+                ? t("NEXUS_CURRENT_PREFIX", undefined, { prefix: nexusPrefix })
+                : t("NEXUS_NO_PREFIX")}
             </div>
           </PanelSectionRow>
-          {keyStatus && keyStatus.configured ? (
-            <PanelSectionRow>
-              <div style={{ fontSize: "10px", opacity: 0.45, wordBreak: "break-all" }}>
-                {t("NEXUS_KEY_PATH", undefined, { path: keyStatus.path })}
-              </div>
-            </PanelSectionRow>
-          ) : null}
-
-          <PanelSectionRow>
-            <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
-              <TextField
-                label={t("NEXUS_KEY_INPUT")}
-                value={keyInput}
-                disabled={busy}
-                onChange={(e) => setKeyInput(e?.target?.value ?? "")}
-              />
-            </Focusable>
-          </PanelSectionRow>
-          <ButtonItem
-            label={t("NEXUS_KEY_SAVE")}
-            description={t("NEXUS_KEY_SAVE_DESC")}
-            disabled={busy || !keyInput.trim()}
-            onClick={doSaveKey}
-          >
-            {t("NEXUS_KEY_SAVE")}
-          </ButtonItem>
-          <ButtonItem
-            label={t("NEXUS_VALIDATE")}
-            description={t("NEXUS_VALIDATE_DESC")}
-            disabled={busy || !keyStatus || !keyStatus.configured}
-            onClick={doValidateKey}
-          >
-            {t("NEXUS_VALIDATE")}
-          </ButtonItem>
-          {nexusVerify ? (
-            <PanelSectionRow>
-              <div style={{ fontSize: "11px", opacity: 0.8, wordBreak: "break-word" }}>
-                {nexusVerify}
-              </div>
-            </PanelSectionRow>
-          ) : null}
-          <ButtonItem
-            label={t("NEXUS_KEY_CLEAR")}
-            description={t("NEXUS_KEY_CLEAR_DESC")}
-            disabled={busy || !keyStatus || !keyStatus.configured}
-            onClick={doClearKey}
-          >
-            {t("NEXUS_KEY_CLEAR")}
-          </ButtonItem>
 
           <PanelSectionRow>
             <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word", marginTop: "6px" }}>
@@ -2518,6 +2185,13 @@ function Content() {
               />
             </Focusable>
           </PanelSectionRow>
+          {nexusPrefix && /^\d+$/.test(nexusModId.trim()) ? (
+            <PanelSectionRow>
+              <div style={{ fontSize: "11px", opacity: 0.7, wordBreak: "break-all" }}>
+                {t("NEXUS_FULL_URL", undefined, { url: `${nexusPrefix}/${nexusModId.trim()}` })}
+              </div>
+            </PanelSectionRow>
+          ) : null}
           <ButtonItem
             label={t("NEXUS_MOD_FETCH")}
             description={t("NEXUS_MOD_FETCH_DESC")}
@@ -2559,34 +2233,15 @@ function Content() {
           {readOnly ? (
             <PanelSectionRow>
               <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word" }}>
-                {t("GH_B_GATE")}
+                {t("WRITE_GATE_NOTE", "Writes are disabled for this game (read-only mode).")}
               </div>
             </PanelSectionRow>
           ) : null}
         </PanelSection>
       ) : null}
 
-      {/* ── 3c. 游戏：目录 + 已安装游戏库 ────────────────────────────── */}
-      {openSection === "games" ? (
-        <PanelSection>
-          {status?.catalog && status.catalog.length > 0 ? (
-            <ButtonItem label={t("CATALOG_BTN")} description={t("CATALOG_BTN_DESC")} disabled={busy} onClick={openGameCatalog}>
-              {t("CATALOG_SUB")}
-            </ButtonItem>
-          ) : null}
-          <ButtonItem
-            label={t("LIB_REFRESH")}
-            description={t("LIB_REFRESH_DESC")}
-            disabled={busy}
-            onClick={() => void openGameLibrary()}
-          >
-            {t("LIB_SECTION")}
-          </ButtonItem>
-        </PanelSection>
-      ) : null}
-
-      {/* ── 3d. 系统：刷新 / 历史 / 错误码 / 恢复 / 约束 ─────────────── */}
-      {openSection === "system" ? (
+      {/* ── 3c. 更多：历史 / 刷新 / 错误码 / 恢复 / 约束 ───────────────── */}
+      {openSection === "more" ? (
         <PanelSection>
           <ButtonItem
             label={t("REFRESH_LABEL")}

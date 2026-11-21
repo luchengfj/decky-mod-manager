@@ -71,7 +71,12 @@ class Engine:
 
     def _resolve(self) -> paths.ResolvedPaths:
         # ALWAYS re-resolve; preflight=True does statvfs/writable/symlink checks.
-        return paths.resolve(294100, preflight=True)
+        # Round 43: the descriptor's ``paths`` block is honoured when present.
+        # The RimWorld descriptor declares the same four names these lines used
+        # to hard-code, so its resolution is byte-for-byte unchanged.
+        p = self.registry.get_game(GAME_ID).get("paths")
+        return paths.resolve(294100, preflight=True,
+                              descriptor_paths=p if isinstance(p, dict) else None)
 
     def _check_not_running(self):
         """Best-effort: if a marker for a running RimWorld exists, refuse.

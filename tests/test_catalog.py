@@ -104,6 +104,16 @@ class TestCatalogReadOnly(unittest.TestCase):
             self.assertNotIn("state_file", c)
             self.assertNotIn("game_root", c)
 
+    def test_catalog_exposes_nexus_domain_read_only(self):
+        # Prefix source for "pick a game -> fill the site prefix". Stardew
+        # declares a nexus_metadata source; planned games do not. Must stay
+        # JSON-safe and must NOT invent a domain for games without one.
+        cat = {c["id"]: c for c in self.r.catalog()}
+        self.assertEqual(cat["stardew"]["nexus_domain"], "stardewvalley")
+        for gid in ("rimworld", "factorio", "valheim"):
+            self.assertIsNone(cat[gid]["nexus_domain"], gid)
+        _assert_json_safe(self.r.catalog())
+
     def test_valheim_dict_shaped_loaders_normalized(self):
         cat = {c["id"]: c for c in self.r.catalog()}
         # valheim descriptor uses dict-shaped loaders; catalog must normalize
@@ -154,7 +164,7 @@ class TestCatalogInStatusEnvelope(unittest.TestCase):
             if not name.startswith("_") and callable(getattr(main.Plugin, name))
             and asyncio.iscoroutinefunction(getattr(main.Plugin, name))
         )
-        self.assertEqual(len(rpc), 28, rpc)
+        self.assertEqual(len(rpc), 33, rpc)
         for name in ("gh_search", "gh_releases", "gh_download", "download_url",
                      "list_games"):
             self.assertIn(name, rpc)

@@ -34,6 +34,8 @@ import type {
   GhSearchData,
   GhReleasesData,
   SteamLibData,
+  SwitchGameData,
+  GameSetupData,
   KeyStatusData,
   KeySetData,
   KeyDeleteData,
@@ -43,6 +45,7 @@ import type {
   NexusDownloadLinkData,
   OpenModPageData,
   SearchPageData,
+  BrowsePageData,
   HandoverData,
   ReclaimData,
 } from "./types";
@@ -87,6 +90,17 @@ export const getStatus = () => invoke<StatusData>("status");
  * Read-only on the backend — it only stats manifests, never writes.
  */
 export const listGames = () => invoke<SteamLibData>("list_games");
+
+/** Round 76: point the panel at another supported game (one active at a time). */
+export const switchGame = (gameId: string) =>
+  invoke<SwitchGameData>("switch_game", gameId);
+
+/** Round 77: candidate mod folders for a game with no built-in descriptor. */
+export const gameSetup = (appid: number) => invoke<GameSetupData>("game_setup", appid);
+export const configureGame = (appid: number, name: string, writeRoots: string[]) =>
+  invoke<{ appid: number; write_roots: string[] }>("configure_game", appid, name, writeRoots);
+export const forgetGame = (appid: number) =>
+  invoke<{ appid: number; deleted: boolean }>("forget_game", appid);
 export const listInbox = () => invoke<InboxData>("list_inbox");
 export const inspectZip = (zipPath: string) => invoke<InspectData>("inspect", zipPath);
 export const getHistory = (limit = 50) => invoke<HistoryData>("history", limit);
@@ -239,6 +253,14 @@ export const openSearchPage = (query: string) =>
   invoke<SearchPageData>("open_search_page", query);
 
 /**
+ * Round 73: no-key browse page. `sort` is one of trending/latest_added/
+ * latest_updated. The backend builds the URL from the game's Nexus domain;
+ * no API key and no network call from the plugin — the browser does the work.
+ */
+export const openBrowsePage = (sort: string) =>
+  invoke<BrowsePageData>("open_browse_page", sort);
+
+/**
  * Round 54: delete quarantine folders the journal can no longer restore.
  *
  * Takes an explicit list of transaction ids, never "everything": the backend
@@ -303,6 +325,7 @@ export const callableHandles = {
   nexus_download_link: callable<[number, number], Envelope<NexusDownloadLinkData>>("nexus_download_link"),
   open_mod_page: callable<[number], Envelope<OpenModPageData>>("open_mod_page"),
   open_search_page: callable<[string], Envelope<SearchPageData>>("open_search_page"),
+  open_browse_page: callable<[string], Envelope<BrowsePageData>>("open_browse_page"),
   handover_mods: callable<[boolean], Envelope<HandoverData>>("handover_mods"),
   reclaim_quarantine: callable<[string[], boolean], Envelope<ReclaimData>>("reclaim_quarantine"),
 };

@@ -2,8 +2,7 @@
   "schema": "deckymod/game-registry@1",
   "version": "0.2.0-stardew",
   "active_game": "stardew",
-  "notes": "ACTIVE GAME = stardew (AppID 413150, SMAPI, DETECT-ONLY). rimworld is retained as a PLANNED descriptor purely so the 33 historical regression tests keep running (they pin DECKYMOD_GAME_ID=rimworld). factorio/valheim/future loaders are planned scaffolding refused by the capability gate. This file is DATA, not code: exactly ONE descriptor may be enabled at a time (max_enabled_games_in_mvp=1). There is NO universal one-click install. The stardew path NEVER installs SMAPI, edits Steam launch options, writes a Proton pfx, or uses a DLL override; it is read-only/detection when an external mod manager owns the Mods/ tree.",
-
+  "notes": "Two built-in descriptors are enabled (stardew AppID 413150 SMAPI detect-only file_drop; cyberpunk AppID 1091500 root_merge per-file install) and active_game names the ONE the panel acts on — switch_game rewrites it, no file hand-edit needed. rimworld is retained as a PLANNED descriptor purely so the 33 historical regression tests keep running (they pin DECKYMOD_GAME_ID=rimworld). factorio/valheim/future loaders are planned scaffolding refused by the capability gate. Round 77: a game with no descriptor here can be configured by the user at runtime (data/games/<appid>.json, engine root_merge, write only inside the user-declared folders); those records never appear in this file. There is NO universal one-click install. No path installs a loader, edits Steam launch options, writes a Proton pfx, or uses a DLL override; stardew stays read-only/detection when an external mod manager owns the Mods/ tree.",
   "variables": {
     "DECKY_DATA": "Decky-managed persistent data dir (DECKY_PLUGIN_RUNTIME_DIR/data). POSIX, on internal SSD.",
     "DECKY_INBOX": "Fixed drop-folder for local ZIP files (DECKY_PLUGIN_RUNTIME_DIR/inbox).",
@@ -14,7 +13,6 @@
     "GAME_ROOT": "realpath(STEAM_LIBRARY/steamapps/common/APP_INSTALL_DIR).",
     "TXN_ID": "Per-transaction opaque id (timestamp + random), used to namespace snapshots/quarantine."
   },
-
   "allowed_write_roots": [
     "${DECKY_DATA}",
     "${DECKY_INBOX}",
@@ -24,7 +22,6 @@
   ],
   "allowed_write_roots_stardew_note": "stardew uses the SAME Mods root but NO XDG state-file root (state_file=null, file_drop strategy). A sibling .decky-staging/.decky-quarantine on the Mods filesystem remains the single approved quarantine exception.",
   "allowed_write_roots_note": "Everything the plugin writes MUST be under one of these roots (or a sibling .decky-staging/.decky-quarantine of the SAME filesystem, see descriptor.paths). Quarantine is the one approved exception to '#4 journal/quarantine in DECKY_DATA': it must live on W2's filesystem to avoid EXDEV(18) on cross-device os.replace.",
-
   "conflict_defaults": {
     "duplicate": "reject_with_replace_option",
     "file_collision": "reject",
@@ -33,7 +30,6 @@
     "case_handling": "case_insensitive_listdir",
     "symlink_policy": "reject"
   },
-
   "capability_gate": {
     "enabled_game_status": "enabled",
     "max_enabled_games_in_mvp": 1,
@@ -41,7 +37,6 @@
     "refuse_if_status_not_enabled": true,
     "note": "Any operation whose required capability is false returns E_CAPABILITY_DISABLED. A descriptor with status!=enabled returns E_CAPABILITY_DISABLED. There is no universal one-click install."
   },
-
   "loader_catalog": {
     "bepinex5": "registry/loaders/bepinex5.json",
     "smapi": "registry/loaders/smapi.json",
@@ -50,7 +45,6 @@
     "melonloader": "registry/loaders/melonloader.json"
   },
   "loader_catalog_note": "smapi is DETECT-ONLY for stardew: it is checked for presence, NEVER installed (see loaders/smapi.json). The other 4 loaders remain PLANNED scaffolding refused by the capability gate. No loader is ever installed by this plugin.",
-
   "descriptors": {
     "stardew": {
       "file": "registry/games/stardew.json",
@@ -79,6 +73,14 @@
       "appid": 892970,
       "platform": "windows-proton",
       "selection": "B (declined): BepInEx/Proton class. Would require loader install + WINEDLLOVERRIDES launch-option edit + pfx write, i.e. three §3.8 hard prohibitions. Refused."
+    },
+    "cyberpunk": {
+      "file": "registry/games/cyberpunk.json",
+      "status": "enabled",
+      "appid": 1091500,
+      "platform": "proton",
+      "selection": "Round 76 (user request): Cyberpunk 2077 file-drop support. root_merge engine writes ONLY inside archive/pc/mod, mods/, bin/x64/plugins, r6/scripts and red4ext, journals every file, and backs up any file it overwrites. Only ONE game is active at a time -- active_game decides which descriptor every RPC talks to."
     }
-  }
+  },
+  "registry_note": "Two descriptors are enabled (stardew, cyberpunk) but active_game selects the single one the panel acts on. enabled_games() honours active_game first, so switching games never needs a descriptor edit."
 }

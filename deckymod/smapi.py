@@ -88,7 +88,14 @@ class FileDropEngine:
 
     def _resolve(self) -> paths.ResolvedPaths:
         appid = self.registry.appid_for(self.game_id)   # from descriptor identity
-        return paths.resolve(appid, preflight=True, no_state_file=True)
+        # Round 43 / P1#5: pass the descriptor's own ``paths`` block so a second
+        # game can name its mod folder instead of being forced onto ``Mods``.
+        return paths.resolve(appid, preflight=True, no_state_file=True,
+                             descriptor_paths=self._descriptor_paths())
+
+    def _descriptor_paths(self) -> dict:
+        p = self._descriptor().get("paths")
+        return p if isinstance(p, dict) else {}
 
     def _running(self, r: paths.ResolvedPaths) -> dict:
         """Round 50: is the game running, decided from /proc argv[0].

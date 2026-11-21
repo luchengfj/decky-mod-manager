@@ -416,5 +416,31 @@ class TestTransport(unittest.TestCase):
         json.dumps(out, allow_nan=False)
 
 
+class TestNoKeyBrowseUrl(unittest.TestCase):
+    """Round 73: Trending/Newest/Updated open a website page, no API key.
+
+    The caller passes a sort KEY, never a URL; the address is built from the
+    game domain so nothing can make the client open an arbitrary site.
+    """
+
+    def test_sort_keys_map_to_website_params(self):
+        self.assertEqual(
+            nexus.browse_page_url("stardewvalley", "trending"),
+            "https://www.nexusmods.com/stardewvalley/mods?sort=trending")
+        self.assertEqual(
+            nexus.browse_page_url("stardewvalley", "latest_added"),
+            "https://www.nexusmods.com/stardewvalley/mods?sort=newest")
+        self.assertEqual(
+            nexus.browse_page_url("stardewvalley", "latest_updated"),
+            "https://www.nexusmods.com/stardewvalley/mods?sort=updated")
+
+    def test_unknown_sort_is_refused(self):
+        self.assertIsNone(nexus.browse_page_url("stardewvalley", "https://evil"))
+        self.assertIsNone(nexus.browse_page_url("stardewvalley", ""))
+
+    def test_domain_is_embedded_verbatim(self):
+        self.assertIn("valheim", nexus.browse_page_url("valheim", "trending"))
+
+
 if __name__ == "__main__":
     unittest.main()

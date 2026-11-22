@@ -1,0 +1,60 @@
+# 让 InstaBox 免费档云机一直醒着（外部心跳）
+#
+# 为什么需要「外部」心跳：云机一旦被挂起，机内的 systemd/cron 全部冻结，
+# 谁也唤不醒自己。所以只能由机器以外的地方定时打它一下。
+#
+# 为什么打的是 8803 这个公开端口，而不是调 /wake 或拿 API key：
+#   1. InstaBox 免费档的「运行上限」只在机器**被真正使用**时才增长，
+#      而官方明确把 activity lease 和 wake 调用排除在「使用」之外，
+#      只有命令 / 文件访问 / **端口请求** / SSH / 桌面 才算。
+#   2. 公开端口请求在机器挂起时会被代理先唤醒再转发，等于一次唤醒 + 一次使用。
+#   3. 因此这里不需要任何 secret —— 只要这个 URL，公开仓库的 Actions 免费跑。
+#
+# 频率为什么这样定：官方扩额规则是「距离上限还有 5 分钟时，看最近 30 分钟里
+# 有多少分钟在用」——≥5 分钟 → 上限 +120，1~4 分钟 → +30，0 分钟 → 不增长。
+# 所以每轮要在 ~5 分钟跨度内打满 6 次（覆盖 5 个不同分钟），
+# 才能稳定拿到 +120，让一次 run 从 120 分钟一路长到 480 分钟。
+name: instabox-keepalive
+
+on:
+  schedule:
+    # 每 10 分钟一轮。GitHub 的 schedule 会延迟几分钟，属于正常现象。
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+# 同一时刻只允许一轮在跑，否则两轮叠在一起会互相打断 sleep。
+concurrency:
+  group: instabox-keepalive
+  cancel-in-progress: false
+
+jobs:
+  beat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 心跳（唤醒 + 计入使用）
+        env:
+          BEAT_URL: https://8803-agradvyqzvz7b5uh5dhajqyxqm.instabox.tech/
+        run: |
+          set -u
+
+          # 打 6 次，间隔 60 秒：覆盖 5 个不同分钟，满足「最近 30 分钟 ≥5 分钟有使用」。
+          # 204 = 机器醒着且心跳端口正常。
+          # 503 = 机器在挂起/冷却中，请求已在代理层触发唤醒，下一轮会自动好。
+          # 其它 = 网络或代理异常，记录但不失败（避免红叉噪音与邮件）。
+          ok=0
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -sS -o /dev/null -m 60 -w '%{http_code}' "$BEAT_URL" 2>/dev/null || echo '000')
+            printf 'beat %d/6 -> HTTP %s\n' "$i" "$code"
+            if [ "$code" = "204" ]; then
+              ok=$((ok + 1))
+            fi
+            if [ "$i" -lt 6 ]; then
+              sleep 60
+            fi
+          done
+
+          echo "successful beats: $ok/6"
+          if [ "$ok" -eq 0 ]; then
+            echo "::warning::本轮 6 次心跳全部失败（机器可能处于 max-run 冷却中，或正在被唤醒）"
+          fi

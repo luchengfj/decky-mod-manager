@@ -7,22 +7,28 @@
 #   1. InstaBox 免费档的「运行上限」只在机器**被真正使用**时才增长，
 #      而官方明确把 activity lease 和 wake 调用排除在「使用」之外，
 #      只有命令 / 文件访问 / **端口请求** / SSH / 桌面 才算。
-#   2. 公开端口请求在机器挂起时会被代理先唤醒再转发，等于一次唤醒 + 一次使用。
+#   2. 公开端口请求在机器被自动挂起时会被代理先唤醒再转发，等于一次唤醒 + 一次使用。
 #   3. 因此这里不需要任何 secret —— 只要这个 URL，公开仓库的 Actions 免费跑。
 #
-# 频率为什么这样定：官方扩额规则是「距离上限还有 5 分钟时，看最近 30 分钟里
+# 为什么是「一个跑很久的 job」而不是「频繁的短 job」：
+#   实测 `*/10` 的 schedule 在低活跃仓库上被 GitHub 严重限流——24 小时只跑了 3 次
+#   （`total_count=3`，间隔约 8 小时）。靠触发频率无法覆盖 8 小时的 max-run 上限。
+#   反过来，单个 job 最长能跑 6 小时，让它持续每 60 秒打一次，一次触发就能覆盖
+#   近 6 小时；3 次触发/天 加起来接近 18 小时，且每次打点同时在「唤醒 + 计入使用」。
+#
+# 频率为什么是 60 秒：官方扩额规则是「距离上限还有 5 分钟时，看最近 30 分钟里
 # 有多少分钟在用」——≥5 分钟 → 上限 +120，1~4 分钟 → +30，0 分钟 → 不增长。
-# 所以每轮要在 ~5 分钟跨度内打满 6 次（覆盖 5 个不同分钟），
-# 才能稳定拿到 +120，让一次 run 从 120 分钟一路长到 480 分钟。
+# 每分钟一次远超这个门槛，能稳定把上限顶在 480。
 name: instabox-keepalive
 
 on:
   schedule:
-    # 每 10 分钟一轮。GitHub 的 schedule 会延迟几分钟，属于正常现象。
-    - cron: '*/10 * * * *'
+    # 每 30 分钟尝试一次；实际会被 GitHub 限流成几小时一次，属正常，
+    # 真正的覆盖靠下面 job 内的长循环。
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
-# 同一时刻只允许一轮在跑，否则两轮叠在一起会互相打断 sleep。
+# 同一时刻只允许一轮在跑：避免几个长 job 互相叠加占满并发槽。
 concurrency:
   group: instabox-keepalive
   cancel-in-progress: false
@@ -30,31 +36,46 @@ concurrency:
 jobs:
   beat:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # GitHub 托管的单个 job 上限 6 小时；留出余量。
+    timeout-minutes: 350
     steps:
-      - name: 心跳（唤醒 + 计入使用）
+      - name: 持续心跳（唤醒 + 计入使用）
         env:
           BEAT_URL: https://8803-agradvyqzvz7b5uh5dhajqyxqm.instabox.tech/
+          # 5 小时 45 分的总时长（秒）；到点自行退出，避免被 timeout 杀掉。
+          TOTAL_SECONDS: '20700'
+          INTERVAL_SECONDS: '60'
         run: |
           set -u
 
-          # 打 6 次，间隔 60 秒：覆盖 5 个不同分钟，满足「最近 30 分钟 ≥5 分钟有使用」。
-          # 204 = 机器醒着且心跳端口正常。
-          # 503 = 机器在挂起/冷却中，请求已在代理层触发唤醒，下一轮会自动好。
-          # 其它 = 网络或代理异常，记录但不失败（避免红叉噪音与邮件）。
+          total="${TOTAL_SECONDS:-20700}"
+          interval="${INTERVAL_SECONDS:-60}"
+          deadline=$(( $(date +%s) + total ))
+
           ok=0
-          for i in 1 2 3 4 5 6; do
-            code=$(curl -sS -o /dev/null -m 60 -w '%{http_code}' "$BEAT_URL" 2>/dev/null || echo '000')
-            printf 'beat %d/6 -> HTTP %s\n' "$i" "$code"
+          fail=0
+          n=0
+
+          # 204 = 机器醒着且心跳端口正常。
+          # 503 = 机器在挂起/冷却中，请求已在边缘触发唤醒，下一轮会自动好。
+          # 其它 = 网络或代理异常，记录但不失败（避免红叉噪音与告警邮件）。
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            n=$((n + 1))
+            code=$(curl -sS -o /dev/null -m 30 -w '%{http_code}' "$BEAT_URL" 2>/dev/null || echo '000')
             if [ "$code" = "204" ]; then
               ok=$((ok + 1))
+            else
+              fail=$((fail + 1))
             fi
-            if [ "$i" -lt 6 ]; then
-              sleep 60
+            # 每 30 次（约半小时）打印一行，避免日志刷屏。
+            if [ $((n % 30)) -eq 0 ]; then
+              printf 'beat #%d  ok=%d fail=%d  last=%s  remaining=%dm\n' \
+                "$n" "$ok" "$fail" "$code" "$(( (deadline - $(date +%s)) / 60 ))"
             fi
+            sleep "$interval"
           done
 
-          echo "successful beats: $ok/6"
+          echo "done: $n beats, ok=$ok fail=$fail"
           if [ "$ok" -eq 0 ]; then
-            echo "::warning::本轮 6 次心跳全部失败（机器可能处于 max-run 冷却中，或正在被唤醒）"
+            echo "::warning::整轮心跳全部失败（机器可能长时间处于 max-run 冷却，或云机被删/改名）"
           fi

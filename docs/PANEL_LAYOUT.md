@@ -337,7 +337,7 @@ spent its time undoing.
 **Proven (local, offline):**
 
 - 1033 tests `OK (skipped=17)`; `tsc --noEmit` exit 0; `rollup -c` exit 0
-  (`dist/index.js` 257411 B).
+  (`dist/index.js` 257740 B).
 - `tests/test_style_units.py` (21 cases) pins the rules:
   - no `fontSize`/`gap`/`margin`/`padding` in px anywhere in `src/` (a px left
     over fails by name and file), and no px on **any** sizing longhand either —

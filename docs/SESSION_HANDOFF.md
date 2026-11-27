@@ -116,7 +116,7 @@
 ```
 1036 用例全绿（skipped=17）
 tsc --noEmit → exit 0
-rollup -c    → exit 0（dist/index.js 257411 B）
+rollup -c    → exit 0（dist/index.js 257740 B，sha256 983601bd…，重跑 rollup 字节一致）
 ```
 
 命令：

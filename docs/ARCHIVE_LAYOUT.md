@@ -248,14 +248,28 @@ without the fix:
   root itself". Conflating them makes root-level multi-mod archives
   unselectable.
 
-Not proven:
+Proven on the device (2026-11-27, deployed build):
 
-- **`.7z` + `member_root` has no test.** `_inspect_7z` and `list_mod_roots`'s 7z
-  branch mirror the ZIP branch line for line, but this box has no `7z` binary,
-  so `tests/test_multi_mod.py::test_7z_listing_with_the_real_binary` skips.
-  Reading code is not the same as running it; this needs the device.
+- **Both formats list every root.** A two-mod archive built on the Deck with its
+  own `/usr/bin/7z` answered `count: 2` and `roots: ["Pack/ModA", "Pack/ModB"]`
+  for the `.7z` **and** for the equivalent ZIP. The `.7z` branch of
+  `list_mod_roots` is no longer a code-reading claim.
+- **Both formats refuse without a root and accept with one.**
+  `inspect(archive)` raised `E_MULTI_MOD_ARCHIVE` naming both mods;
+  `inspect(archive, "Pack/ModA")` returned `uniqueId=probe.mod.a` and only
+  ModA's members, for both formats.
+- **The chosen root writes only that mod.** `install(zip, true, null,
+  "Pack/ModA")` landed at `Mods/probe.mod.a`; reading the folder afterwards
+  showed `['A.dll', 'config.json', 'manifest.json']` with **no `B.dll`** and no
+  `ModB` anywhere under `Mods/`. Uninstall removed it and left 28 mods, zero
+  probe residue.
+
+Still not proven:
+
 - **No real community archive was used.** Same caveat as Round 63: the shapes
-  are constructed from real release layouts, not taken from Nexus.
+  are constructed from real release layouts, not taken from Nexus. The twelve
+  archives actually sitting in the device's inbox were all single-mod, which is
+  why the two-mod probe had to be built by hand.
 - **The picker was never seen on a screen.** It is a `showListModal` with rows
-  built from `ArchiveModsData`; the backend and the RPC are tested, the pixels
-  are not.
+  built from `ArchiveModsData`; the RPC contract and the write path are proven
+  on the device, the pixels are not.

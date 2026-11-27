@@ -160,9 +160,9 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 | 6 | ~~Deck 上是 Round 80 前后的旧构建~~ **已部署**（2026-11-27 20:30 UTC，见 §九） | — |
 | 7 | ~~Round 83 全部改动仍未 commit~~ **已提交** `d7cb6a8`（37 文件 / 2819 增 / 188 删） | — |
 | 8 | **`check_mod_updates` 首次真机调用返回 `E_CAPABILITY_DISABLED`**——不是缺陷，是设计前置条件：`~/homebrew/data/decky-mod-manager/data/nexus_api_key` 不存在。**Round 84 补上了面板里的 key 入口**（`ApiKeyBox`），所以用户现在有路径自己解决；但要走通「有 key 的路径」和「Nexus 免费账号 403」两条分支，仍需真机上实际填一次 key | 用户提供 key 或明确不做 |
-| 9 | **Round 84 全部改动未 commit、未部署**（21 改 / 4 新增，见 §十） | agent |
-| 10 | **`.7z` + `member_root` 无任何测试**——`_inspect_7z` 与 `list_mod_roots` 的 7z 分支是 ZIP 分支的逐行镜像，但本机无 `7z` 二进制，`test_7z_listing_with_the_real_binary` 一直 skip。需要 Deck 上验 | agent（Deck 有 `/usr/bin/7z`） |
-| 11 | **归档选择器没在屏幕上见过**——`showListModal` 的像素没人看过，后端与 RPC 有测试 | 并入第 1 项 |
+| 9 | ~~Round 84 全部改动未 commit、未部署~~ **已提交 `9bebbbf`、已部署**（2026-11-27 22:47 UTC，见 §十一） | — |
+| 10 | ~~`.7z` + `member_root` 无任何测试~~ **已在真机验证**（§十一：`r84_twomod.7z` 报 count=2，选根后 inspect 成功） | — |
+| 11 | **归档选择器没在屏幕上见过**——RPC 与写入路径都在真机验过了，但 `showListModal` 的像素没人看过 | 并入第 1 项 |
 
 ---
 
@@ -271,3 +271,76 @@ functional audit found」。最重的两项：
 - **归档选择器、ApiKeyBox 的视觉效果**：零像素验证，`docs/ACCEPTANCE.md` 的
   `DEVICE`/`OPEN` 一项未减。
 - **真机**：本轮没连 Deck，全部结论来自本地测试与 RPC 契约。
+
+## 十一、Round 84 部署与真机验证（2026-11-27 22:44–22:49 UTC）
+
+**提交**：`9bebbbf Round 84: the ten gaps a functional audit found`，31 文件 / 1117 增 / 131 删。
+
+**打包踩了一个坑，值得记**：第一次打的 tgz 把后端放进了 `deckymod/`（仓库根布局），
+而插件运行时读的是 `py_modules/deckymod/`。解包后 `grep archive_mods main.py` = 6
+（main.py 对了），但 `archive_mods` RPC 返回
+`E_CAPABILITY_DISABLED "[archive_mods] this engine has no archive inspection path"`——
+因为加载的是 `py_modules/` 下的旧引擎。**校验哈希时必须用远端路径**：把本地
+`deckymod/*.py` 的哈希写成 `py_modules/deckymod/*.py` 再比对，否则比的是两个不存在的路径。
+第二版 tgz（`ec2ba260…`，60 条目）才正确；同时删掉了第一版误建在插件根的 `deckymod/`
+和 `registry/`（备份里没有这两个目录，可确认是误建）。
+
+**备份**：`~/DeckyModManager-Archive/backups/plugin-before-round84`（1.6M）。
+
+**校验**：54 个文件 sha256 全量比对 `NO_LOCAL=0 DIFF=0`。关键值：
+
+```text
+f1ef9b59…511c752  main.py
+4bf99e7d…7e206d0  dist/index.js                      (285056 B)
+254384f0…8a42895  dist/index.js.map
+2d5cef53…875d27   py_modules/deckymod/smapi.py
+900257ee…a28108   py_modules/deckymod/file_drop.py
+```
+
+Deck 上另有 5 个顶层 `py_modules/registry/*.json`（bepinex5/melonloader/smapi/ue4ss/xnvse），
+Round 84 的备份里同样存在——是更早布局遗留，不是本轮产物。
+
+**surface**（本地基线对照，全部一致）：`archive_mods` main.py=6、`member_root` main.py=9、
+`list_mod_roots` file_drop=2、`only_root` manifest=8、`ERRR_` bundle=46、
+`BTN_KEY_SAVE` bundle=5、`ARCHIVE_TITLE_N` bundle=5、`DIST_SIZE=285056`。
+
+**重载**：`sudo systemctl restart plugin_loader.service` → `active`；
+日志 `2026-11-27T14:47:44Z [info] Decky MOD Manager loaded (Stardew Valley / SMAPI (detect-only))` + `plugin loaded`，无 traceback。
+
+**真机 RPC 冒烟**（`.decky-probe/r84_smoke.py`，经真实 Decky WS）：
+
+| RPC | 结果 |
+| --- | --- |
+| `error_codes` | `ok:true`，52 码——**本轮没有新增错误码**，契约未破 |
+| `status` | `ok:true`，32024 B |
+| `recovery` | `ok:true`，`pending:[] stuck:[]` |
+| `check_mod_updates` | `E_CAPABILITY_DISABLED`，**`data.reason="no_key"`**（这是 Round 84 的新词汇表生效的证据），`detail` 与 `hint` 同前 |
+| `archive_mods`（真实单 mod 包） | `ok:true`，`count:1`，`roots:[{root:"BetterRanching",name:"Better Ranching",version:"2.0.5",files:8}]` |
+| `archive_mods`（`/etc/hostname`） | `E_PATH_ESCAPE`，`detail` 明确列出两个允许根 |
+
+**多 mod 通路（真机，这一项本机测不了）**：12 个 inbox 归档全部 `count:1`，没有一个真实
+多 mod 包，所以在 Deck 上用它的 `/usr/bin/7z` 现做了 `r84_twomod.zip` 与 `r84_twomod.7z`
+（各含 `Pack/ModA`、`Pack/ModB`）：
+
+| 调用 | 结果 |
+| --- | --- |
+| `archive_mods` zip | `count:2`，`roots:["Pack/ModA","Pack/ModB"]` |
+| `archive_mods` 7z | `count:2`，同上——**.7z 分支与 ZIP 分支行为一致** |
+| `inspect(zip)` 不带根 | `E_MULTI_MOD_ARCHIVE this archive holds 2 mods (Pack/ModA, Pack/ModB)` |
+| `inspect(zip, "Pack/ModA")` | `ok`，`uniqueId=probe.mod.a`，`members=['A.dll','config.json','manifest.json']`，`install_relpath=Mods/probe.mod.a` |
+| `inspect(7z)` 不带根 | 同样 `E_MULTI_MOD_ARCHIVE` |
+| `inspect(7z, "Pack/ModA")` | `ok`，`uniqueId=probe.7z.a`，`members=['A.dll','manifest.json']` |
+
+**写入路径（真机）**：`install(zip, true, null, "Pack/ModA")` → `ok`，
+`dir=.../Mods/probe.mod.a`，`dir_name=probe.mod.a`，`enabled:true`，`txn=20261127T144859-c28cf9b1`。
+随后读该目录实际内容：`['A.dll','config.json','manifest.json']`，
+**`HAS_B_DLL False`、`MODS_DIR_HAS_MODB False`**——选中的根确实只装了那一个 mod。
+`uninstall("probe.mod.a", true)` → `ok`，目录消失，`Mods/` 恢复 28 项、0 个 probe 残留。
+
+**为什么第一次写入验证不算数**：第一次在 `uninstall` **之后**才 `ls` 目录，看到的「不存在」
+证明不了写入时没写 ModB。第二次改成装完立刻 `os.walk` 读内容、再卸载，才真正闭合。
+记这条是因为「验证顺序错了会得到正确答案」这类事最容易骗过自己。
+
+**本轮仍未证明**：`ApiKeyBox`、归档选择器、四个确认框的**视觉效果**——零像素验证，
+`docs/ACCEPTANCE.md` §B.6 的 K1–K5 全部 `DEVICE`/`OPEN`。RPC 契约与写入路径已验，
+「按下去好不好看、D-pad 能不能走到」仍未验。

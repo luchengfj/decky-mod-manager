@@ -210,3 +210,7 @@ f01e4e99…0bda0   py_modules/deckymod/root_merge.py     (含 _handover_roots ×
 **后端自检**（Deck 侧 system python3）：`from deckymod import update_check` 成功，导出 `MAX_CHECKS`/`STATE_CURRENT`/`STATE_OUTDATED`/`STATE_UNKNOWN`/`STATE_ERROR`/`check`/`compare`；`from deckymod.errors import ERRORS` → 52。
 
 **本轮未证明**：任何布局与交互的视觉效果。所有结论仍来自文件哈希与 RPC 返回值，`docs/ACCEPTANCE.md` §B.5 的 R1–R4 依旧 `DEVICE`/`OPEN`。
+
+**补遗**：`dist/index.js.map` 首次打包时漏了（Deck 上仍是 11-21 的旧 map，291006 B，与 257740 B 的 bundle 行号错位）。已单独推送并校验：297991 B，sha256 `753edc76…74db97f`，与本地一致。补完后插件未重启——map 只被 devtools 读取，不参与运行。
+
+**另**：`rollup -c` 重跑后 bundle 字节一致（257740 B / `983601bd…`），所以早前文档里的 257411 B 是一次过期测量，已在 `docs/PANEL_LAYOUT.md` 与本文修正为 257740 B。

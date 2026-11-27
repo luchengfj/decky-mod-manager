@@ -604,8 +604,14 @@ class FileDropEngine:
             "log_path": _log_path(self.journal),
         })
 
-    def inspect(self, zip_path: str) -> dict:
-        """Dry-run inspection (no writes)."""
+    def inspect(self, zip_path: str, member_root: str | None = None) -> dict:
+        """Dry-run inspection (no writes).
+
+        Round 84: ``member_root`` previews ONE mod of a multi-mod archive. The
+        picker calls this after the user chose a root -- without it the preview
+        would answer E_MULTI_MOD_ARCHIVE again and send the user straight back
+        to the picker they just came from.
+        """
         try:
             self._gate("local_import")
         except ModError as e:
@@ -617,7 +623,8 @@ class FileDropEngine:
         try:
             info = file_drop.inspect_mod(zip_path, self._limits(),
                                         reject_extensions=self._reject_extensions(),
-                                        mod_package=self._mod_package())
+                                        mod_package=self._mod_package(),
+                                        member_root=member_root)
         except ModError as e:
             return err(e.code, detail=e.detail)
         except OSError as e:
@@ -667,11 +674,44 @@ class FileDropEngine:
             "log_path": _log_path(self.journal),
         })
 
+    # ------------------------------------------------------- archive_mods (read-only)
+    def archive_mods(self, zip_path: str) -> dict:
+        """List every mod root inside one archive (read-only).
+
+        Round 84: ``inspect`` refuses a bundle that holds several mods
+        (``E_MULTI_MOD_ARCHIVE``) because installing one as if it were the whole
+        archive is never right -- but the user still has to SEE what is inside to
+        pick one. This is that read-only listing. The gate order matches
+        ``_install_inner`` for the checks that matter here (gate, not-running,
+        path); the write-side checks are deliberately absent because nothing is
+        written, and a pending transaction must not stop a plain preview.
+        """
+        try:
+            self._gate("local_import")
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        try:
+            self._check_not_running()
+            self._validate_import_path(zip_path)
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        try:
+            listed = file_drop.list_mod_roots(zip_path, self._limits(),
+                                             reject_extensions=self._reject_extensions(),
+                                             mod_package=self._mod_package())
+        except ModError as e:
+            return err(e.code, detail=e.detail)
+        except OSError as e:
+            return err(map_oserror(e).code, detail=e.strerror)
+        return ok(listed)
+
     # ------------------------------------------------------------------ install (== enable)
     def install(self, zip_path: str, *, after_confirm: bool = False,
-                fomod_choices: dict | None = None) -> dict:
+                fomod_choices: dict | None = None,
+                member_root: str | None = None) -> dict:
         try:
-            return self._install_inner(zip_path, after_confirm, fomod_choices)
+            return self._install_inner(zip_path, after_confirm, fomod_choices,
+                                       member_root)
         except ModError as e:
             return err(e.code, detail=e.detail, rollback_available=e.rollback_available)
         except OSError as e:
@@ -681,16 +721,23 @@ class FileDropEngine:
             return err("E_UNKNOWN", detail=f"{type(e).__name__}: {e}")
 
     def _install_inner(self, zip_path: str, after_confirm: bool,
-                       fomod_choices: dict | None = None) -> dict:
+                       fomod_choices: dict | None = None,
+                       member_root: str | None = None) -> dict:
         self._gate("local_import")
         self._check_not_running()
         r = self._resolve()
         self._check_write_allowed(r)
         self._check_no_pending()
         self._validate_import_path(zip_path)
+        # Round 84: member_root narrows a multi-mod archive to ONE of its roots
+        # before anything else looks at the archive. Because inspect_mod applies
+        # it while building `members`, the FOMOD reduction below operates on an
+        # already-narrowed map -- the other order would leave FOMOD entries
+        # pointing at files the narrowed map no longer has.
         info = file_drop.inspect_mod(zip_path, self._limits(),
                                     reject_extensions=self._reject_extensions(),
-                                    mod_package=self._mod_package())
+                                    mod_package=self._mod_package(),
+                                    member_root=member_root)
         uid, dn = info["uniqueId"], info["dir_name"]
         # Round 60: both paths come from _locate(), one expression. `target` is
         # the Mods/ path specifically (the "a non-managed folder already sits

@@ -42,6 +42,7 @@ import {
   getStatus,
   listInbox,
   inspectZip,
+  archiveMods,
   getHistory,
   refreshStatus,
   getRecovery,
@@ -80,7 +81,7 @@ import type {
 } from "./types";
 import { isConfirmData } from "./types";
 import { t, errorText, categoryText } from "./i18n";
-import type { ModListEntry, UpdateCheckData } from "./types";
+import type { ModListEntry, UpdateCheckData, ArchiveModsData } from "./types";
 import { showConfirm } from "./components/ConfirmModal";
 import { runUninstallFlow } from "./uninstallFlow";
 import { autoImportNew, autoImportSilent } from "./autoImport";
@@ -90,6 +91,7 @@ import { showInfo, showListModal, showErrorModal, showFomodModal } from "./compo
 import type { ListRow, ModalAction } from "./components/Modal";
 import { ModRow } from "./components/ModRow";
 import { ImportBox } from "./components/ImportBox";
+import { ApiKeyBox } from "./components/ApiKeyBox";
 import { BORDER, FONT, HEIGHT, LINE_HEIGHT, SPACE, PANEL_ROOT_STYLE, BOX_SIZING } from "./theme";
 
 /* ------------------------------------------------------------------ small utils */
@@ -171,6 +173,9 @@ function Content() {
   // Installed Steam games, loaded once at mount and shown directly in the
   // Games tab so picking a game is a single tap, not a buried modal.
   const [gameList, setGameList] = useState<SteamGame[]>([]);
+  // Round 84: why gameList is empty, when it is empty because the scan failed
+  // rather than because nothing is installed. "" means "no known problem".
+  const [gameListError, setGameListError] = useState("");
   const [inbox, setInbox] = useState<InboxData | null>(null);
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState(t("RESOLVING"));
@@ -245,16 +250,26 @@ function Content() {
   /** Re-read EVERYTHING from the backend (journal), never from React state. */
   // Round 37: fetch the per-game Mod-directory scans. Read-only, and a failure
   // here must never break the panel — the mod list simply stays ungrouped.
+  // Round 84: it also must not LOOK like "you have no games". The return value
+  // is unchanged ([] on failure) but the failure now reaches the panel through
+  // `gameListError`, which the Games tab renders instead of LIB_NO_GAMES.
   const loadGameGroups = async (): Promise<SteamGame[]> => {
     const g = generation.current;
     try {
       const r = await listGames();
       if (!mounted.current || generation.current !== g) return [];
       if (r.ok && r.data) {
+        if (mounted.current && generation.current === g) setGameListError("");
         return r.data.games || [];
       }
-    } catch (_) {
-      /* grouping is a convenience; never surface its failure as a panel error */
+      if (mounted.current && generation.current === g) {
+        setGameListError(envelopeError(r) || t("LIB_SCAN_FAILED",
+          "The game library could not be read."));
+      }
+    } catch (e) {
+      if (mounted.current && generation.current === g) {
+        setGameListError(envelopeError(bridgeError(String(e))));
+      }
     }
     return [];
   };
@@ -306,7 +321,28 @@ function Content() {
   // not be where the game's loader reads. Removing it stops the plugin from
   // writing there at all (the backend also falls back to a built-in game when
   // the removed one was active). It never touches the game's files.
+  //
+  // Round 84: two things were missing. It fired on the first A-press with no
+  // confirmation — the only destructive action in the panel that had none — and
+  // it swallowed `switched_to`, so when the removed game WAS the active one the
+  // panel silently started managing a different game.
   const doForgetGame = (appid: number, name: string) => {
+    showInfo(
+      t("GS_FORGET_TITLE", "Stop managing {name}?", { name }),
+      [
+        t("GS_FORGET_BODY",
+          "The plugin forgets the mod folder you picked for {name}. Nothing inside the game folder is deleted.", { name }),
+        t("GS_FORGET_WHY",
+          "You can add it again later by picking the folder once more."),
+      ],
+      [{
+        label: t("GS_FORGET_CONFIRM", "Remove the configuration"),
+        onClick: (close) => { close(); void runForgetGame(appid, name); },
+      }],
+    );
+  };
+
+  const runForgetGame = (appid: number, name: string) => {
     setBusySafe(true);
     const g = generation.current;
     (async () => {
@@ -318,8 +354,17 @@ function Content() {
       void loadGameGroups().then((gl) => {
         if (mounted.current && generation.current === g) setGameList(gl);
       });
-      toast(t("GS_REMOVED_TITLE"), t("GS_REMOVED", "{name} is no longer configured", { name }));
-      setLastResult(t("GS_REMOVED", "{name} is no longer configured", { name }));
+      // Round 84: say which game the panel switched to. `switched_to` has been
+      // in the payload since Round 78 and was never read, so the user's next
+      // action landed on a game they had not chosen.
+      const switched = (r.data || {}) as { switched_to?: string | null };
+      const to = switched.switched_to ? String(switched.switched_to) : "";
+      const msg = to
+        ? t("GS_REMOVED_SWITCHED",
+          "{name} is no longer configured. Now managing {to}.", { name, to })
+        : t("GS_REMOVED", "{name} is no longer configured", { name });
+      toast(t("GS_REMOVED_TITLE"), msg);
+      setLastResult(msg);
     })().catch((e) => {
       if (!mounted.current) return;
       setBusySafe(false);
@@ -358,7 +403,11 @@ function Content() {
       if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
       setBusySafe(false);
       if (!fresh.ok || !fresh.data) {
-        showInfo(t("GS_LOADER_INSTALL"), [envelopeError(fresh)], []);
+        // Round 84: showInfo alone lost the detail (which root was unreadable
+        // and why) — the one part that says what to fix. setError renders the
+        // uniform error modal, which shows detail and the log path.
+        setError(fresh);
+        setLastResult(envelopeError(fresh));
         return;
       }
       const zips = (fresh.data.items || []).filter((it) => /\.zip$/i.test(it.name));
@@ -443,8 +492,10 @@ function Content() {
       if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
       setBusySafe(false);
       if (!r.ok || !r.data) {
-        showInfo(t("GS_TITLE", "Mod folder for {name}", { name: game.name }),
-          [r.ok ? t("GS_FAIL") : envelopeError(r)], []);
+        // Round 84: same detail loss as above — the uniform error modal keeps
+        // the backend's detail line and log path, showInfo did not.
+        setError(r);
+        setLastResult(envelopeError(r));
         return;
       }
       const d = r.data;
@@ -633,6 +684,13 @@ function Content() {
         if (mounted.current && generation.current === g && s2.ok) setStatus(s2.data);
         const i2 = await listInbox();
         if (mounted.current && generation.current === g && i2.ok) setInbox(i2.data);
+      } else if (auto.error) {
+        // Round 84: the silent pass swallowed its own exception, so a broken
+        // auto-import was indistinguishable from "nothing new to import".
+        // No modal on mount — one line in the status row is enough.
+        setLastResult(t("AI_AUTO_FAILED", "Automatic import failed: {why}", {
+          why: auto.error,
+        }));
       }
     })();
     // Load the installed-game list once and keep it for the Games tab, so the
@@ -766,7 +824,21 @@ function Content() {
       setBusySafe(false);
       return;
     }
+    const items0 = (inbox?.items || []);
     setBusySafe(false);
+    // Round 84: a failed scan used to fall back to the last cached list with no
+    // word to the user, so a stale count looked like a fresh one — and "0
+    // archives" was indistinguishable from "the scan broke".
+    if (!fresh.ok) {
+      showInfo(
+        t("INBOX_TITLE", "Local archives ({n})", { n: items0.length }),
+        [
+          t("INBOX_STALE", "The folder scan failed, so this list may be out of date."),
+          envelopeError(fresh),
+        ],
+        [],
+      );
+    }
     const data = fresh.ok ? (fresh.data as InboxData) : inbox;
     if (fresh.ok && data) setInbox(data);
     const items = data?.items || [];
@@ -791,16 +863,67 @@ function Content() {
     );
   };
 
-  const inspectAndImport = async (path: string) => {
+  /**
+   * Round 84: an archive that ships several mods.
+   *
+   * `archive_mods` lists every mod root the backend can see (read-only), and
+   * install(memberRoot=...) then installs exactly one of them. Before this the
+   * only answer was E_MULTI_MOD_ARCHIVE, which told the user to "import them
+   * one at a time" while giving them no way to do so in Game Mode.
+   *
+   * An empty root ("") is a real choice: it means the mods sit at the top level
+   * of the archive, and it is deliberately distinct from "no choice made".
+   */
+  const pickArchiveMod = async (path: string) => {
     setBusySafe(true);
     const g = generation.current;
-    const r = await inspectZip(path);
+    const r = await archiveMods(path);
+    if (!mounted.current || generation.current !== g) { setBusySafe(false); return; }
+    setBusySafe(false);
+    if (!r.ok || !r.data) { setError(r); return; }
+    const d = r.data;
+    const roots = d.roots || [];
+    if (!roots.length) {
+      showInfo(t("ARCHIVE_TITLE"), [t("ARCHIVE_NONE")], []);
+      return;
+    }
+    const rows: ListRow[] = roots.map((rt) => ({
+      label: rt.name || rt.root || t("ARCHIVE_ROOT_LABEL", "(archive root)"),
+      sub: [
+        rt.root ? t("ARCHIVE_ROOT_SUB", "folder: {v}", { v: rt.root }) : "",
+        rt.version ? t("ARCHIVE_VERSION", "v{v}", { v: rt.version }) : "",
+        t("ARCHIVE_FILES", "{n} files", { n: rt.files }),
+      ].filter((x) => x !== "").join("  ·  "),
+      onActivate: (close) => {
+        close();
+        later(() => void inspectAndImport(path, rt.root), 250);
+      },
+    }));
+    showListModal(
+      t("ARCHIVE_TITLE_N", "This archive holds {n} mods", { n: roots.length }),
+      rows,
+      t("ARCHIVE_SUB", "Pick one mod to install. Each is installed on its own, exactly like a single-mod archive."),
+    );
+  };
+
+  const inspectAndImport = async (path: string, memberRoot?: string) => {
+    setBusySafe(true);
+    const g = generation.current;
+    const r = await inspectZip(path, memberRoot);
     if (!mounted.current || generation.current !== g) {
       setBusySafe(false);
       return;
     }
     setBusySafe(false);
     if (!r.ok) {
+      // Round 84: an archive holding several mods used to end here with "import
+      // them one at a time" — advice the user could not follow, because Game
+      // Mode has no file manager and the plugin offers no way to split a ZIP.
+      // The archive itself becomes the picker: name each mod root, install one.
+      if (r.code === "E_MULTI_MOD_ARCHIVE") {
+        void pickArchiveMod(path);
+        return;
+      }
       setError(r);
       return;
     }
@@ -879,7 +1002,7 @@ function Content() {
           close();
           showFomodModal(fomodDesc!, (choices) => {
             runTwoPhase(
-              (ac) => installMod(path, ac, choices),
+              (ac) => installMod(path, ac, choices, memberRoot),
               importSuccess,
             );
           });
@@ -897,7 +1020,7 @@ function Content() {
       onClick: (close) => {
         close();
         runTwoPhase(
-          (ac) => installMod(path, ac),
+          (ac) => installMod(path, ac, null, memberRoot),
           importSuccess,
         );
       },
@@ -909,7 +1032,7 @@ function Content() {
       onClick: (close) => {
         close();
         runTwoPhase(
-          (ac) => installMod(path, ac),
+          (ac) => installMod(path, ac, null, memberRoot),
           importSuccess,
           undefined,
           async () => {
@@ -1724,24 +1847,48 @@ function Content() {
         return;
       }
       const d = (r.data || {}) as UpdateCheckData;
-      const rows: ListRow[] = (d.rows || []).map((row) => ({
-        label: row.uniqueId || "(unnamed)",
-        sub: row.state === "outdated"
-          ? `${row.installed || "?"} -> ${row.latest || "?"}`
-          : row.state === "current"
-            ? `${row.installed || "?"} (current)`
-            : row.state === "error"
-              ? (row.reason || "failed")
-              : "unknown",
-        // No action: a free Nexus account cannot download, so there is nothing
-        // this row could do. Present-but-inert beats a button that refuses.
-        onActivate: () => {},
-      }));
+      const rows: ListRow[] = (d.rows || []).map((row) => {
+        const nx = Number(row.nexusId);
+        const canOpen = Number.isInteger(nx) && nx > 0;
+        return {
+          label: row.uniqueId || "(unnamed)",
+          sub: row.state === "outdated"
+            ? `${row.installed || "?"} -> ${row.latest || "?"}`
+            : row.state === "current"
+              ? `${row.installed || "?"} (current)`
+              : row.state === "error"
+                ? (row.reason || "failed")
+                : "unknown",
+          // Round 84: this row used to be inert on the theory that a free Nexus
+          // account cannot download. That is true and irrelevant — opening the
+          // mod's page needs no key at all (open_mod_page never touches the
+          // network gate), and the page is where the user CAN download. An
+          // inert row told the user "outdated" and then gave them no next step.
+          onActivate: canOpen
+            ? (close) => { close(); doOpenPage(nx); }
+            : () => {},
+        };
+      });
       if (!rows.length) {
         showInfo(t("UPDATE_CHECK_TITLE"), [t("UPDATE_CHECK_NONE")], []);
         return;
       }
-      showListModal(t("UPDATE_CHECK_TITLE"), rows, (d.note || "") as string);
+      // Round 84: `outdated` and `errors` were never read, so a check that
+      // skipped or failed on every mod looked identical to a clean one.
+      const extra: string[] = [];
+      if (d.outdated && d.outdated.length) {
+        extra.push(t("UPDATE_CHECK_OUTDATED_N", "{n} outdated", { n: d.outdated.length }));
+      }
+      if (d.errors && Object.keys(d.errors).length) {
+        extra.push(t("UPDATE_CHECK_ERRORS_N", "{n} could not be checked", {
+          n: Object.keys(d.errors).length,
+        }));
+      }
+      if (d.skipped) {
+        extra.push(t("UPDATE_CHECK_SKIPPED_N", "{n} skipped", { n: d.skipped }));
+      }
+      const subtitle = [d.note || "", ...extra].filter((x) => x !== "").join(" · ");
+      showListModal(t("UPDATE_CHECK_TITLE"), rows, subtitle);
       setLastResult(d.summary || t("UPDATE_CHECK_NONE"));
     } finally {
       if (mounted.current) setBusySafe(false);
@@ -2289,7 +2436,9 @@ function Content() {
             </Focusable>
           ) : (
             <PanelSectionRow>
-              <div style={{ fontSize: FONT.body, opacity: 0.75 }}>{t("LIB_NO_GAMES")}</div>
+              <div style={{ fontSize: FONT.body, opacity: 0.75 }}>
+                {gameListError || t("LIB_NO_GAMES")}
+              </div>
             </PanelSectionRow>
           )}
           <ButtonItem
@@ -2375,6 +2524,10 @@ function Content() {
               {t("NEXUS_SECTION_DESC")}
             </div>
           </PanelSectionRow>
+          {/* Round 84: the key box. Before this the panel had no way to enter a
+              key, so `check_mod_updates` could only ever answer "no usable
+              stored key" and the user had no path to fix it. */}
+          <ApiKeyBox busy={busy} />
           <PanelSectionRow>
             <div style={{ fontSize: FONT.caption, opacity: 0.85, wordBreak: "break-all", fontWeight: 700 }}>
               {nexusPrefix

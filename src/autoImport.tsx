@@ -40,6 +40,10 @@ export interface AutoImportOutcome {
   ok: boolean;
   installed: string[];
   skipped: Array<{ name: string; why: string }>;
+  /** Why the scan itself failed, when it threw instead of returning a plan.
+   *  Left for the caller (the panel) to show — this module never pops UI for
+   *  the silent pass, because a mount must not raise a modal. */
+  error?: string;
 }
 
 function isConfirmData(d: unknown): d is ConfirmData {
@@ -122,9 +126,15 @@ export function autoImportNew(onDone?: (r: AutoImportOutcome) => void): void {
 }
 
 /** Silent background pass for panel mount: auto-installs brand-new downloads
- *  only (respects `seen`), no modal. Caller decides how to notify the user. */
+ *  only (respects `seen`), no modal. Caller decides how to notify the user —
+ *  which is why the thrown reason travels back in `error` instead of being
+ *  swallowed here: a silent failure with no message is indistinguishable from
+ *  "nothing new to import". */
 export function autoImportSilent(): Promise<AutoImportOutcome> {
-  return scanAndInstall(true).catch(() => ({ ok: false, installed: [], skipped: [] }));
+  return scanAndInstall(true).catch((e) => ({
+    ok: false, installed: [], skipped: [],
+    error: String((e && e.message) || e),
+  }));
 }
 
 function showSummary(r: AutoImportOutcome): void {

@@ -192,14 +192,14 @@ def _relpaths(globs: List[str]) -> List[str]:
     return rels
 
 
-def locate_manifest(entries: List[str], relpaths: List[str]) -> ManifestLocation | None:
-    """Find every member that looks like a manifest, and the root it implies.
+def _scan_manifest_roots(entries: List[str], relpaths: List[str]) -> Tuple[List[Tuple[str, str]], List[str]]:
+    """Find every manifest-looking member, and the deduped roots they imply.
 
-    The mod root is derived from the member itself (``name`` minus the
-    ``relpath`` suffix), never from a guess about how many directories the
-    packer wrapped around the files. Returns ``None`` when nothing matches;
-    the first entry of ``others`` being non-empty means the archive contains
-    more than one mod, which the caller must refuse rather than silently pick.
+    Returns ``(found, bases)`` where ``found`` is the sorted ``[(base,
+    orig_name)]`` list and ``bases`` the deduped roots in that same order
+    (shallowest first, then shortest, then case-insensitive). Shared by
+    ``locate_manifest`` and ``all_mod_roots`` so the two can never disagree
+    about which root sorts first.
     """
     files = [e for e in entries if e and not e.endswith("/")]
     found: List[Tuple[str, str]] = []   # (base, orig_name)
@@ -214,13 +214,40 @@ def locate_manifest(entries: List[str], relpaths: List[str]) -> ManifestLocation
                 found.append((e[: -(len(rel) + 1)], e))
                 break
     if not found:
-        return None
+        return [], []
     # shallowest, then shortest: the most likely "the mod itself"
     found.sort(key=lambda b: (b[0].count("/"), len(b[0]), b[0].lower()))
     bases: List[str] = []
     for base, _ in found:
         if base not in bases:
             bases.append(base)
+    return found, bases
+
+
+def all_mod_roots(entries: List[str], relpaths: List[str]) -> List[str]:
+    """Every mod root in the archive, in ``locate_manifest`` order.
+
+    ``""`` means the mod sits at the archive root. An archive that ships
+    several mods yields several roots; the first one is what
+    ``locate_manifest`` would pick as its ``base``.
+    """
+    _found, bases = _scan_manifest_roots(entries, relpaths)
+    return bases
+
+
+def locate_manifest(entries: List[str], relpaths: List[str]) -> ManifestLocation | None:
+    """Find every member that looks like a manifest, and the root it implies.
+
+    The mod root is derived from the member itself (``name`` minus the
+    ``relpath`` suffix), never from a guess about how many directories the
+    packer wrapped around the files. Returns ``None`` when nothing matches;
+    the first entry of ``others`` being non-empty means the archive contains
+    more than one mod, which the caller must refuse rather than silently pick.
+    """
+    files = [e for e in entries if e and not e.endswith("/")]
+    found, bases = _scan_manifest_roots(entries, relpaths)
+    if not found:
+        return None
     base = bases[0]
     orig_name = next(o for b, o in found if b == base)
     prefix = base + "/" if base else ""

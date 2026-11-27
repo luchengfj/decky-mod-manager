@@ -68,3 +68,27 @@ export function categoryText(category: string): string {
   const k = `CAT_${String(category || "").toUpperCase()}`;
   return t(k, category || "");
 }
+
+/**
+ * Translate a backend `data.reason` word through a stable ERRR_<UPPER> key.
+ *
+ * Round 84: E_CAPABILITY_DISABLED ships ONE sentence ("This action is not
+ * available in this version.") while covering ten different situations, so for
+ * most of them that sentence is simply false. Rather than add error codes —
+ * three tests and six documents pin the table at 52 entries — each site now
+ * carries a stable machine word in `data.reason`, and this function turns it
+ * into the sentence that is actually true.
+ *
+ * Returns "" when the word is absent or unknown, so callers can fall back to
+ * the generic code message and an older backend keeps working unchanged.
+ */
+export function reasonText(reason: string | null | undefined): string {
+  const word = String(reason || "").trim();
+  if (!word) return "";
+  const key = `ERRR_${word.toUpperCase()}`;
+  const primary = isChinese() ? ZH : EN;
+  const secondary = isChinese() ? EN : ZH;
+  const raw = primary[key] ?? secondary[key];
+  return raw === undefined ? "" : raw;
+}
+

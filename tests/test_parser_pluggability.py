@@ -407,11 +407,13 @@ class TestJsoncDialect(unittest.TestCase):
     def test_scan_recovers_previously_false_missing_dependency(self):
         """A JSONC manifest that WAS a parse_error must now resolve and clear
         the bogus 'missing dependency' that its failed parse caused."""
-        import tempfile
+        import uuid
         import shutil
+        # Unique per run: a fixed name here collides with nothing in isolation
+        # but is reused by a second invocation, and `rmtree` at the start of the
+        # test deletes whatever the previous process left behind.
         root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            ".decky-test-tmp", "jsonc-scan")
-        shutil.rmtree(root, ignore_errors=True)
+                            ".decky-test-tmp", "jsonc-scan-" + uuid.uuid4().hex[:8])
         os.makedirs(os.path.join(root, "Mods", "GenericModConfigMenu"), exist_ok=True)
         os.makedirs(os.path.join(root, "Mods", "BetterRanching"), exist_ok=True)
         mp = _mod_package("stardew")

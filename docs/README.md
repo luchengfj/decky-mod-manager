@@ -166,7 +166,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        62 modules, 878 cases (`Ran 878 tests ... OK (skipped=15)`)
+tests/                        75 modules, 1070 cases (`Ran 1070 tests ... OK (skipped=18)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -197,6 +197,9 @@ test_pending_gate.py        an unfinished txn blocks install/enable/uninstall, n
 test_lifecycle_hooks.py     _unload/_uninstall/_migration leave the user's Mods/ byte-identical
 test_import_order.py        discovery imports everything first; no module may drop the game pin
 test_multi_mod_archive.py   several mods in one zip are refused; one mod lands at the top however deep it was packed
+test_multi_mod.py           Round 84: the refusal names the roots, and the chosen one installs alone
+test_flow_guards.py         rollback holds busy; bulk dependency install asks first; auto-import reports its error
+test_suite_hygiene.py       no fixture deletes or reuses another's directory; the launcher is documented
 test_entry_dll.py          a declared EntryDll must exist in the archive, or the import is refused
 test_rollback_undo.py      an undo that could not undo says so, and leaves no litter in the quarantine
 test_parked_dependencies.py  a disabled dependency is not a missing one, and the fetcher never sees it
@@ -301,7 +304,7 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python -m unittest discover -s tests -v  -> Ran 864 tests ... OK (skipped=15)  (LASTEXITCODE=0)
+python .decky-probe/run_tests.py         -> Ran 1070 tests ... OK (skipped=18)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
 .decky-probe/validate_i18n.py            -> EN 487 / ZH 487, parity [] , EXIT=0
 .decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 28, ALL_STATIC_CHECKS True

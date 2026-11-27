@@ -199,7 +199,7 @@ def parse_manifest(zf: zipfile.ZipFile, member: str, mod_package=None) -> dict:
 
 
 def inspect_mod(path: str, limits: dict | None = None, reject_extensions=None,
-                mod_package=None) -> dict:
+                mod_package=None, member_root: str | None = None) -> dict:
     """Validate a ZIP or .7z + parse its manifest + build the members map.
 
     ALL field names / globs / id rules come from the descriptor's
@@ -211,19 +211,26 @@ def inspect_mod(path: str, limits: dict | None = None, reject_extensions=None,
     done by extracting that one member with 7z into a scratch dir, because the
     stdlib cannot open 7z streams. Both paths converge on the same
     ``parser.parse(raw, name)`` call, so a manifest bug cannot differ per format.
+
+    Round 84: ``member_root`` names ONE mod root inside a multi-mod archive
+    (``""`` = the archive root itself, ``None`` = "not chosen", which keeps the
+    old single-mod behaviour and its ``E_MULTI_MOD_ARCHIVE`` refusal). When it
+    is given, the manifest search is limited to that subtree, ``members`` holds
+    only files under it with keys relative to it, and the install path keeps the
+    root as one extra directory so two mods from one archive cannot collide.
     """
     mp = mod_package if mod_package is not None else _active_mod_package()
     forbidden = set(reject_extensions) if reject_extensions is not None else SMAPI_FORBIDDEN_EXT
 
     if sevenzip.is_7z(path):
-        return _inspect_7z(path, mp, forbidden, limits)
+        return _inspect_7z(path, mp, forbidden, limits, member_root=member_root)
 
     info = archive.inspect_zip(path, limits, forbidden_ext=forbidden)
     infos = info.pop("_zf_entries")
     names = [i.filename for i in infos]
     info["fomod"] = _fomod_from_zip(path, names)
     parser = manifest.parser_for(mp)
-    hit = parser.find_member(names)
+    hit = parser.find_member(names, only_root=member_root)
     if not hit:
         raise ModError("E_MANIFEST_MISSING", detail="no manifest found in archive")
     with zipfile.ZipFile(path, "r") as zf:
@@ -237,10 +244,17 @@ def inspect_mod(path: str, limits: dict | None = None, reject_extensions=None,
     # no matter how the packer nested the files.
     orig_to_stripped = {v: k for k, v in hit.mapping.items()} if hit.mapping else {}
     manifest_stripped = orig_to_stripped.get(hit.orig_name, hit.orig_name)
+    # Round 84: when one root of a multi-mod archive was picked, the members map
+    # must not smuggle in the sibling mods -- their files are neither in
+    # hit.mapping nor wanted here.
+    root_prefix = (member_root.strip("/") + "/") if member_root else ""
+    root_low = root_prefix.lower()
     members = {}
     for zi in infos:
         nm = zi.filename
         if nm.endswith("/"):
+            continue
+        if root_low and not nm.lower().startswith(root_low):
             continue
         stripped = orig_to_stripped.get(nm, nm)
         if not stripped:
@@ -262,6 +276,10 @@ def inspect_mod(path: str, limits: dict | None = None, reject_extensions=None,
         version_is_fallback = True
 
     prefix = mp.get("install_relpath_prefix") or "Mods/"
+    # Round 84 note: a mod picked out of a multi-mod archive does NOT get its
+    # root as an extra path segment. `dir_name` comes from the manifest's
+    # UniqueID, so the bytes land at `Mods/<dir_name>` whatever root they were
+    # read from -- and this field must describe where the bytes actually go.
     info.update({
         "packageId": pm.uid,   # shared wire identity key
         "uniqueId": pm.uid,
@@ -280,6 +298,114 @@ def inspect_mod(path: str, limits: dict | None = None, reject_extensions=None,
         "members": members,
     })
     return info
+
+
+def _root_relpaths(parser, mp: dict) -> list:
+    """The descriptor globs, reduced to paths relative to a mod root.
+
+    Read from the parser (the object that actually decides what a manifest is)
+    and fall back to the descriptor key, so ``list_mod_roots`` cannot disagree
+    with ``inspect_mod`` about which files count as a manifest.
+    """
+    globs = getattr(parser, "globs", None) or mp.get("manifest_globs") or []
+    return archive._relpaths([str(g) for g in globs])
+
+
+def _root_manifest_rel(orig_name: str, root: str) -> str:
+    """``orig_name`` relative to ``root`` (case-insensitive prefix cut)."""
+    root = root.strip("/")
+    if root and orig_name.lower().startswith(root.lower() + "/"):
+        return orig_name[len(root) + 1:]
+    return orig_name
+
+
+def _root_files(names, root: str) -> int:
+    """How many non-directory members live under ``root``."""
+    root = root.strip("/")
+    if not root:
+        return len([n for n in names if n and not n.endswith("/")])
+    low = root.lower() + "/"
+    return len([n for n in names if n and not n.endswith("/") and n.lower().startswith(low)])
+
+
+def _root_record(root: str, name: str = "", version: str = "", manifest: str = "",
+                 files: int = 0) -> dict:
+    return {"root": root, "name": name, "version": version,
+            "manifest": manifest, "files": files}
+
+
+def list_mod_roots(path: str, limits: dict | None = None, reject_extensions=None,
+                   mod_package=None) -> dict:
+    """Enumerate EVERY mod root in an archive, without refusing multi-mod ones.
+
+    Round 84: ``inspect_mod`` must refuse an archive that ships several mods
+    (installing one as if it were the whole archive is never right), but the UI
+    still needs to show the user what is inside so they can pick. This is the
+    read-only enumeration behind that picker: it validates the archive with the
+    same limits/forbidden-extension rules, then reads each root's manifest.
+
+    A root whose manifest cannot be read or parsed does NOT fail the call -- it
+    is reported with empty ``name``/``version``/``manifest`` so one broken mod
+    in a bundle cannot hide the healthy ones. Nothing is written anywhere.
+    """
+    mp = mod_package if mod_package is not None else _active_mod_package()
+    forbidden = set(reject_extensions) if reject_extensions is not None else SMAPI_FORBIDDEN_EXT
+    parser = manifest.parser_for(mp)
+    relpaths = _root_relpaths(parser, mp)
+    abs_path = os.path.abspath(path)
+
+    if sevenzip.is_7z(path):
+        lim = {**archive.DEFAULT_LIMITS, **(limits or {})}
+        listed = sevenzip.inspect_7z(path, lim, forbidden_ext=forbidden)
+        entries = listed["entries"]
+        names = [e["name"] for e in entries if not e.get("is_dir")]
+        roots = archive.all_mod_roots(names, relpaths)
+        records = [_root_record(r, files=_root_files(names, r)) for r in roots]
+        # One extraction serves every root: 7z cannot read a single member.
+        scratch = _scratch_dir("deckymod-7zr-")
+        try:
+            sevenzip.extract_7z(path, scratch, tool=listed["tool"])
+            for rec in records:
+                hit = parser.find_member(names, only_root=rec["root"])
+                if not hit or not hit.orig_name:
+                    continue
+                member_path = os.path.join(scratch, *hit.orig_name.split("/"))
+                try:
+                    with open(member_path, "rb") as f:
+                        pm = parser.parse(f.read(), hit.orig_name)
+                except (OSError, ModError, ValueError):
+                    continue
+                rec["manifest"] = _root_manifest_rel(hit.orig_name, rec["root"])
+                rec["name"] = pm.name or ""
+                rec["version"] = pm.version or ""
+        except (ModError, OSError):
+            # Extraction trouble only costs the metadata, never the enumeration.
+            pass
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+        return {"path": abs_path, "format": "7z", "count": len(records),
+                "roots": records}
+
+    info = archive.inspect_zip(path, limits, forbidden_ext=forbidden)
+    infos = info.pop("_zf_entries")
+    names = [i.filename for i in infos]
+    roots = archive.all_mod_roots(names, relpaths)
+    records = [_root_record(r, files=_root_files(names, r)) for r in roots]
+    with zipfile.ZipFile(path, "r") as zf:
+        for rec in records:
+            hit = parser.find_member(names, only_root=rec["root"])
+            if not hit or not hit.orig_name:
+                continue
+            try:
+                raw = zf.read(hit.orig_name)
+                pm = parser.parse(raw, hit.orig_name)
+            except (KeyError, OSError, RuntimeError, ModError, ValueError):
+                continue
+            rec["manifest"] = _root_manifest_rel(hit.orig_name, rec["root"])
+            rec["name"] = pm.name or ""
+            rec["version"] = pm.version or ""
+    return {"path": abs_path, "format": "zip", "count": len(records),
+            "roots": records}
 
 
 def _fomod_descriptor(parsed: dict) -> dict:
@@ -349,12 +475,16 @@ def _scratch_dir(prefix: str) -> str:
     raise ModError("E_ACCESS", detail="could not create a scratch directory for .7z")
 
 
-def _inspect_7z(path: str, mp: dict, forbidden, limits) -> dict:
+def _inspect_7z(path: str, mp: dict, forbidden, limits,
+                member_root: str | None = None) -> dict:
     """The .7z branch of inspect_mod: validate the table, then read one member.
 
     Extraction happens in a scratch directory that is removed in a ``finally``.
     Nothing is left behind, and a failure to clean up must not change the result
     the user sees — so cleanup swallows its own errors.
+
+    Round 84: ``member_root`` mirrors the ZIP branch exactly -- the manifest is
+    looked up inside that one subtree and ``members`` is re-anchored at it.
     """
     lim = {**archive.DEFAULT_LIMITS, **(limits or {})}
     listed = sevenzip.inspect_7z(path, lim, forbidden_ext=forbidden)
@@ -383,7 +513,7 @@ def _inspect_7z(path: str, mp: dict, forbidden, limits) -> dict:
             shutil.rmtree(scratch_7, ignore_errors=True)
 
     parser = manifest.parser_for(mp)
-    hit = parser.find_member(names)
+    hit = parser.find_member(names, only_root=member_root)
     if not hit:
         raise ModError("E_MANIFEST_MISSING", detail="no manifest found in .7z archive")
 
@@ -405,9 +535,12 @@ def _inspect_7z(path: str, mp: dict, forbidden, limits) -> dict:
     manifest_stripped = orig_to_stripped.get(hit.orig_name, hit.orig_name)
 
     members = {}
+    root_low = ((member_root.strip("/") + "/") if member_root else "").lower()
     for entry in entries:
         nm = entry["name"]
         if entry.get("is_dir"):
+            continue
+        if root_low and not nm.lower().startswith(root_low):
             continue
         stripped = orig_to_stripped.get(nm, nm)
         if not stripped:

@@ -263,11 +263,13 @@ def _network_download_gate():
     except Exception as e:  # noqa: BLE001 - policy hook must not leak a traceback
         return err("E_CAPABILITY_DISABLED",
                    detail="[network_download] no active game descriptor: %s: %s"
-                          % (type(e).__name__, e))
+                          % (type(e).__name__, e),
+                   data={"reason": "no_active_game"})
     caps = desc.get("capabilities", {}) if isinstance(desc, dict) else {}
     if not caps.get("network_download", False):
         return err("E_CAPABILITY_DISABLED",
-                   detail="[network_download] capability=false for %s" % gid)
+                   detail="[network_download] capability=false for %s" % gid,
+                   data={"reason": "network_download_off"})
     return None
 
 
@@ -543,7 +545,8 @@ class Plugin:
             if not hasattr(engine, "install_loader"):
                 return err("E_CAPABILITY_DISABLED",
                            detail="[install_loader] this engine has no loader "
-                                  "install path")
+                                  "install path",
+                           data={"reason": "no_loader_install"})
             _progress("loader:start", op="install_loader")
             r = engine.install_loader(str(zip_path or ""),
                                       after_confirm=bool(after_confirm))
@@ -575,7 +578,8 @@ class Plugin:
             if not url:
                 return err("E_CAPABILITY_DISABLED",
                            detail="[open_loader_page] loader %s declares no "
-                                  "browse_url" % lid)
+                                  "browse_url" % lid,
+                           data={"reason": "loader_no_page", "loader": lid})
             # The trust boundary is the loader catalog that ships with the
             # plugin: only the host IT declares may be handed to the browser.
             from urllib.parse import urlsplit
@@ -585,7 +589,8 @@ class Plugin:
                 return err("E_CAPABILITY_DISABLED",
                            detail="[open_loader_page] %s: %s" % (
                                got.get("reason"), got.get("detail") or ""),
-                           data={"url": url, "reason": got.get("reason")})
+                           data={"url": url, "reason": "open_failed",
+                                 "why": got.get("reason")})
             _progress("open_loader_page:done")
             return ok({"url": url, "loader": lid, "opened": True})
         return _guard(_run)
@@ -604,9 +609,48 @@ class Plugin:
         """List local ZIPs in the fixed inbox (review #3: no network)."""
         return _guard(lambda: self._engine().list_inbox())
 
-    async def inspect(self, zip_path: str):
-        """Dry-run inspection of ONE local ZIP. No writes."""
-        return _guard(lambda: self._engine().inspect(zip_path))
+    async def inspect(self, zip_path: str, member_root: str | None = None):
+        """Dry-run inspection of ONE local ZIP. No writes.
+
+        Round 84: ``member_root`` previews a single mod of a multi-mod archive.
+        Without it the preview of a bundle re-raises E_MULTI_MOD_ARCHIVE, which
+        would bounce the user back to the picker they had just used.
+        """
+        root = member_root if isinstance(member_root, str) else None
+
+        def _run():
+            engine = self._engine()
+            # Only the file_drop engine knows about member roots; the other two
+            # (file_replace, root_merge) take inspect(zip_path) alone and a stray
+            # kwarg would be a TypeError surfaced as E_UNKNOWN.
+            if root is not None and hasattr(engine, "_set_enabled_inner"):
+                return engine.inspect(zip_path, member_root=root)
+            return engine.inspect(zip_path)
+
+        return _guard(_run)
+
+    async def archive_mods(self, zip_path: str):
+        """Round 84: list every mod root inside one archive. No writes.
+
+        An archive that ships several mods used to be a dead end: install()
+        answered E_MULTI_MOD_ARCHIVE ("import them one at a time") while Game
+        Mode has no file manager, so the user was asked to do something the
+        plugin gave them no way to do. This call makes the archive itself the
+        picker: it names each mod root, and install(member_root=...) then
+        installs exactly one of them.
+
+        Read-only by construction: it resolves the path, refuses anything
+        outside an import root, and never touches the mods folder.
+        """
+        def _run():
+            engine = self._engine()
+            if not hasattr(engine, "archive_mods"):
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[archive_mods] this engine has no archive "
+                                  "inspection path",
+                           data={"reason": "no_archive_mods"})
+            return engine.archive_mods(str(zip_path or ""))
+        return _guard(_run)
 
     async def history(self, limit: int = 50):
         return _guard(lambda: self._engine().history(int(limit)))
@@ -632,22 +676,35 @@ class Plugin:
         return _guard(_run)
 
     # ------------------------------------------------------------------ write RPCs
-    async def install(self, zip_path: str, after_confirm: bool = False, fomod_choices=None):
+    async def install(self, zip_path: str, after_confirm: bool = False, fomod_choices=None,
+                      member_root=None):
         """Two-phase: after_confirm=False -> dry-run/confirm payload (no writes);
         after_confirm=True -> execute. Positional args match call()/callable().
 
         Round 28 (criterion 3): ``fomod_choices`` is an optional JSON-safe dict
         mapping ``"<step>.<group>"`` to selected option name(s). Omitting it keeps
         the old call signature working and simply means "no FOMOD override".
+
+        Round 84: ``member_root`` names ONE mod root inside an archive that holds
+        several (see ``archive_mods``). Empty string means "the archive root"
+        and is distinct from None, which means "the archive holds exactly one
+        mod, use it". Only the file_drop engine can honour it.
         """
         def _run():
             _progress("install:start", op="install", package_id="")
             engine = self._engine()
-            # Only the file_drop engine understands FOMOD; keep the RimWorld
-            # Engine call byte-identical when no choices are supplied.
-            if isinstance(fomod_choices, dict) and fomod_choices and hasattr(engine, "_set_enabled_inner"):
-                r = engine.install(zip_path, after_confirm=bool(after_confirm),
-                                   fomod_choices=fomod_choices)
+            fd_engine = hasattr(engine, "_set_enabled_inner")
+            want_fomod = isinstance(fomod_choices, dict) and bool(fomod_choices)
+            want_root = isinstance(member_root, str)
+            # Only the file_drop engine understands FOMOD and multi-mod roots;
+            # keep the RimWorld Engine call byte-identical when neither applies.
+            if fd_engine and (want_fomod or want_root):
+                extra = {}
+                if want_fomod:
+                    extra["fomod_choices"] = fomod_choices
+                if want_root:
+                    extra["member_root"] = member_root
+                r = engine.install(zip_path, after_confirm=bool(after_confirm), **extra)
             else:
                 r = engine.install(zip_path, after_confirm=bool(after_confirm))
             _progress("install:done", op="install", package_id=(r.get("data") or {}).get("packageId", "")
@@ -670,7 +727,8 @@ class Plugin:
             if not hasattr(engine, "delete_source_zip"):
                 return err("E_CAPABILITY_DISABLED",
                            detail="[delete_zip_source] this engine has no "
-                                  "source-ZIP path")
+                                  "source-ZIP path",
+                           data={"reason": "no_source_zip"})
             return engine.delete_source_zip(str(zip_path or ""))
         return _guard(_run)
 
@@ -759,7 +817,10 @@ class Plugin:
                 return gated
             cfg = _source_cfg("github")
             if cfg and not cfg.get("enabled", True):
-                return err("E_CAPABILITY_DISABLED", detail="[gh_search] github source disabled")
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[gh_search] github source disabled",
+                           data={"reason": "source_disabled",
+                                 "source": "github"})
             res = github_source.search_repos(download.default_opener, str(query), int(page))
             return _core_to_envelope(res, auto_import.DL_TO_E, "gh_search")
         return _guard(_run)
@@ -772,7 +833,10 @@ class Plugin:
                 return gated
             cfg = _source_cfg("github")
             if cfg and not cfg.get("enabled", True):
-                return err("E_CAPABILITY_DISABLED", detail="[gh_releases] github source disabled")
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[gh_releases] github source disabled",
+                           data={"reason": "source_disabled",
+                                 "source": "github"})
             res = github_source.list_releases(download.default_opener, str(owner), str(repo))
             return _core_to_envelope(res, auto_import.DL_TO_E, "gh_releases")
         return _guard(_run)
@@ -792,7 +856,10 @@ class Plugin:
                 return gated
             cfg = _source_cfg("github")
             if cfg and not cfg.get("enabled", True):
-                return err("E_CAPABILITY_DISABLED", detail="[gh_download] github source disabled")
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[gh_download] github source disabled",
+                           data={"reason": "source_disabled",
+                                 "source": "github"})
             _progress("gh_download:start", op="gh_download", package_id=str(filename))
             resolved = github_source.resolve_asset(
                 download.default_opener, str(owner), str(repo), int(asset_id))
@@ -843,7 +910,10 @@ class Plugin:
                 return gated
             cfg = _source_cfg("direct")
             if not cfg.get("enabled", False):
-                return err("E_CAPABILITY_DISABLED", detail="[download_url] direct source disabled")
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[download_url] direct source disabled",
+                           data={"reason": "source_disabled",
+                                 "source": "direct"})
             # _validate_download_url raises DownloadError; convert it HERE so the
             # specific NX code survives. _guard would flatten it to E_UNKNOWN.
             try:
@@ -935,7 +1005,8 @@ class Plugin:
             try:
                 info = credentials.save_key(str(api_key or ""))
             except ValueError as e:
-                return err("E_CAPABILITY_DISABLED", detail="[set_api_key] %s" % e)
+                return err("E_CAPABILITY_DISABLED", detail="[set_api_key] %s" % e,
+                               data={"reason": "key_rejected"})
             except PermissionError as e:
                 return err("E_ACCESS", detail="[set_api_key] %s" % e)
             except OSError as e:
@@ -976,14 +1047,15 @@ class Plugin:
             except (OSError, ValueError) as e:
                 return err("E_CAPABILITY_DISABLED",
                            detail="[nexus_validate] no usable stored key: %s" % e,
-                           data={"configured": False,
+                           data={"reason": "no_key", "configured": False,
                                  "hint": "enter your Nexus API key in this panel first"})
             res = nexus.validate(download.default_opener, api_key)
             if not res.get("ok"):
                 problem = nexus.key_problem(res)
                 return err("E_CAPABILITY_DISABLED",
                            detail="[nexus_validate] %s" % problem,
-                           data={"configured": True, "problem": problem,
+                           data={"reason": "key_rejected",
+                                 "configured": True, "problem": problem,
                                  "status": res.get("status"),
                                  "server_message": res.get("detail")})
             _progress("nexus_validate:done")
@@ -1036,7 +1108,7 @@ class Plugin:
         except (OSError, ValueError) as e:
             return None, err("E_CAPABILITY_DISABLED",
                              detail="[nexus] no usable stored key: %s" % e,
-                             data={"configured": False,
+                             data={"reason": "no_key", "configured": False,
                                    "hint": "enter your Nexus API key in this panel first"})
 
     async def nexus_recent(self, kind: str):
@@ -1052,7 +1124,8 @@ class Plugin:
             domain = self._nexus_domain()
             if domain is None:
                 return err("E_CAPABILITY_DISABLED",
-                           detail="[nexus_recent] nexus_metadata source disabled")
+                           detail="[nexus_recent] nexus_metadata source disabled",
+                           data={"reason": "source_disabled"})
             api_key, bad = self._nexus_key()
             if bad is not None:
                 return bad
@@ -1069,7 +1142,8 @@ class Plugin:
             domain = self._nexus_domain()
             if domain is None:
                 return err("E_CAPABILITY_DISABLED",
-                           detail="[nexus_mod] nexus_metadata source disabled")
+                           detail="[nexus_mod] nexus_metadata source disabled",
+                           data={"reason": "source_disabled"})
             api_key, bad = self._nexus_key()
             if bad is not None:
                 return bad
@@ -1105,7 +1179,8 @@ class Plugin:
             domain = self._nexus_domain()
             if domain is None:
                 return err("E_CAPABILITY_DISABLED",
-                           detail="[nexus_download_link] nexus_metadata source disabled")
+                           detail="[nexus_download_link] nexus_metadata source disabled",
+                           data={"reason": "source_disabled"})
             api_key, bad = self._nexus_key()
             if bad is not None:
                 return bad
@@ -1135,7 +1210,8 @@ class Plugin:
             domain = self._nexus_domain()
             if domain is None:
                 return err("E_CAPABILITY_DISABLED",
-                           detail="[check_mod_updates] nexus_metadata source disabled")
+                           detail="[check_mod_updates] nexus_metadata source disabled",
+                           data={"reason": "source_disabled"})
             api_key, bad = self._nexus_key()
             if bad is not None:
                 return bad
@@ -1192,7 +1268,8 @@ class Plugin:
             if domain is None:
                 return err("E_CAPABILITY_DISABLED",
                            detail="[open_mod_page] no Nexus domain declared "
-                                  "for this game (download_sources)")
+                           "for this game (download_sources)",
+                           data={"reason": "no_nexus_domain"})
             try:
                 mid = int(mod_id)
             except (TypeError, ValueError):
@@ -1209,7 +1286,8 @@ class Plugin:
                 return err("E_CAPABILITY_DISABLED",
                            detail="[open_mod_page] %s: %s" % (
                                got.get("reason"), got.get("detail") or ""),
-                           data={"url": url, "reason": got.get("reason")})
+                           data={"url": url, "reason": "open_failed",
+                                 "why": got.get("reason")})
             _progress("open_mod_page:done")
             return ok({"url": url, "opened": True})
         return _guard(_run)
@@ -1239,7 +1317,8 @@ class Plugin:
             if domain is None:
                 return err("E_CAPABILITY_DISABLED",
                            detail="[open_search_page] no Nexus domain declared "
-                                  "for this game (download_sources)")
+                           "for this game (download_sources)",
+                           data={"reason": "no_nexus_domain"})
             text, problem = nexus.clean_query(query)
             if problem is not None:
                 return err("E_PATH_INVALID",
@@ -1251,7 +1330,8 @@ class Plugin:
                            detail="[open_search_page] %s: %s" % (
                                got.get("reason"), got.get("detail") or ""),
                            data={"url": url, "query": text,
-                                 "reason": got.get("reason")})
+                                 "reason": "open_failed",
+                                 "why": got.get("reason")})
             _progress("open_search_page:done")
             return ok({"url": url, "query": text, "opened": True})
         return _guard(_run)
@@ -1274,7 +1354,8 @@ class Plugin:
             if domain is None:
                 return err("E_CAPABILITY_DISABLED",
                            detail="[open_browse_page] no Nexus domain declared "
-                                  "for this game (download_sources)")
+                           "for this game (download_sources)",
+                           data={"reason": "no_nexus_domain"})
             url = nexus.browse_page_url(domain, sort)
             if url is None:
                 return err("E_PATH_INVALID",
@@ -1284,7 +1365,8 @@ class Plugin:
                 return err("E_CAPABILITY_DISABLED",
                            detail="[open_browse_page] %s: %s" % (
                                got.get("reason"), got.get("detail") or ""),
-                           data={"url": url, "reason": got.get("reason")})
+                           data={"url": url, "reason": "open_failed",
+                                 "why": got.get("reason")})
             _progress("open_browse_page:done")
             return ok({"url": url, "sort": sort, "opened": True})
         return _guard(_run)

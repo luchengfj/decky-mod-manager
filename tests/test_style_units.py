@@ -49,8 +49,10 @@ UI_FILES = (
     "src/components/ErrorView.tsx",
     "src/components/ModRow.tsx",
     "src/components/ImportBox.tsx",
+    "src/components/ApiKeyBox.tsx",
     "src/rollbackFlow.tsx",
     "src/uninstallFlow.tsx",
+    "src/depsFlow.tsx",
     "src/autoImport.tsx",
 )
 
@@ -410,6 +412,9 @@ class TestConsumersUseTheTable(unittest.TestCase):
             "src/uninstallFlow.tsx": {
                 "FONT.body": 1, "FONT.heading": 1, "FONT.lead": 1,
                 "SPACE.lg": 1, "SPACE.md": 1,
+            },
+            "src/components/ApiKeyBox.tsx": {
+                "FONT.body": 1, "FONT.caption": 4, "SPACE.md": 2,
             },
             "src/autoImport.tsx": {
                 "FONT.bodyLg": 1, "FONT.title": 1, "SPACE.sm": 1,

@@ -165,10 +165,15 @@ async function installFetchable(plan: DepPlanData): Promise<void> {
 }
 
 /**
- * One entry point for both panel buttons:
- *   - everything fetchable  -> confirm-free install (the button already is consent)
+ * One entry point for both panel buttons. Two-step structure:
+ *   - everything fetchable  -> showInfo confirmation, install only on confirm
  *   - nothing fetchable     -> a list that opens each mod's download page
  *   - mixed                 -> list with an install row on top
+ *
+ * The all-fetchable branch used to install immediately on the theory that
+ * "the button already is consent". It is not: the button says "check
+ * dependencies", and the write lands in Mods/ — so that branch now asks first
+ * with the same global-modal showInfo the other branches use.
  */
 export function runDepsFlow(): void {
   (async () => {
@@ -193,9 +198,30 @@ export function runDepsFlow(): void {
       return;
     }
 
-    // Every dependency can be fetched: no list needed, just do it.
+    // Every dependency can be fetched. This branch used to call
+    // installFetchable() straight away, which wrote into Mods/ on a button
+    // press whose label only promised to look for dependencies. It now goes
+    // through the same global-modal confirmation as the mixed branch: show the
+    // counts, explain that this writes, and install only from the A-button.
     if (fetchable >= total) {
-      await installFetchable(d);
+      showInfo(
+        t("DEPS_CONFIRM_TITLE", "Download and install dependencies?"),
+        [
+          t("DEPS_CONFIRM_BODY",
+            "{n} of {m} dependencies can be downloaded and installed now.",
+            { n: fetchable, m: total }),
+          t("DEPS_CONFIRM_WHY", "This writes into your mods folder."),
+        ],
+        [
+          {
+            label: t("BTN_CONFIRM"),
+            onClick: (close) => {
+              close();
+              void installFetchable(d);
+            },
+          },
+        ],
+      );
       return;
     }
 

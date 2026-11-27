@@ -410,3 +410,78 @@ than silently, which is the intent, but it is bookkeeping, not verification.
 - No `CLOSED` added; `[x]` boxes stay 0; §B.4 unchecked.
 - V1 remains the only CLOSED item; V2–V20 / F1–F3 stay OPEN; G3 stays OPEN.
 - No capability, guard, confirm flow, RPC signature, or i18n key changed.
+
+## 8. Round 84 — the panel gains the controls it was describing
+
+Round 84 came out of a functional audit, not a layout one, but four of its ten
+items are panel structure, so the layout record has to change with them.
+
+### New: `src/components/ApiKeyBox.tsx`
+
+The Nexus section now owns the API key. Before this round the panel *described*
+a key ("enter your Nexus API key in this panel first", in a `data.hint` no
+control could act on) while `src/api.ts`'s four key functions had no caller
+anywhere in `src/`. That is the worst shape a panel can be in: text that tells
+the user to do something the panel does not offer.
+
+The box is a `PanelSectionRow` holding:
+
+| Element | Notes |
+| --- | --- |
+| status line | three states (`present` / `unreadable` / `missing`), from `apiKeyStatus().state` |
+| `TextField` | the key itself, `width: "100%", boxSizing: BOX_SIZING` on the same line (see below) |
+| `BTN_KEY_SAVE` | disabled while empty or busy |
+| `BTN_KEY_VALIDATE` | disabled unless the status is `present` — validating a key that is not stored asks the network about nothing |
+| `BTN_KEY_DELETE` | disabled when the status is `missing` |
+
+Two behaviours worth naming, because both are about not leaking or lying:
+
+- **Saving clears the field.** The key is on disk after the RPC; leaving it in
+  the `TextField` keeps the plaintext in the DOM for the rest of the session.
+- **`posix: false` is shown.** On a filesystem that cannot hold `0600` the
+  status says so rather than claiming the file is protected.
+
+A layout trap, caught by an existing test rather than by review:
+`test_every_hundred_percent_width_declares_border_box` reads **one line at a
+time**. Writing
+
+```tsx
+width: "100%",
+boxSizing: BOX_SIZING,
+```
+
+fails it, because `boxSizing` is not on the same line as the `width`. The pair
+has to be `width: "100%", boxSizing: BOX_SIZING,` on one line. The test is
+right to be strict here: it is checking that the two declarations travel
+together, and a reviewer reading a diff sees them together or not at all.
+
+### New: the archive picker
+
+`pickArchiveMod()` lives in `src/index.tsx` (not a component file) and is a
+`showListModal` whose rows come from the `archive_mods` RPC. Each row's label is
+the mod's `name`, falling back to its root path; the subtitle carries the root,
+the version and the file count.
+
+The `onActivate` handler closes the picker and re-enters `inspectAndImport`
+after a 250 ms delay via the existing `later()` helper. The delay is not
+cosmetic: opening one `showModal` from inside another's callback drops the
+second one, which is the same failure the FOMOD flow already worked around.
+
+### Changed: rows that used to do nothing
+
+`doCheckModUpdates` used to build rows with `onActivate: () => {}`. A list whose
+rows are pressable and inert is worse than a plain list: the focus ring says
+"there is something here" and pressing proves there is not. Rows now open the
+mod's Nexus page when the row declares a Nexus id, which is a real destination
+(`open_mod_page` needs no API key).
+
+### Style discipline
+
+`tests/test_style_units.py` covers two more files this round:
+`src/components/ApiKeyBox.tsx` and `src/depsFlow.tsx` (the latter had never been
+in `UI_FILES` at all — it happened to use zero tokens, which is a fact worth
+asserting rather than assuming). The per-(file, token) census gained
+`ApiKeyBox.tsx: {FONT.body: 1, FONT.caption: 4, SPACE.md: 2}`.
+
+Status discipline is unchanged: no `CLOSED` added, `[x]` boxes stay 0, §B.4
+unchecked, V2–V20 / F1–F3 / G3 stay OPEN.

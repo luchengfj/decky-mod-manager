@@ -114,10 +114,13 @@
 ## 五、当前验证状态
 
 ```
-1036 用例全绿（skipped=17）
+1070 用例全绿（skipped=18）
 tsc --noEmit → exit 0
-rollup -c    → exit 0（dist/index.js 257740 B，sha256 983601bd…，重跑 rollup 字节一致）
+rollup -c    → exit 0（dist/index.js 285056 B，sha256 4bf99e7d…，Round 84 产物）
 ```
+
+Round 84 的产物比 Round 83 大 27316 B：新增 `ApiKeyBox`、归档选择器、确认流程与
+`ERRR_*` 词汇表。`0.6875rem` 仍出现 1 次、`border-box` 3 次。
 
 命令：
 
@@ -156,7 +159,10 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 | 5 | 插件自身版本过期检测（`docs/NEXT_FEATURES.md` P2#8 残留） | agent（本项目无版本端点） |
 | 6 | ~~Deck 上是 Round 80 前后的旧构建~~ **已部署**（2026-11-27 20:30 UTC，见 §九） | — |
 | 7 | ~~Round 83 全部改动仍未 commit~~ **已提交** `d7cb6a8`（37 文件 / 2819 增 / 188 删） | — |
-| 8 | **`check_mod_updates` 首次真机调用返回 `E_CAPABILITY_DISABLED`**——不是缺陷，是设计前置条件：`~/homebrew/data/decky-mod-manager/data/nexus_api_key` 不存在。要在真机上走通「有 key 的路径」和「Nexus 免费账号 403」两条分支，需用户填入 key | 用户提供 key 或明确不做 |
+| 8 | **`check_mod_updates` 首次真机调用返回 `E_CAPABILITY_DISABLED`**——不是缺陷，是设计前置条件：`~/homebrew/data/decky-mod-manager/data/nexus_api_key` 不存在。**Round 84 补上了面板里的 key 入口**（`ApiKeyBox`），所以用户现在有路径自己解决；但要走通「有 key 的路径」和「Nexus 免费账号 403」两条分支，仍需真机上实际填一次 key | 用户提供 key 或明确不做 |
+| 9 | **Round 84 全部改动未 commit、未部署**（21 改 / 4 新增，见 §十） | agent |
+| 10 | **`.7z` + `member_root` 无任何测试**——`_inspect_7z` 与 `list_mod_roots` 的 7z 分支是 ZIP 分支的逐行镜像，但本机无 `7z` 二进制，`test_7z_listing_with_the_real_binary` 一直 skip。需要 Deck 上验 | agent（Deck 有 `/usr/bin/7z`） |
+| 11 | **归档选择器没在屏幕上见过**——`showListModal` 的像素没人看过，后端与 RPC 有测试 | 并入第 1 项 |
 
 ---
 
@@ -214,3 +220,54 @@ f01e4e99…0bda0   py_modules/deckymod/root_merge.py     (含 _handover_roots ×
 **补遗**：`dist/index.js.map` 首次打包时漏了（Deck 上仍是 11-21 的旧 map，291006 B，与 257740 B 的 bundle 行号错位）。已单独推送并校验：297991 B，sha256 `753edc76…74db97f`，与本地一致。补完后插件未重启——map 只被 devtools 读取，不参与运行。
 
 **另**：`rollup -c` 重跑后 bundle 字节一致（257740 B / `983601bd…`），所以早前文档里的 257411 B 是一次过期测量，已在 `docs/PANEL_LAYOUT.md` 与本文修正为 257740 B。
+
+## 十、Round 84（已完成，未提交未部署）
+
+起因：用户 m01522「检查功能性是否需要补充」。不是加功能，是找「用户会撞到但没有
+可用路径」的地方。审计方式是把 37 个 RPC 逐个对到面板上的控件，再派两个只读
+subagent 交叉验证；它们报的 3 条结论被我回代码否掉了（cyberpunk loader 段、
+`operable` 语义、Downloads READ ONLY 与 `delete_source_zip` 的矛盾），都不成立。
+
+十项全部修完，明细见 `docs/NEXT_FEATURES.md` §「Round 84 — the ten gaps a
+functional audit found」。最重的两项：
+
+1. **Nexus API key 在面板里根本没有入口。** `src/api.ts` 有四个 key 函数，
+   `src/` 下除 api.ts 自身零引用。后果是 `check_mod_updates` 唯一能成功的路径
+   是那个文件存在，而用户无法通过面板创建它——按按钮永远得到
+   `E_CAPABILITY_DISABLED`。新建 `src/components/ApiKeyBox.tsx` 接上。
+2. **`E_MULTI_MOD_ARCHIVE` 是死胡同。** 它报了 mod 名字，然后停住；唯一出路是
+   手工拆包，而 Game Mode 没有文件管理器。现在 `install` 仍拒绝，面板接住这个码
+   调新 RPC `archive_mods` 列出所有根，用户选一个，`inspect`/`install` 带
+   `member_root` 只装那一个。四层转发任何一层漏掉，功能就静默退回拒绝——
+   `tests/test_multi_mod.py` 专门钉 RPC 层，因为引擎层测试在 RPC 丢参数时仍全绿。
+
+**没有新增错误码。** 三处测试硬断言 `len(ERRORS) == 52`（`test_auto_import.py:183`、
+`test_download_wiring.py:387`、`test_pending_gate.py:134`），六处文档也锁着这个数，
+`deckymod/auto_import.py:28-31` 更写明了理由。改用 `data.reason` 十词表 +
+`reasonText()` 走 `ERRR_*` i18n；未知词返回空串，旧后端自动回落到通用文案。
+
+### 本轮修掉的两个套件缺陷（值得单独记）
+
+全量套件开始间歇性失败，每次失败的模块都不同（`test_fomod`、`test_rollback_undo`、
+`test_multi_mod`、`test_parser_pluggability`），而每个模块单跑全绿。
+
+排查手段：`.decky-probe/trace_rm.py` monkey-patch `shutil.rmtree` / `os.rmdir`，
+命中共享根时打印调用栈。**这是唯一有效的手段**——普通报错只说"文件不存在"，不说
+是谁删的。两处根因：
+
+- `tests/test_deps.py` 的 cleanup 写的是 `rmtree(os.path.dirname(self.inbox))`，
+  而 `self.inbox` 就在 `.decky-test-tmp/` 下一层，于是 `dirname` 正好是**全套件共享
+  的根**。一个测试跑完删掉了所有人的 fixture 树。
+- `tests/test_parser_pluggability.py` 用固定名 `.decky-test-tmp/jsonc-scan` 且开头
+  `rmtree`，第二次跑套件时复用同名目录、删掉上一次的树，结果取决于目录是否已存在。
+
+两者都已修，并新建 `tests/test_suite_hygiene.py` 用 AST 钉住（正则不行：真实的
+`join` 嵌在 `dirname(abspath(__file__))` 里，正则版对缺陷本身是通过的）。变异验证：
+把两处缺陷还原，卫生测试各红一次。
+
+### 本轮没证明的
+
+- **`.7z` + `member_root`**：无测试，只读了代码。
+- **归档选择器、ApiKeyBox 的视觉效果**：零像素验证，`docs/ACCEPTANCE.md` 的
+  `DEVICE`/`OPEN` 一项未减。
+- **真机**：本轮没连 Deck，全部结论来自本地测试与 RPC 契约。

@@ -256,8 +256,13 @@ class TestVerifyCandidate(unittest.TestCase):
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             ".decky-test-tmp", "r38v_" + os.urandom(4).hex())
         os.makedirs(self.inbox, exist_ok=True)
+        # Delete THIS test's own directory, never its parent: `.decky-test-tmp`
+        # is shared by the whole suite, and removing it here deleted every other
+        # module's fixture tree mid-run. That is what made unrelated tests
+        # (test_fomod, test_rollback_undo, test_multi_mod, ...) fail only when
+        # the whole suite ran, and pass in isolation.
         self.addCleanup(lambda: __import__("shutil").rmtree(
-            os.path.dirname(self.inbox), True))
+            self.inbox, True))
         self.zip = os.path.join(self.inbox, "FurnitureMachine.0.0.2.zip")
         with io.open(self.zip, "wb") as f:
             f.write(b"PK\x03\x04")

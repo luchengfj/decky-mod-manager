@@ -474,6 +474,32 @@ export interface InspectData {
   fomod?: FomodDescriptor;
 }
 
+/**
+ * Round 84: one mod root inside an archive that holds several.
+ *
+ * `root` is the path prefix inside the archive; the empty string means the
+ * archive root itself (a ZIP whose mods sit at the top level). It is passed
+ * back verbatim to install() as `memberRoot`.
+ */
+export interface ArchiveModRoot {
+  root: string;
+  /** From the mod's own manifest; empty when that root has no readable one. */
+  name: string;
+  version: string;
+  /** Manifest path relative to `root`; empty when none was found. */
+  manifest: string;
+  files: number;
+}
+
+/** Round 84: response of the read-only `archive_mods` RPC. */
+export interface ArchiveModsData {
+  path: string;
+  /** "zip" or "7z". */
+  format: string;
+  count: number;
+  roots: ArchiveModRoot[];
+}
+
 export interface ConfirmPlan {
   op: string;
   packageId?: string;

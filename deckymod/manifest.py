@@ -69,12 +69,29 @@ class ManifestHit:
 
 
 class ManifestParser(Protocol):
-    def find_member(self, entries: List[str]) -> Optional[ManifestHit]: ...
+    def find_member(self, entries: List[str],
+                    only_root: Optional[str] = None) -> Optional[ManifestHit]: ...
 
     def parse(self, raw: bytes, member: str) -> ParsedManifest: ...
 
 
-def _match_member(entries: List[str], globs: List[str]) -> Optional[ManifestHit]:
+def _subtree(entries: List[str], root: str) -> List[str]:
+    """The entries under ``root``, with ``root + "/"`` cut off.
+
+    Matching is case-insensitive because archive member names and a root the
+    caller picked earlier (e.g. from ``list_mod_roots``) may differ in case.
+    ``root == ""`` means the archive root, i.e. the entries as they are.
+    """
+    prefix = root.strip("/")
+    if not prefix:
+        return list(entries)
+    low = prefix.lower() + "/"
+    cut = len(prefix) + 1
+    return [e[cut:] for e in entries if e.lower().startswith(low)]
+
+
+def _match_member(entries: List[str], globs: List[str],
+                  only_root: Optional[str] = None) -> Optional[ManifestHit]:
     """Locate the manifest, and derive the mod root FROM that member.
 
     Round 62: this used to strip one wrapper directory off the archive and then
@@ -91,6 +108,34 @@ def _match_member(entries: List[str], globs: List[str]) -> Optional[ManifestHit]
     disagree. An archive holding more than one mod is refused instead of
     silently installing whichever manifest sorts first and dropping the rest.
     """
+    if only_root is not None:
+        # Round 84: the caller named ONE root (from list_mod_roots), so the
+        # search happens inside that subtree only and "several mods in one
+        # archive" is no longer an error -- the user picked which one to
+        # install. The mapping is re-anchored at the requested root (not at
+        # whatever root the manifest happens to sit in), because the caller
+        # will extract exactly those keys under one directory.
+        root = only_root.strip("/")
+        sub = _subtree(entries, root)
+        loc = archive.locate_manifest(sub, archive._relpaths(globs))
+        if not loc:
+            return None
+        prefix = root + "/" if root else ""
+        wanted = prefix + loc.orig_name
+        orig_name = next((e for e in entries if e.lower() == wanted.lower()), wanted)
+        mapping: Dict[str, str] = {}
+        for e in entries:
+            if not e or e.endswith("/"):
+                continue
+            if prefix:
+                if not e.lower().startswith(prefix.lower()):
+                    continue
+                stripped = e[len(prefix):]
+            else:
+                stripped = e
+            if stripped:
+                mapping[stripped] = e
+        return ManifestHit(orig_name=orig_name, root=root or None, mapping=mapping)
     loc = archive.locate_manifest(entries, archive._relpaths(globs))
     if not loc:
         return None
@@ -326,8 +371,9 @@ class JsonMapParser:
             self.field_map.get("dependency_minimum_key") or ""
         )
 
-    def find_member(self, entries: List[str]) -> Optional[ManifestHit]:
-        return _match_member(entries, self.globs)
+    def find_member(self, entries: List[str],
+                    only_root: Optional[str] = None) -> Optional[ManifestHit]:
+        return _match_member(entries, self.globs, only_root=only_root)
 
     def _get(self, obj: dict, role: str):
         key = self.field_map.get(role)
@@ -417,8 +463,9 @@ class XmlAboutParser:
             or ["About/About.xml", "*/About/About.xml", "about.xml"]
         )
 
-    def find_member(self, entries: List[str]) -> Optional[ManifestHit]:
-        return _match_member(entries, self.globs)
+    def find_member(self, entries: List[str],
+                    only_root: Optional[str] = None) -> Optional[ManifestHit]:
+        return _match_member(entries, self.globs, only_root=only_root)
 
     def parse(self, raw: bytes, member: str) -> ParsedManifest:
         if len(raw) > _MAX_MANIFEST_BYTES:

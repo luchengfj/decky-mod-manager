@@ -29,12 +29,21 @@ export interface RollbackOutcome {
   detail?: string;
 }
 
-/** Ask for confirmation (global modal), then roll back txn. Never throws. */
+/**
+ * Ask for confirmation (global modal), then roll back txn. Never throws.
+ *
+ * `setBusy` is optional so the module keeps working for callers that have no
+ * panel state (and for tests). When supplied it is raised only after the user
+ * confirms — cancelling never touches it — and cleared on BOTH the then and
+ * catch paths BEFORE `onDone`, because `onDone` opens a fresh modal and a
+ * still-busy panel would leave that modal's buttons disabled.
+ */
 export function runRollbackFlow(
   txn: string,
   modLabel: string,
   quarantinePath: string,
   onDone: (r: RollbackOutcome) => void,
+  setBusy?: (v: boolean) => void,
 ): void {
   let handle: Handle = null;
   let settled = false;
@@ -58,16 +67,20 @@ export function runRollbackFlow(
         <DialogButton
           onClick={() => {
             close();
+            // Busy only once the user has actually confirmed: the cancel
+            // button and the B-button both leave it alone.
+            setBusy?.(true);
             rollbackTxn(txn)
-              .then((r: OpEnvelope) => {
-                if (!r.ok) {
-                  onDone({ ok: false, code: r.code, detail: r.detail });
-                  return;
-                }
+              .then((r: OpEnvelope): RollbackOutcome => {
+                if (!r.ok) return { ok: false, code: r.code, detail: r.detail };
                 const d = (r.data || {}) as OpResultData;
-                onDone({ ok: true, restored: d.restored || modLabel });
+                return { ok: true, restored: d.restored || modLabel };
               })
-              .catch((e) => onDone({ ok: false, detail: String(e) }));
+              .catch((e): RollbackOutcome => ({ ok: false, detail: String(e) }))
+              // Clear before onDone: onDone opens a new modal, and a panel
+              // still marked busy would render that modal's buttons disabled.
+              .finally(() => { setBusy?.(false); })
+              .then((outcome) => onDone(outcome));
           }}
         >
           {t("BTN_CONFIRM")}

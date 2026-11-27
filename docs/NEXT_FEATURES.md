@@ -72,6 +72,10 @@ features are deliberately excluded.
    on the device.
 
 0g. **Multi-mod archives, and any archive nested more than one folder deep.**
+   *Round 84 update: the refusal now has a next step. See
+   `docs/ARCHIVE_LAYOUT.md` § "Round 84: the refusal gets a next step". The
+   paragraphs below are the Round 62/63 record of how the shapes were found and
+   why picking one silently was wrong -- the guard itself is unchanged.*
 
    One `manifest.json` glob was matching members two levels below the directory
    the extraction mapping had stripped. A zip holding several mods installed as
@@ -444,7 +448,8 @@ negative proof that reintroducing the duplication fails the suite. See
    write gate, with a two-phase confirm. **Still open:** nothing expires a
    *restorable* folder either, so a quarantine can still hold every uninstall
    forever; that is a policy decision (how long is a rollback worth keeping?)
-   this round did not make.
+   this round did not make. Round 84 did not change this; it added the
+   user-facing actions that were missing around it, not an expiry policy.
 
 ## P2 — needed for a real release, not for correctness
 
@@ -501,3 +506,36 @@ negative proof that reintroducing the duplication fails the suite. See
 - A universal "one-click install any game" claim. The registry is per-game on
   purpose; pretending otherwise is how mod managers break people's saves.
 - Any bypass of a Nexus account restriction. The 403 is a policy, not a bug.
+
+## Round 84 — the ten gaps a functional audit found
+
+Not features. Each one is a place where a user reaches a screen and has no
+action that works, or an action that reports something untrue. Found by
+auditing every RPC against every panel control rather than by adding anything.
+
+| # | Gap | What it was | What it is now |
+| --- | --- | --- | --- |
+| 1 | Nexus API key had no panel entry | `src/api.ts` had four key functions and no caller. `check_mod_updates` could only ever answer "no usable stored key", and the user had no way to create that file short of SSH. | `src/components/ApiKeyBox.tsx` in the Nexus section: status, save, validate, delete. |
+| 2 | `E_CAPABILITY_DISABLED` carried 8+ reasons | One code, one sentence: "This action is not available in this version." True for none of them -- the version was fine, the capability or the key was not. | 24 call sites now carry `data.reason` from a fixed 10-word vocabulary; `reasonText()` renders `ERRR_*`. No new `E_*` codes: the 52-code contract is asserted in three tests and six documents. |
+| 3 | Update-check rows were inert | `onActivate: () => {}`. A list of rows that do nothing when pressed, with no explanation. | A row opens its Nexus page when the mod declares a Nexus id -- that page needs no key, so it is a path the user actually has. |
+| 4 | `forget_game` had no confirmation | One press removed a game and its config, and silently switched the managed game if it was the active one. | Two-phase confirm, and the result names the game it switched to. |
+| 5 | Rollback ran with no busy state | The button stayed live for the duration of a filesystem operation, so a second press could start a second rollback. | `setBusy` is held from the confirm until the RPC settles, and cleared before the outcome modal opens. |
+| 6 | Three silent failures | `openInbox`, `loadGameGroups` and the mount-time auto-import all swallowed their errors -- the first two showed stale data with no hint it was stale. | Each surfaces a line; the inbox modal says it is showing a stale list. |
+| 7 | `detail` dropped on two paths | `openLoaderZipPicker` and `openGameSetup` showed `showInfo` with a generic line, discarding the envelope's `detail` and log path. | Both route through the standard error modal, which renders both. |
+| 8 | Bulk dependency install asked nothing | "Install all" wrote every fetchable dependency on one press. | A confirm listing the count and the reason. |
+| 9 | `E_MULTI_MOD_ARCHIVE` was a dead end | See `docs/ARCHIVE_LAYOUT.md`. | Picker + `member_root`. |
+| 10 | Dead frontend code | `openGameLibrary`, `openGameCatalog`, `openModsByGame` and a `ModRow` import were unreachable; `NEXUS_NO_PREFIX` told the user to "pick a supported game in Library", an entry that no longer exists. | Removed / re-pointed at the Games section. |
+
+Two things this round did **not** do, deliberately:
+
+- **It added no new error code.** Three tests assert `len(ERRORS) == 52` and
+  `deckymod/auto_import.py` documents the reason (a distinct code per download
+  failure would push the table past 50). The `data.reason` vocabulary carries
+  the same information without breaking the contract, and `reasonText()`
+  returns `""` for an unknown word so an older backend degrades to the generic
+  message instead of showing a raw token.
+- **It did not change the capability descriptors.** `operable` in
+  `registry.py` still means "enabled in the catalog", not "writable". The
+  audit flagged the name as misleading; renaming it would touch five
+  descriptors, the panel's badge counts and the catalog tests for a naming
+  complaint, not a defect.

@@ -13,11 +13,13 @@ ever loads.
 | `manifest.json`, `Foo.dll` at the root | a bare mod | install as `Mods/<UniqueID>/` |
 | `Foo-1.0.0/manifest.json`, `Foo-1.0.0/Foo.dll` | one wrapper folder, the usual GitHub-release shape | strip the wrapper, install at the top |
 | `Pack/v1/manifest.json` | one mod wrapped twice | strip **both**, install at the top |
-| `Pack/ModA/manifest.json` + `Pack/ModB/manifest.json` | several mods in one zip | **refuse**: they are separate mods and need separate folders |
-| `Mod/manifest.json` + `Mod/Pack/manifest.json` | a mod that bundles a content pack | **refuse**: the content pack has its own UniqueID and is its own mod |
+| `Pack/ModA/manifest.json` + `Pack/ModB/manifest.json` | several mods in one zip | **ask which one**, then install just that one (Round 84; before that: refuse) |
+| `Mod/manifest.json` + `Mod/Pack/manifest.json` | a mod that bundles a content pack | **ask which one**, then install just that one (Round 84; before that: refuse) |
 
 The fourth and fifth rows are the ones Round 62 was about. Both used to install
-"successfully".
+"successfully". Round 84 changed what happens to them: refusing was correct but
+left the user with no next step, because Game Mode has no file manager to
+unpack the archive in (see `## Round 84: the refusal gets a next step` below).
 
 ## What went wrong
 
@@ -193,3 +195,67 @@ Three ways this probe was wrong before it was right, all worth keeping:
   proved the second extractor inherits the fix, not that real archives behave.
 - **Nothing was verified in Game Mode.** All of this is backend behaviour, seen
   through probes and unit tests; the panel itself was not opened.
+
+## Round 84: the refusal gets a next step
+
+`E_MULTI_MOD_ARCHIVE` was a dead end. It named the mods, which is more than most
+errors do, and then stopped: the only way to install any of them was to unpack
+the archive by hand and feed the plugin one folder at a time. Game Mode has no
+file manager, so on the device the user could not do that at all. The plugin was
+asking its user to perform a task the plugin does not provide.
+
+What happens now, in order:
+
+1. `install()` still raises `E_MULTI_MOD_ARCHIVE`. Nothing about the guard
+   changed -- an archive with several mods still cannot be installed as one.
+2. The panel catches that specific code and calls the new `archive_mods` RPC,
+   which returns every mod root in the archive with its name, version, manifest
+   path and file count (`file_drop.list_mod_roots`).
+3. The user picks one from a list. The panel then re-runs `inspect` **with that
+   root**, and the normal preview / confirm / install flow continues with only
+   that mod's members.
+
+The root travels as a new `member_root` parameter through four layers, and each
+one has to forward it or the feature silently degrades to the old refusal:
+
+| Layer | What it does with `member_root` |
+| --- | --- |
+| `main.py` `install` / `inspect` / `archive_mods` | forwards only to engines that declare `_set_enabled_inner` (the file_drop engine). `engine.py` and `root_merge.py` take no such parameter, so passing it blindly would turn a refusal into `E_UNKNOWN` TypeError. |
+| `deckymod/smapi.py` `inspect` / `install` / `_install_inner` | forwards to `file_drop` |
+| `deckymod/file_drop.py` `inspect_mod` / `list_mod_roots` | `parser.find_member(names, only_root=...)` |
+| `deckymod/manifest.py` `_match_member` | re-runs `locate_manifest` on the subtree, re-anchors `orig_name` and `mapping` to that root |
+
+`extract_to` needed no change: it already accepted `member_override`, which is
+how the FOMOD flow installs a chosen subset. Selecting a root is the same shape.
+
+Three things this round had to get right, each caught by a test that fails
+without the fix:
+
+- **The picker must not loop.** The first wiring forwarded `member_root` to
+  `install` but not to `inspect`, so choosing a root re-raised
+  `E_MULTI_MOD_ARCHIVE` and put the user back in front of the picker they had
+  just answered. `tests/test_multi_mod.py::test_the_inspect_rpc_forwards_the_chosen_root`
+  pins the RPC layer specifically, because the engine-layer tests stayed green
+  while the RPC dropped the argument.
+- **The preview must not lie.** `install_relpath` was briefly changed to include
+  the archive root (`Mods/Pack/ModA/a.mod`). The bytes do not land there: the
+  destination directory comes from the manifest's `UniqueID`, not from the
+  archive layout, so the real path is `Mods/a.mod`. A preview that names a
+  different path than the install writes is the exact defect class Round 59/60
+  were about.
+- **`""` is a real choice.** An archive whose mods sit at the root has an empty
+  root string, so the parameter is `None` for "not chosen" and `""` for "the
+  root itself". Conflating them makes root-level multi-mod archives
+  unselectable.
+
+Not proven:
+
+- **`.7z` + `member_root` has no test.** `_inspect_7z` and `list_mod_roots`'s 7z
+  branch mirror the ZIP branch line for line, but this box has no `7z` binary,
+  so `tests/test_multi_mod.py::test_7z_listing_with_the_real_binary` skips.
+  Reading code is not the same as running it; this needs the device.
+- **No real community archive was used.** Same caveat as Round 63: the shapes
+  are constructed from real release layouts, not taken from Nexus.
+- **The picker was never seen on a screen.** It is a `showListModal` with rows
+  built from `ArchiveModsData`; the backend and the RPC are tested, the pixels
+  are not.

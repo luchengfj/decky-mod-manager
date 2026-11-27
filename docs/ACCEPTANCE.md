@@ -283,6 +283,23 @@ CDP 抓的 DOM 文本，`tests/test_panel_layout_rules.py` 与
 - `src/` 下**已无任何 px 字号/间距**（`tests/test_style_units.py` 逐文件断言），
   所以 R2 若仍有错位，原因不在单位，应往 Steam 自身的 `DialogButton` 几何查。
 
+### §B.6 — Round 84 新增控件的目视验收（全部 `DEVICE` / `OPEN`）
+
+> Round 84 修的是「功能缺口」，但其中四项新增了面板上的东西：API key 输入框、
+> 归档选择列表、删除游戏确认框、依赖批量安装确认框。结构有测试，
+> 观感没有。状态纪律同上：`DEVICE`，不写 `CLOSED`。
+
+| # | 控件 | 怎么到达 | 检查什么 | 状态 |
+| --- | --- | --- | --- | --- |
+| K1 | API key 输入框 | Nexus 区 → 「API key」段 | 三态文案与实际文件状态一致；输入框获得焦点时虚拟键盘弹出（Deck 上无物理键盘）；保存后输入框变空 | **DEVICE** |
+| K2 | 归档选择列表 | 导入一个含两个 mod 的 ZIP | 列表项显示 mod 名而非路径；选中后进入该 mod 的普通预览；**不会回到同一个选择列表**（这是本轮修掉的循环） | **DEVICE** |
+| K3 | 删除游戏确认 | Games 区 → 任一行 → 删除 | 弹确认框而不是直接删；确认后结果文案说明现在接管的是哪个游戏 | **DEVICE** |
+| K4 | 依赖批量安装确认 | 有可获取依赖时点「安装全部依赖」 | 先弹确认并写明数量；取消后不写盘 | **DEVICE** |
+| K5 | 更新检查结果行 | 已装 mod 有 Nexus id 时点「检查 mod 更新」 | 行可按下且打开 Nexus 页面；无 Nexus id 的行按下无反应（预期，非缺陷） | **DEVICE** |
+
+**未覆盖**：`.7z` + 归档选择（本机无 `7z` 二进制，`test_7z_listing_with_the_real_binary`
+一直 skip），需要在 Deck 上另做一次，见 `docs/ARCHIVE_LAYOUT.md` §「Not proven」。
+
 ---
 
 ## PART II — 原 RimWorld MVP 验收对象（selection A，历史逐字保留；G3 仍 `OPEN` / NOT SHIPPABLE）

@@ -19,12 +19,13 @@
  */
 
 import { call, callable } from "@decky/api";
-import { errorText } from "./i18n";
+import { errorText, reasonText } from "./i18n";
 import type {
   Envelope,
   StatusData,
   InboxData,
   InspectData,
+  ArchiveModsData,
   HistoryData,
   RecoveryData,
   ErrorCodesData,
@@ -123,7 +124,17 @@ export const installLoader = (zipPath: string, afterConfirm: boolean) =>
 export const deleteZipSource = (zipPath: string) =>
   invoke<{ removed: string }>("delete_zip_source", zipPath);
 export const listInbox = () => invoke<InboxData>("list_inbox");
-export const inspectZip = (zipPath: string) => invoke<InspectData>("inspect", zipPath);
+export const inspectZip = (zipPath: string, memberRoot?: string | null) =>
+  invoke<InspectData>("inspect", zipPath, typeof memberRoot === "string" ? memberRoot : null);
+/**
+ * Round 84: list every mod root inside one archive. Read-only.
+ *
+ * An archive that ships several mods used to be a dead end — install() answered
+ * E_MULTI_MOD_ARCHIVE ("import them one at a time") while Game Mode has no file
+ * manager. This names each root so the panel can let the user pick one.
+ */
+export const archiveMods = (zipPath: string) =>
+  invoke<ArchiveModsData>("archive_mods", zipPath);
 export const getHistory = (limit = 50) => invoke<HistoryData>("history", limit);
 export const refreshStatus = () => invoke<StatusData>("refresh");
 export const getRecovery = () => invoke<RecoveryData>("recovery");
@@ -138,13 +149,22 @@ export const getErrorCodes = () => invoke<ErrorCodesData>("error_codes");
  * option name(s) for archives carrying fomod/moduleconfig.xml. Omitting it (or
  * passing null) means "no override -> plain extract"; the backend treats an
  * empty/null map as falsy, so all existing 2-arg call sites stay safe.
+ *
+ * Round 84: `memberRoot` is optional and names ONE mod root inside an archive
+ * that holds several (see `archiveMods`). Empty string means "the archive
+ * root" and is deliberately distinct from undefined, which means "the archive
+ * holds exactly one mod, use it". Passing it implies the user has chosen.
  */
 export const installMod = (
   zipPath: string,
   afterConfirm: boolean,
   fomodChoices?: Record<string, string[]> | null,
+  memberRoot?: string | null,
 ) =>
-  invoke<ConfirmData | OpResultData>("install", zipPath, afterConfirm, fomodChoices ?? null) as Promise<OpEnvelope>;
+  invoke<ConfirmData | OpResultData>(
+    "install", zipPath, afterConfirm, fomodChoices ?? null,
+    typeof memberRoot === "string" ? memberRoot : null,
+  ) as Promise<OpEnvelope>;
 
 /*
  * selection B (Stardew/SMAPI): `packageId` is the SHARED wire identity key —
@@ -332,11 +352,12 @@ export const reclaimQuarantine = (txns: string[], afterConfirm: boolean) =>
 export const callableHandles = {
   status: callable<[], Envelope<StatusData>>("status"),
   list_inbox: callable<[], Envelope<InboxData>>("list_inbox"),
-  inspect: callable<[string], Envelope<InspectData>>("inspect"),
+  inspect: callable<[string, (string | null)], Envelope<InspectData>>("inspect"),
+  archive_mods: callable<[string], Envelope<ArchiveModsData>>("archive_mods"),
   history: callable<[number], Envelope<HistoryData>>("history"),
   refresh: callable<[], Envelope<StatusData>>("refresh"),
   recovery: callable<[], Envelope<RecoveryData>>("recovery"),
-  install: callable<[string, boolean, (Record<string, string[]> | null)], OpEnvelope>("install"),
+  install: callable<[string, boolean, (Record<string, string[]> | null), (string | null)], OpEnvelope>("install"),
   set_enabled: callable<[string, boolean, boolean], OpEnvelope>("set_enabled"),
   uninstall: callable<[string, boolean], OpEnvelope>("uninstall"),
   rollback: callable<[string], Envelope<OpResultData>>("rollback"),
@@ -363,8 +384,22 @@ export const callableHandles = {
   install_loader: callable<[string, boolean], OpEnvelope>("install_loader"),
 };
 
-/** Convenience: extract a localized, friendly error string for toasts. */
+/**
+ * Convenience: extract a localized, friendly error string for toasts.
+ *
+ * Round 84 — two fixes, both about not throwing away what the backend said:
+ *
+ *  * `data.reason` wins over the code's generic sentence. E_CAPABILITY_DISABLED
+ *    covers ten different situations with one sentence, so for most of them
+ *    that sentence is false; the reason word names the real one.
+ *  * `detail` is appended when present. It was dropped entirely before, and it
+ *    is the only part that says WHICH path/loader/source failed.
+ */
 export function envelopeError(e: Envelope<unknown>): string {
-  const msg = errorText(e.code, e.message);
-  return `${msg}${e.code ? ` (${e.code})` : ""}`;
+  const data = (e.data ?? null) as { reason?: unknown } | null;
+  const specific = reasonText(typeof data?.reason === "string" ? data.reason : "");
+  const msg = specific || errorText(e.code, e.message);
+  const detail = String(e.detail || "").trim();
+  const head = detail ? `${msg} — ${detail}` : msg;
+  return `${head}${e.code ? ` (${e.code})` : ""}`;
 }

@@ -76,7 +76,6 @@ class TestNoDialogButtonSizeOverride(unittest.TestCase):
         for rel in ("src/index.tsx", "src/components/Modal.tsx",
                     "src/components/ConfirmModal.tsx",
                     "src/components/ErrorView.tsx",
-                    "src/components/ModRow.tsx",
                     "src/components/ImportBox.tsx",
                     "src/rollbackFlow.tsx", "src/uninstallFlow.tsx",
                     "src/autoImport.tsx", "src/depsFlow.tsx"):

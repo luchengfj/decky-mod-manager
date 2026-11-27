@@ -485,3 +485,101 @@ asserting rather than assuming). The per-(file, token) census gained
 
 Status discipline is unchanged: no `CLOSED` added, `[x]` boxes stay 0, §B.4
 unchecked, V2–V20 / F1–F3 / G3 stay OPEN.
+
+---
+
+## 9. Round 85 — the dead code Round 84 claimed to have deleted
+
+Round 84's report said item 10 removed `openGameLibrary`, `openGameCatalog`,
+`openModsByGame` and the dead import. It did not. Five functions and one
+component were still in the tree, and the build was green.
+
+### Why the build was green
+
+`tsconfig.json` had `strict: true` but not `noUnusedLocals` or
+`noUnusedParameters`. `strict` is about types; a function nothing calls still
+type-checks. Turning the two flags on produced ten diagnostics immediately:
+
+```
+src/index.tsx(84,46):  'ArchiveModsData' is declared but never used.      TS6196
+src/index.tsx(92,1):   'ModRow' is declared but its value is never read.  TS6133
+src/index.tsx(431,39): 'd' is declared but its value is never read.       TS6133
+src/index.tsx(583,9):  'openModsByGame' is declared but never read.       TS6133
+src/index.tsx(1053,9): 'showModDetail' is declared but never read.        TS6133
+src/index.tsx(1156,9): 'doUninstall' is declared but never read.          TS6133
+src/index.tsx(1360,9): 'openGameLibrary' is declared but never read.      TS6133
+src/index.tsx(1499,41):'uid' is declared but never read.                  TS6133
+src/index.tsx(1769,9): 'openGameCatalog' is declared but never read.      TS6133
+src/index.tsx(2039,9): 'installed' is declared but never read.            TS6133
+```
+
+So "`tsc --noEmit` exits 0" was being read as "the frontend is clean". Those
+are different claims. The flags now stay on, and
+`tests/test_suite_hygiene.py::TestTheCompilerStillLooksForDeadCode` fails if
+any of `strict` / `noUnusedLocals` / `noUnusedParameters` is dropped.
+
+### What was removed
+
+| Symbol | Lines | Why it could go |
+| --- | --- | --- |
+| `openModsByGame` | 56 | Superseded by the mod list; zero callers |
+| `showModDetail` | 28 | The last user of 11 `MODDETAIL_*` keys |
+| `doUninstall` | 8 | `doUninstallDir` (via `src/uninstallFlow.ts`) replaced it |
+| `openGameLibrary` | 115 | The read-only catalog was folded into the Games area |
+| `openGameCatalog` | 36 | Last user of every `CATALOG_*` key |
+| `src/components/ModRow.tsx` | 106 | Imported once, rendered never |
+
+`src/index.tsx` went 2701 → 2438 lines. The bundle went 285056 → 263710 B.
+
+Four section headers were left behind pointing at nothing (`§5.1 #4 details`,
+`§Goal item 2 game library`, `P0 (round 2) read-only game catalog`, and Round
+37's grouping note). They were removed too — a comment that names a function
+which no longer exists is the same defect as the function, one layer up.
+`§5.1 #6 uninstall` stays: `doUninstallDir` is still there and still does that.
+
+### The one judgement call: `nexusDomain`
+
+`setNexusDomain` had exactly one writer, inside `openGameLibrary`. Deleting the
+function would have left the state permanently `null`.
+
+Decision: delete the state too, and derive the visible prefix from the catalog
+only. The reason is not "it was unused" — it is that the backend builds every
+Nexus URL from the **active descriptor** (`main.py:1267`,
+`domain = self._nexus_browse_domain()`). A frontend copy of that domain could
+only ever disagree with the site the plugin actually opens. The surviving
+comment in `src/index.tsx` says exactly that.
+
+### i18n keys: 104 removed, 76 kept on purpose
+
+Two passes were needed to tell orphans from live keys.
+
+The naive census — "count the string literals passed to `t()`" — reports 208
+keys as unused. That number is wrong. Three families are built at runtime and
+their keys never appear as literals:
+
+```ts
+const k = code ? `ERR_${code}` : "";                       // errorText
+const k = `CAT_${String(category || "").toUpperCase()}`;    // categoryText
+const key = `ERRR_${word.toUpperCase()}`;                   // reasonText
+```
+
+Those 76 keys are live. The correct test is "does this key's name appear as a
+string literal *anywhere* — frontend, backend, or registry — apart from the
+dictionaries themselves". That leaves 104 genuine orphans, all of them wording
+for the deleted functions plus four button labels whose buttons were removed
+earlier. Both dictionaries went 575 → 471 keys and stayed in parity.
+
+`.decky-probe/r85_i18n_prune.py` recomputes the orphan set rather than
+hardcoding it, and refuses to run unless the count is exactly 104 — so if a
+future edit re-orphans or resurrects a key, it stops instead of deleting
+something live.
+
+### Not proven
+
+- None of this was seen on the device. The deck was unreachable this round
+  (`ssh` timed out, `ping` 100% loss), so "the panel still works" rests on
+  `tsc`, the 1073-case suite and the bundle greps — not on a screenshot.
+- Deleting `ModRow.tsx` removes the only component that rendered a mod row from
+  a `ManagedMod`. The list is now built inline in `src/index.tsx`. That is a
+  real structural change; it compiles and nothing referenced it, but no human
+  has looked at the resulting panel.

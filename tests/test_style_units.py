@@ -47,7 +47,6 @@ UI_FILES = (
     "src/components/Modal.tsx",
     "src/components/ConfirmModal.tsx",
     "src/components/ErrorView.tsx",
-    "src/components/ModRow.tsx",
     "src/components/ImportBox.tsx",
     "src/components/ApiKeyBox.tsx",
     "src/rollbackFlow.tsx",
@@ -398,9 +397,6 @@ class TestConsumersUseTheTable(unittest.TestCase):
             "src/components/ErrorView.tsx": {
                 "FONT.body": 1, "FONT.caption": 1, "FONT.strong": 1,
                 "SPACE.md": 2,
-            },
-            "src/components/ModRow.tsx": {
-                "FONT.caption": 1, "FONT.lead": 1, "SPACE.md": 2,
             },
             "src/components/ImportBox.tsx": {
                 "FONT.body": 1, "SPACE.md": 2,

@@ -23,7 +23,20 @@
 | 7 | 两处 `showInfo` 丢掉信封里的 `detail` 与日志路径 | 改走统一错误模态 |
 | 8 | 依赖批量安装一键写盘、不问 | 先弹确认，写明数量与理由 |
 | 9 | `E_MULTI_MOD_ARCHIVE` 是死胡同 | 新增 `archive_mods` RPC + 归档选择器 + `member_root` 四层透传 |
-| 10 | 死代码与指向不存在入口的文案 | 删 `openGameLibrary`/`openGameCatalog`/`openModsByGame`/死 import；文案改指 Games 区 |
+| 10 | 指向不存在入口的文案 | 文案改指 Games 区。**死代码这一半当时没做**——报告初稿写成了已完成，Round 85 才真正删掉（见下） |
+
+**关于第 10 项的更正（Round 85 补记）**：这份报告初稿把「删死代码」写成了已完成，实际没删。
+五具尸体一直躺在 `src/index.tsx` 里：`openModsByGame`、`showModDetail`、`doUninstall`、
+`openGameLibrary`、`openGameCatalog`，外加一个没人 import 的 `src/components/ModRow.tsx`。
+
+为什么 `tsc --noEmit` 一直是绿的：`tsconfig.json` 有 `strict: true`，但没开
+`noUnusedLocals` / `noUnusedParameters`。`strict` 管的是类型，不是可达性——一个没人调用的
+函数照样能通过类型检查。把这两个开关打开后立刻报出 10 条诊断，其中一条就是
+`'openGameLibrary' is declared but its value is never read`。
+
+这既是报告错误，也是**验证方法的盲区**：我当时把「tsc exit 0」当成了「前端干净」的证据。
+Round 85 已删除这些代码，并把两个开关钉进 `tests/test_suite_hygiene.py`
+（`TestTheCompilerStillLooksForDeadCode`），防止今后再被关掉。
 
 顺手修掉两个**测试套件自身**的缺陷（不是产品缺陷，但让全量测试间歇性红）：
 

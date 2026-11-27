@@ -172,5 +172,42 @@ class TestTheLauncherIsDocumentedAsTheEntryPoint(unittest.TestCase):
             "forbidden nearby, so a reader will run it and see 22 fake failures")
 
 
+class TestTheCompilerStillLooksForDeadCode(unittest.TestCase):
+    """`tsc --noEmit` passing did not mean the frontend was clean.
+
+    Round 84 shipped a report claiming five dead functions had been deleted.
+    They were still there. Nothing caught it, because ``tsconfig.json`` had
+    ``strict: true`` but not ``noUnusedLocals`` / ``noUnusedParameters`` -- so
+    the compiler resolved every one of those symbols and reported no error.
+    Turning the two flags on immediately produced ten diagnostics, including
+    ``'openGameLibrary' is declared but its value is never read``.
+
+    ``strict`` covers types, not reachability. These tests exist so the flags
+    cannot be dropped again without someone noticing: with them off, "the build
+    is green" says nothing about whether the code is reachable.
+    """
+
+    def _opts(self):
+        import json
+        path = os.path.join(_REPO, "tsconfig.json")
+        with io.open(path, encoding="utf-8") as f:
+            return json.load(f)["compilerOptions"]
+
+    def test_unused_locals_is_an_error(self):
+        self.assertIs(self._opts().get("noUnusedLocals"), True,
+                      "tsconfig must keep noUnusedLocals: without it a function "
+                      "nothing calls still compiles, which is how Round 84's "
+                      "five dead functions survived a green build")
+
+    def test_unused_parameters_is_an_error(self):
+        self.assertIs(self._opts().get("noUnusedParameters"), True,
+                      "tsconfig must keep noUnusedParameters: a parameter the "
+                      "body ignores is either a leftover or a bug in the call")
+
+    def test_strict_is_still_on(self):
+        self.assertIs(self._opts().get("strict"), True,
+                      "strict has to stay on for the two flags above to mean "
+                      "what they say")
+
 if __name__ == "__main__":
     unittest.main()

@@ -114,13 +114,16 @@
 ## 五、当前验证状态
 
 ```
-1070 用例全绿（skipped=18）
+1073 用例全绿（skipped=18）
 tsc --noEmit → exit 0
-rollup -c    → exit 0（dist/index.js 285056 B，sha256 4bf99e7d…，Round 84 产物）
+rollup -c    → exit 0（dist/index.js 264823 B，Round 85 产物）
 ```
 
-Round 84 的产物比 Round 83 大 27316 B：新增 `ApiKeyBox`、归档选择器、确认流程与
-`ERRR_*` 词汇表。`0.6875rem` 仍出现 1 次、`border-box` 3 次。
+Round 85 的产物比 Round 84 **小** 20233 B：删掉了五个死函数、`ModRow.tsx` 与 104 个
+孤儿 i18n 键。`0.6875rem` 仍出现 1 次、`border-box` 3 次、`ERRR_` 46 次（新词汇表没被误删）。
+
+`tsconfig.json` 现在带 `noUnusedLocals` + `noUnusedParameters`，由
+`tests/test_suite_hygiene.py::TestTheCompilerStillLooksForDeadCode` 钉住。
 
 命令：
 
@@ -163,6 +166,8 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 | 9 | ~~Round 84 全部改动未 commit、未部署~~ **已提交 `9bebbbf`、已部署**（2026-11-27 22:47 UTC，见 §十一） | — |
 | 10 | ~~`.7z` + `member_root` 无任何测试~~ **已在真机验证**（§十一：`r84_twomod.7z` 报 count=2，选根后 inspect 成功） | — |
 | 11 | **归档选择器没在屏幕上见过**——RPC 与写入路径都在真机验过了，但 `showListModal` 的像素没人看过 | 并入第 1 项 |
+| 12 | ~~Round 84 报告 item 10 声称删了死代码，实际没删~~ **Round 85 已真删**（五个函数 + `ModRow.tsx` + 104 个 i18n 键），报告已加更正说明 | — |
+| 13 | **Round 85 全部改动未 commit、未部署**。删除 `ModRow.tsx` 是结构性改动：mod 行现在直接在 `src/index.tsx` 里内联构造，编译通过、无人引用，但没人看过面板实际长什么样 | agent（提交/部署）+ 用户（目视） |
 
 ---
 
@@ -175,6 +180,8 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 - **写测试要防"恒真断言"**：Round 83 首版 `test_the_arithmetic_holds_for_every_value_in_the_table` 拿表里的数字乘回 16 再和它自己比，从不读 `rem()` 实现——把 `rem` 改成 `(v*2)+"rem"` 它照样绿。任何"用输入验证输入"的测试都是零信息。同理，`assertIn("boxSizing", line)` 挡不住 `boxSizing: "content-box"`，子串匹配挡不住 `FONT.body` 被 `FONT.bodyLg` 满足。**验证方式是变异测试**：在副本里改坏代码，确认对应用例真的会红。
 - **Windows 上编辑文件会把行尾改成 CRLF**，而 HEAD 是 LF，导致 `git diff` 变成上万行噪音、真实改动无法 review。改完先查 `git diff --stat`，若行数远超预期就用 `.decky-probe/r83_eol.py` 那样的脚本还原 LF。建议后续加 `.gitattributes`（`* text=auto eol=lf`）。
 - 复制整个工作区做变异/试验时会撞上 `.tmp/mt_mode700`（`mode=0o700` 目录，`WinError 5` 拒绝访问）。只复制 `src/`、`tests/`、`.decky-probe/` 三目录，不要 `copytree` 整个仓库。
+- **「tsc exit 0」不等于「前端干净」**。Round 84 就是这样漏掉五个死函数的：`tsconfig.json` 有 `strict: true` 但没有 `noUnusedLocals`/`noUnusedParameters`，而 `strict` 管的是类型不是可达性——没人调用的函数照样通过类型检查。打开这两个开关立刻报出 10 条诊断。教训有两条：① 报告里的"已完成"要回代码里数一遍再写（我当时是照着计划写的，没数）；② 任何"绿灯"都要问它到底检查了什么。
+- **数 i18n 孤儿键不能只数 `t("...")` 字面量**。`ERR_<code>`、`CAT_<category>`、`ERRR_<reason>` 三族是运行时拼出来的（`src/i18n.ts:62/68/88`），它们的键永远不会以字面量出现。按字面量数会得出 208 个"未使用"，其中 76 个是活的。正确判据是"这个名字除了字典以外，在前后端和 registry 里是否出现过"，剩下 104 个才是真孤儿。
 
 ---
 
@@ -344,3 +351,59 @@ Round 84 的备份里同样存在——是更早布局遗留，不是本轮产�
 **本轮仍未证明**：`ApiKeyBox`、归档选择器、四个确认框的**视觉效果**——零像素验证，
 `docs/ACCEPTANCE.md` §B.6 的 K1–K5 全部 `DEVICE`/`OPEN`。RPC 契约与写入路径已验，
 「按下去好不好看、D-pad 能不能走到」仍未验。
+
+---
+
+## 十二、Round 85（2026-11-28 01:0x–01:3x UTC+8，未提交未部署）
+
+起因：Round 84 的报告里 item 10 写着「删 `openGameLibrary`/`openGameCatalog`/`openModsByGame`/死 import」，
+实际一个都没删。用户 m03194 已授权「其余你可以开始改动」，本轮把这件事做完。
+
+### 做了什么
+
+| 项 | 内容 |
+| --- | --- |
+| tsconfig | 加 `noUnusedLocals: true` + `noUnusedParameters: true`（这两个开关是暴露问题的工具） |
+| 删五个死函数 | `openModsByGame`(56) / `showModDetail`(28) / `doUninstall`(8) / `openGameLibrary`(115) / `openGameCatalog`(36)，`src/index.tsx` 2701→2438 行 |
+| 删悬空注释 | 四段指向已删函数的段落标题（`§5.1 #4 details`、`§Goal item 2 game library`、`P0 (round 2) read-only game catalog`、Round 37 分组说明）；`§5.1 #6 uninstall` 保留，因为 `doUninstallDir` 还在 |
+| 删组件 | `src/components/ModRow.tsx`（106 行，只被一行 import 引用，从未渲染） |
+| 删 state | `nexusDomain`/`setNexusDomain`——唯一写入点在 `openGameLibrary` 内；`activeNexusDomain` 改为纯 catalog 派生 |
+| 删 i18n | 104 个孤儿键，en/zh 各 575→471，键集保持一致 |
+| 修报告 | `docs/ROUND84_REPORT.md` item 10 改为如实描述 + 加「更正」段 |
+| 加测试 | `tests/test_suite_hygiene.py::TestTheCompilerStillLooksForDeadCode` 三个用例钉住 tsconfig |
+
+### 级联（tsc 逐轮抓出，全部已修）
+
+删 `confirmLoaderInstall` 的 `d` 参数后 → `openLoaderZipPicker(d)` 的 `d` 也失去用途 →
+`GameSetupData` import 变成未用；同时 `ModalAction` 只被两个已删函数用。三个 import/参数
+在删完死函数后才暴露，说明**这些删除必须分批跑 tsc**，不能一次删完再看。
+
+### 为什么 `nexusDomain` 是删而不是搬
+
+后端 `main.py:1244 open_mod_page()` 第 1267 行 `domain = self._nexus_browse_domain()`——
+每个 Nexus URL 都由后端的活动描述符生成。前端另存一份 domain 只可能与插件实际打开的站点
+不一致。所以删掉它，而不是把它挪到别的函数里保留一份副本。
+
+### 验证
+
+```
+1073 用例全绿（skipped=18）
+tsc --noEmit → exit 0（带两个新开关）
+rollup -c    → exit 0，dist/index.js 263710 B（比 Round 84 小 21346 B）
+validate_i18n.py → EN/ZH 各 471 键、parity 一致、USED_BUT_MISSING 空、DATA_KEYS 11 全在
+validate_p0.py   → ALL_STATIC_CHECKS True
+validate_api_arity.py → BAD 0
+```
+
+产物核查：`openGameLibrary`/`openGameCatalog`/`openModsByGame`/`showModDetail`/`ModRow`/
+`CATALOG_TITLE`/`MODDETAIL_PID`/`LIB_NEXUS_BY_ID` 在 bundle 里均为 0 次；
+`ERRR_` 46、`archive_mods` 3、`border-box` 3、`0.6875rem` 1（该留的都还在）。
+
+`doUninstall`→2 与 `MODS_BY_GAME`→5 两个非零计数已核实：前者是 `doUninstallDir`（活的），
+后者是 `MODS_BY_GAME_TRUNCATED`（`src/index.tsx:1526` 仍在用的键）。
+
+### 没做到的
+
+- **真机完全没碰**：本轮 `ssh` 超时、`ping` 100% loss，Deck 不在网段上。所有结论来自
+  `tsc` + 1073 用例 + bundle 字符串计数，**没有一张截图**。
+- 删 `ModRow.tsx` 后 mod 行改为在 `src/index.tsx` 内联构造，编译与测试都过，但视觉效果没人看过。

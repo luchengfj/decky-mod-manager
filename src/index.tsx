@@ -57,7 +57,6 @@ import {
   deleteZipSource,
   installMod,
   setModEnabled,
-  uninstallMod,
   openModPage,
   openSearchPage,
   openBrowsePage,
@@ -75,21 +74,18 @@ import type {
   OpEnvelope,
   HistoryItem,
   ProgressPayload,
-  CatalogEntry,
   SteamGame,
-  GameSetupData,
 } from "./types";
 import { isConfirmData } from "./types";
 import { t, errorText, categoryText } from "./i18n";
-import type { ModListEntry, UpdateCheckData, ArchiveModsData } from "./types";
+import type { ModListEntry, UpdateCheckData } from "./types";
 import { showConfirm } from "./components/ConfirmModal";
 import { runUninstallFlow } from "./uninstallFlow";
 import { autoImportNew, autoImportSilent } from "./autoImport";
 import { runRollbackFlow } from "./rollbackFlow";
 import { runDepsFlow } from "./depsFlow";
 import { showInfo, showListModal, showErrorModal, showFomodModal } from "./components/Modal";
-import type { ListRow, ModalAction } from "./components/Modal";
-import { ModRow } from "./components/ModRow";
+import type { ListRow } from "./components/Modal";
 import { ImportBox } from "./components/ImportBox";
 import { ApiKeyBox } from "./components/ApiKeyBox";
 import { BORDER, FONT, HEIGHT, LINE_HEIGHT, SPACE, PANEL_ROOT_STYLE, BOX_SIZING } from "./theme";
@@ -183,32 +179,22 @@ function Content() {
   const [error, setError] = useState<Envelope<unknown> | null>(null);
 
   const [nexusModId, setNexusModId] = useState("");
-  // The game whose Nexus site the ID lookup targets. Set when the user picks a
-  // game in the library; drives the visible prefix and the open-page URL. The
-  // backend still derives the actual domain from the active descriptor, so this
-  // is a display/selection aid, not a way to point the plugin at arbitrary hosts.
-  const [nexusDomain, setNexusDomain] = useState<string | null>(null);
   // Round 43: the keyword is ordinary text, not a secret, so it may be
   // rendered back. It is handed to open_search_page, which refuses control
   // characters and anything over 64 characters, then opens the site's own
   // search page.
   const [searchText, setSearchText] = useState("");
 
-  // Round 37: "my mods, grouped by game". The plugin's journal only knows what
-  // IT installed, so a game the user modded by hand looked empty. The scan is
-  // read-only and fetched on demand by openModsByGame() -- there is no cached
-  // copy here on purpose, because a stale render-time list is exactly how the
-  // grouping would show yesterday's folders.
-
   // Round 30: one section visible at a time. Before this the panel
   // stacked five PanelSections (~40 focusables) at once, so nothing
   // read as the primary action. "" = every section collapsed.
   const [openSection, setOpenSection] = useState<string>("games");
 
-  // The visible Nexus prefix for the selected game. Falls back to the active
-  // game's domain so the panel is useful even before a game is picked.
-  const activeNexusDomain = nexusDomain
-    || (status?.catalog || []).find((c) => c.active)?.nexus_domain
+  // The visible Nexus prefix. Derived from the catalog only -- never from panel
+  // state -- because the backend builds every Nexus URL from the ACTIVE
+  // descriptor (main.py:1267). A local copy could show one domain while the
+  // plugin opened another.
+  const activeNexusDomain = (status?.catalog || []).find((c) => c.active)?.nexus_domain
     || (status?.catalog || []).find((c) => c.operable)?.nexus_domain
     || null;
   const nexusPrefix = activeNexusDomain
@@ -395,7 +381,7 @@ function Content() {
   // The list comes from the same read-only scan the import list uses
   // (inbox + the browser's download folder). The backend refuses anything
   // outside the declared roots and journals every file it places.
-  const openLoaderZipPicker = (d: GameSetupData) => {
+  const openLoaderZipPicker = () => {
     setBusySafe(true);
     const g = generation.current;
     (async () => {
@@ -414,7 +400,7 @@ function Content() {
       const rows: ListRow[] = zips.map((it) => ({
         label: it.name,
         sub: `${it.path}${it.size != null ? t("INBOX_BYTES", "  ·  {n} bytes", { n: it.size }) : ""}`,
-        onActivate: (close) => { close(); void confirmLoaderInstall(d, it.path, it.name); },
+        onActivate: (close) => { close(); void confirmLoaderInstall(it.path, it.name); },
       }));
       showListModal(
         t("GS_LOADER_PICK", "Loader ZIPs ({n})", { n: zips.length }),
@@ -428,7 +414,7 @@ function Content() {
     });
   };
 
-  const confirmLoaderInstall = async (d: GameSetupData, path: string, name: string): Promise<void> => {
+  const confirmLoaderInstall = async (path: string, name: string): Promise<void> => {
     setBusySafe(true);
     const g = generation.current;
     const plan = await installLoader(path, false);
@@ -552,7 +538,7 @@ function Content() {
           label: t("GS_LOADER_INSTALL", "Install loader ZIP from Downloads"),
           sub: t("GS_LOADER_INSTALL_SUB",
             "Pick the ZIP you just downloaded; the plugin extracts it into the game folder."),
-          onActivate: (close) => { close(); void openLoaderZipPicker(d); },
+          onActivate: (close) => { close(); void openLoaderZipPicker(); },
         });
       }
       showListModal(
@@ -577,67 +563,7 @@ function Content() {
     if (i.ok) setInbox(i.data);
   };
 
-  // Round 37: "my mods grouped by game". Every game with a template is listed
-  // with the folders actually present on disk; games without one say "not
-  // adapted" instead of being given a guessed path.
-  const openModsByGame = async () => {
-    // Read the fresh list every time: there is no cached copy, so the grouping
-    // always reflects the disk as it is right now.
-    const games = await loadGameGroups();
-    if (!games.length) {
-      showInfo(t("MODS_BY_GAME"), [t("MODS_BY_GAME_EMPTY")], []);
-      return;
-    }
-    const scanned = games.filter(
-      (g) => g.template && g.template.adapted && (g.template.total_mods ?? 0) > 0,
-    );
-    const rows: ListRow[] = [];
-    for (const g of games) {
-      const tpl = g.template;
-      if (!tpl || !tpl.adapted) {
-        rows.push({
-          label: t("MODS_BY_GAME_ROW", "{name} · {n}", { name: g.name, n: "—" }),
-          sub: t("LIB_UNSUPPORTED_NOTE"),
-          onActivate: () => {
-            showInfo(g.name, [t("LIB_UNSUPPORTED_NOTE")], []);
-          },
-        });
-        continue;
-      }
-      const total = tpl.total_mods ?? 0;
-      rows.push({
-        label: t("MODS_BY_GAME_ROW", "{name} · {n}", { name: g.name, n: total }),
-        sub: tpl.writable
-          ? t("MODS_BY_GAME_WRITABLE")
-          : t("LIB_IDENTIFY_ONLY"),
-        onActivate: () => {
-          const lines: string[] = [];
-          for (const d of tpl.mod_dirs || []) {
-            lines.push(t("LIB_MODDIR_ROW", "{p} ({state})", {
-              p: d.path || "—",
-              state: d.exists ? t("LIB_MODDIR_YES") : t("LIB_MODDIR_NO"),
-            }));
-            const names = d.mods || [];
-            if (!d.exists) continue;
-            if (!names.length) {
-              lines.push(t("MODS_BY_GAME_NONE"));
-              continue;
-            }
-            for (const n of names) lines.push("  " + n);
-            if (d.truncated) lines.push(t("MODS_BY_GAME_TRUNCATED"));
-          }
-          if (!lines.length) lines.push(t("MODS_BY_GAME_NONE"));
-          showInfo(g.name, lines, [], t("MODS_BY_GAME_SUB", "Read-only folder listing"));
-        },
-      });
-    }
-    const subtitle = scanned.length
-      ? t("MODS_BY_GAME_SUB2", "{n} games with mod folders", { n: scanned.length })
-      : t("MODS_BY_GAME_SUB_EMPTY2");
-    showListModal(t("MODS_BY_GAME"), rows, subtitle);
-  };
-
-  // ---------------------------------------------------------------- mount / unmount
+    // ---------------------------------------------------------------- mount / unmount
   useEffect(() => {
     mounted.current = true;
     const g = ++generation.current;
@@ -1049,36 +975,6 @@ function Content() {
     showInfo(t("DETAIL_MOD"), lines, actions, fd ? t("SUBTITLE_FD") : t("SUBTITLE_XML"));
   };
 
-  /* -------------------------------------------------------------- §5.1 #4 details */
-  const showModDetail = (mod: ManagedMod) => {
-    const fd = isFileDrop(status);
-    const q = t("Q_MARK");
-    showInfo(
-      mod.name || mod.packageId,
-      [
-        fd
-          ? t("MODDETAIL_UID", "UniqueID:  {v}", { v: mod.packageId })
-          : t("MODDETAIL_PID", "packageId:  {v}", { v: mod.packageId }),
-        t("MODDETAIL_VERSION", "Version:    {v}", { v: mod.version || q }),
-        // selection B: file_drop uses directory presence; no separate enable flag.
-        ...(fd ? [] : [t("MODDETAIL_ENABLED", "Enabled:    {v}", {
-          v: mod.enabled ? t("YES") : t("NO"),
-        })]),
-        t("MODDETAIL_DIR", "Directory:  {v}", { v: mod.dir || q }),
-        t("MODDETAIL_TXN", "Txn:        {v}", { v: mod.txn || q }),
-        t("EMPTY_LINE"),
-        ...(fd ? [] : [t("MODDETAIL_W1", "W1 (state):    {v}", { v: status?.paths.w1_state_file || q })]),
-        t("MODDETAIL_W2", "W2 (mod root): {v}", { v: status?.paths.w2_mod_root || q }),
-        t("MODDETAIL_QUAR", "Quarantine:    {v}", { v: status?.paths.quarantine_root || q }),
-        t("EMPTY_LINE"),
-        fd ? t("MODDETAIL_FD_NOTE") : t("MODDETAIL_XML_NOTE"),
-        fd ? t("MODDETAIL_FD_NOTE2") : t("MODDETAIL_XML_NOTE2"),
-      ],
-      [],
-      t("MODDETAIL_FOOTER"),
-    );
-  };
-
   /* -------------------------------------------------------------- §5.1 #5 toggle
    * Round 25: file_drop games DO have a real enable/disable step now — the
    * backend moves the mod directory between Mods/ and its sibling
@@ -1153,16 +1049,7 @@ function Content() {
   };
 
   /* -------------------------------------------------------------- §5.1 #6 uninstall */
-  const doUninstall = (mod: ManagedMod) => {
-    runTwoPhase(
-      (ac) => uninstallMod(mod.packageId, ac),
-      (res) =>
-        t("UNINSTALL_OK", "Uninstalled {id}. Folder moved to quarantine (NOT deleted): {q}. Use History → Rollback to restore.",
-          { id: res.packageId || mod.packageId, q: res.quarantine || t("Q_MARK") }),
-    );
-  };
-
-  /* Round 20: uninstall a mod DIRECTORY that this plugin did not install.
+    /* Round 20: uninstall a mod DIRECTORY that this plugin did not install.
    * The backend only accepts a single directory name, re-checks that it lives
    * directly under Mods/ and is not a symlink, still moves it to quarantine
    * (never deletes), and still runs the whole write gate. */
@@ -1351,128 +1238,6 @@ function Content() {
     );
   };
 
-  /* -------------------------------------------------------------- §Goal item 2 game library
-   * Read-only. `list_games` only stats appmanifests, so opening this list can
-   * never change anything. Games with no descriptor are shown with an explicit
-   * "not adapted yet" note instead of being hidden — the goal forbids silent
-   * failure, and a missing adapter must be visible rather than guessed at.
-   */
-  const openGameLibrary = async () => {
-    setBusySafe(true);
-    try {
-      const r = await listGames();
-      if (!mounted.current) return;
-      if (!r.ok) {
-        setError(r);
-        return;
-      }
-      const data = r.data;
-      const games = data?.games || [];
-      if (!games.length) {
-        showInfo(t("LIB_SECTION"), [t("LIB_NO_GAMES")], [], t("LIB_SECTION_DESC"));
-        return;
-      }
-      // Which AppIDs actually have an adapter. Sourced from the backend catalog
-      // (descriptor-driven), never from a literal list here — otherwise the UI
-      // would drift from the backends the moment a descriptor changes.
-      const adaptedIds = (status?.catalog || [])
-        .filter((c) => c.operable && c.appid !== null)
-        .map((c) => c.appid as number);
-      const stateWord = (s: SteamGame["state"]): string =>
-        s === "installed" ? t("LIB_STATE_INSTALLED")
-          : s === "incomplete" ? t("LIB_STATE_INCOMPLETE")
-            : t("LIB_STATE_UNKNOWN");
-      const rows: ListRow[] = games.map((g) => ({
-        label: t("LIB_GAME_ROW", "{name} · {appid}", { name: g.name, appid: g.appid }),
-        sub: t("LIB_GAME_DESC", "AppID {appid} · {state}", {
-          appid: g.appid, state: stateWord(g.state),
-        }),
-        onActivate: () => {
-          // Annotated explicitly: without it TS widens this to string[] and the
-          // `+` below becomes an array-concat error rather than a spread.
-          const lines: string[] = [
-            t("LIB_PATH_ROW", "Library: {p}", { p: g.library }),
-            t("LIB_INSTALL_ROW", "Install path: {p}", { p: g.install_path || "—" }),
-            g.compatdata
-              ? t("LIB_PREFIX_ROW", "Proton prefix: {p}", { p: g.compatdata })
-              : t("LIB_PREFIX_NONE_ROW", "No compatdata prefix (native Linux title)"),
-          ];
-          // Standard 4: show the identified Mod directory when a template
-          // exists; otherwise say "not adapted" explicitly and guess nothing.
-          // A writable=false template is identification-only — never imply the
-          // game is operable just because we recognise where its mods live.
-          const tpl = g.template;
-          if (tpl && tpl.adapted) {
-            const dirs = (tpl.mod_dirs || []).map((d) =>
-              t("LIB_MODDIR_ROW", "{p} ({state})", {
-                p: d.path || "—",
-                state: d.exists ? t("LIB_MODDIR_YES") : t("LIB_MODDIR_NO"),
-              }));
-            lines.push(t("LIB_MODDIR_TITLE", "Mod directory template:"));
-            for (const d of dirs) lines.push(d);
-            if (tpl.loader) lines.push(t("LIB_LOADER_ROW", "Expected loader: {l}", { l: tpl.loader }));
-            if (!tpl.writable) lines.push(t("LIB_IDENTIFY_ONLY"));
-          } else if (!adaptedIds.includes(g.appid)) {
-            lines.push(t("LIB_UNSUPPORTED_NOTE"));
-          }
-          // The game's Nexus domain comes from the descriptor-driven catalog,
-          // matched by AppID. No hard-coded name -> domain table in the UI.
-          const gDomain = (status?.catalog || []).find(
-            (c) => c.appid === g.appid)?.nexus_domain || null;
-          const activeAppid = (status?.catalog || []).find((c) => c.active)?.appid;
-          const isActive = activeAppid !== null && activeAppid !== undefined
-            && g.appid === activeAppid;
-          const actions: ModalAction[] = [];
-          // Primary path: this game's MOD list with per-mod actions (manage).
-          actions.push({
-            label: t("GAME_MANAGE_MODS", "Manage mods for {game}", { game: g.name }),
-            onClick: (close) => {
-              close();
-              later(() => openGameMods(g), 250);
-            },
-          });
-          if (gDomain) {
-            // Secondary path: look up a mod by its Nexus ID, prefix pre-filled.
-            actions.push({
-              label: t("LIB_NEXUS_BY_ID", "Find a Nexus mod by ID for {game}", { game: g.name }),
-              onClick: (close) => {
-                close();
-                setNexusDomain(gDomain);
-                setNexusModId("");
-                setOpenSection("import");
-                setLastResult(t("NEXUS_PREFIX_READY", undefined, {
-                  domain: gDomain, prefix: `https://www.nexusmods.com/${gDomain}/mods`,
-                }));
-              },
-            });
-          }
-          showInfo(
-            g.name,
-            [...lines, isActive ? t("GAME_ACTIVE_HINT") : ""].filter((x) => x !== ""),
-            actions,
-            t("LIB_GAME_DESC", "AppID {appid} · {state}", {
-              appid: g.appid, state: stateWord(g.state),
-            }),
-          );
-        },
-      }));
-      showListModal(
-        t("LIB_COUNT", "{libs} libraries · {games} games installed · {removable} on removable media", {
-          libs: data?.library_count ?? 0,
-          games: data?.game_count ?? rows.length,
-          removable: data?.removable_count ?? 0,
-        }),
-        rows,
-        t("LIB_SECTION_DESC"),
-      );
-    } catch (e) {
-      if (!mounted.current) return;
-      setError(bridgeError(String(e)));
-    } finally {
-      setBusySafe(false);
-    }
-  };
-
   /* -------------------------------------------------------------- Round 40 loader log */
   // The log tells us what the SMAPI loader actually did last launch. A missing
   // entry means "installed but the game never reported it" -- which is NOT the
@@ -1496,7 +1261,7 @@ function Content() {
     const disabled: ModListEntry[] = st?.disabled_mods || [];
     const mods: ModListEntry[] = [...(st?.mods || []), ...disabled];
     const dupMap = new Map<string, string[]>();
-    (st?.duplicate_ids || []).forEach(([uid, dirs]) => {
+    (st?.duplicate_ids || []).forEach(([, dirs]) => {
       dirs.forEach((d) => dupMap.set(d, (dupMap.get(d) || []).concat(
         dirs.filter((x) => x !== d),
       )));
@@ -1761,48 +1526,6 @@ function Content() {
     );
   };
 
-  /* -------------------------------------------------------------- P0 (round 2) read-only game catalog */
-  /* Display-only "Plane 1": shows every descriptor as browsable metadata.
-     It NEVER calls an install/enable RPC and never lifts the single-active-game
-     write gate. Planned / unsupported games are marked "catalog-only, not
-     installable". A opens a read-only detail dialog; B goes back. */
-  const openGameCatalog = () => {
-    const games: CatalogEntry[] = status?.catalog || [];
-    // Typed to accept `undefined` too so older backends that omit appid stay
-    // safe without provoking TS2367 (number|null vs undefined) under strict.
-    const appidText = (a: number | null | undefined): string =>
-      a === null || a === undefined ? t("CATALOG_NA") : String(a);
-    const rows: ListRow[] = games.map((g) => ({
-      label: t("CATALOG_ROW", "{name} · AppID {appid} · {platform}", {
-        name: g.name,
-        appid: appidText(g.appid),
-        platform: g.platform,
-      }),
-      sub: g.operable ? t("CATALOG_OPERABLE") : t("CATALOG_ONLY"),
-      onActivate: () =>
-        showInfo(
-          g.name,
-          [
-            t("CATALOG_DETAIL_APPID", "AppID: {v}", { v: appidText(g.appid) }),
-            t("CATALOG_DETAIL_PLATFORM", "Platform: {v}", { v: g.platform }),
-            t("CATALOG_DETAIL_STATUS", "Status: {v}", { v: g.status }),
-            t("CATALOG_DETAIL_ENGINE", "Engine: {v}", { v: g.engine }),
-            t("CATALOG_DETAIL_LOADERS", "Loaders: {v}", {
-              v: g.loaders.length ? g.loaders.join(", ") : t("CATALOG_LOADERS_NONE"),
-            }),
-            g.operable ? t("CATALOG_OPERABLE") : t("CATALOG_ONLY"),
-          ],
-          [],
-          t("CATALOG_DETAIL_FOOTER"),
-        ),
-    }));
-    showListModal(
-      t("CATALOG_TITLE", "Game catalog (read-only, {n})", { n: games.length }),
-      rows,
-      t("CATALOG_SUB"),
-    );
-  };
-
   /* -------------------------------------------------------------- round 19: download sources
    * ALL network I/O lives in the PYTHON BACKEND (deckymod/github_source.py +
    * download.py). This panel only drives 4 positional RPCs; Steam CEF never opens
@@ -2036,7 +1759,6 @@ function Content() {
   };
 
   /* -------------------------------------------------------------- render */
-  const installed = status?.installed || [];
   const paths = status?.paths;
   // GAP2: prefer stable i18n keys from the descriptor; fall back to the
   // original English DATA lines for older backends.

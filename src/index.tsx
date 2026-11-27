@@ -57,13 +57,12 @@ import {
   installMod,
   setModEnabled,
   uninstallMod,
-  rollbackTxn,
-  fetchDependencies,
   openModPage,
   openSearchPage,
   openBrowsePage,
   handoverMods,
   reclaimQuarantine,
+  checkModUpdates,
 } from "./api";
 import type {
   Envelope,
@@ -81,7 +80,7 @@ import type {
 } from "./types";
 import { isConfirmData } from "./types";
 import { t, errorText, categoryText } from "./i18n";
-import type { ModListEntry } from "./types";
+import type { ModListEntry, UpdateCheckData } from "./types";
 import { showConfirm } from "./components/ConfirmModal";
 import { runUninstallFlow } from "./uninstallFlow";
 import { autoImportNew, autoImportSilent } from "./autoImport";
@@ -91,6 +90,7 @@ import { showInfo, showListModal, showErrorModal, showFomodModal } from "./compo
 import type { ListRow, ModalAction } from "./components/Modal";
 import { ModRow } from "./components/ModRow";
 import { ImportBox } from "./components/ImportBox";
+import { BORDER, FONT, HEIGHT, LINE_HEIGHT, SPACE, PANEL_ROOT_STYLE, BOX_SIZING } from "./theme";
 
 /* ------------------------------------------------------------------ small utils */
 
@@ -1706,6 +1706,48 @@ function Content() {
   // planning, installing what it can, and opening the Nexus page for the rest.
   const doDepsInstall = () => runDepsFlow();
 
+  /* Round 82: which installed mods have a newer version published.
+     Report-only -- a free Nexus account cannot download, so this asks the
+     question and stops. It renders through the same list modal the inbox
+     uses, so a mod with no Nexus id says so instead of being silently
+     dropped from the answer. */
+  const doCheckModUpdates = async () => {
+    setBusySafe(true);
+    const g = generation.current;
+    try {
+      const r = await checkModUpdates();
+      if (!mounted.current || generation.current !== g) return;
+      if (!r.ok) {
+        showErrorModal(r as never, {
+          onDismiss: () => setLastResult(""),
+        });
+        return;
+      }
+      const d = (r.data || {}) as UpdateCheckData;
+      const rows: ListRow[] = (d.rows || []).map((row) => ({
+        label: row.uniqueId || "(unnamed)",
+        sub: row.state === "outdated"
+          ? `${row.installed || "?"} -> ${row.latest || "?"}`
+          : row.state === "current"
+            ? `${row.installed || "?"} (current)`
+            : row.state === "error"
+              ? (row.reason || "failed")
+              : "unknown",
+        // No action: a free Nexus account cannot download, so there is nothing
+        // this row could do. Present-but-inert beats a button that refuses.
+        onActivate: () => {},
+      }));
+      if (!rows.length) {
+        showInfo(t("UPDATE_CHECK_TITLE"), [t("UPDATE_CHECK_NONE")], []);
+        return;
+      }
+      showListModal(t("UPDATE_CHECK_TITLE"), rows, (d.note || "") as string);
+      setLastResult(d.summary || t("UPDATE_CHECK_NONE"));
+    } finally {
+      if (mounted.current) setBusySafe(false);
+    }
+  };
+
   /** Browse one of the three feeds. There is no search because there is no endpoint. */
   const doNexusRecent = (kind: string) => {
     // Round 73: no API key needed. The Nexus API's recent() requires a personal
@@ -2009,18 +2051,18 @@ function Content() {
   return (
     // ⚠️ V3: `autoFocus` on Focusable is the Decky-standard way to give the
     // first focusable element focus when the QAM tab opens (§5.1 #1).
-    <Focusable autoFocus style={{ display: "flex", flexDirection: "column" }}>
+    <Focusable autoFocus style={PANEL_ROOT_STYLE}>
       {/* ── 1. 状态摘要（永远可见，但只占一块） ───────────────────────── */}
       <PanelSection title={fd ? t("TITLE_FILEDROP") : t("TITLE_XML")}>
         <PanelSectionRow>
-          <div style={{ fontSize: "13px", lineHeight: 1.35 }}>
+          <div style={{ fontSize: FONT.bodyLg, lineHeight: LINE_HEIGHT.body }}>
             <div style={{ fontWeight: 700 }}>
               {status ? t("GAME_INFO", "{name} \u00b7 AppID {appid} \u00b7 {platform} \u00b7 {state}", {
                 name: status.game.name, appid: status.game.appid,
                 platform: status.game.platform, state: status.game.status,
               }) : t("RESOLVING")}
             </div>
-            <div style={{ opacity: 0.75, fontSize: "11px", wordBreak: "break-word" }}>
+            <div style={{ opacity: 0.75, fontSize: FONT.caption, wordBreak: "break-word" }}>
               {!fd ? (
                 t("DETAIL_W1", "W1 (state):  {v}", { v: paths?.w1_state_file || "\u2026" })
               ) : (
@@ -2033,18 +2075,18 @@ function Content() {
                 </>
               )}
             </div>
-            <div style={{ opacity: 0.6, fontSize: "11px", wordBreak: "break-word" }}>
+            <div style={{ opacity: 0.6, fontSize: FONT.caption, wordBreak: "break-word" }}>
               {t("W2_LINE", "W2 (mods): {v}", { v: paths?.w2_mod_root || "\u2026" })}
             </div>
             {ll && ll.available ? (
-              <div style={{ opacity: 0.75, fontSize: "11px", wordBreak: "break-word" }}>
+              <div style={{ opacity: 0.75, fontSize: FONT.caption, wordBreak: "break-word" }}>
                 {t("LOADER_LOG_LINE", "Last launch: {loaded} mods, {packs} content packs, {skipped} skipped", {
                   loaded: ll.loaded ?? 0, packs: ll.content_packs ?? 0, skipped: ll.skipped ?? 0,
                 })}
                 {ll.truncated ? " " + t("LOADER_LOG_TRUNCATED") : ""}
               </div>
             ) : ll ? (
-              <div style={{ opacity: 0.55, fontSize: "11px", wordBreak: "break-word" }}>
+              <div style={{ opacity: 0.55, fontSize: FONT.caption, wordBreak: "break-word" }}>
                 {ll.reason === "log_missing"
                   ? t("LOADER_LOG_NONE")
                   : t("LOADER_LOG_BAD", "Loader log not usable: {reason}", {
@@ -2056,7 +2098,7 @@ function Content() {
         </PanelSectionRow>
         {fd && readOnly ? (
           <PanelSectionRow>
-            <div style={{ fontSize: "12px", opacity: 0.95, wordBreak: "break-word", fontWeight: 600 }}>
+            <div style={{ fontSize: FONT.body, opacity: 0.95, wordBreak: "break-word", fontWeight: 600 }}>
               {t("READ_ONLY_BANNER")}
             </div>
           </PanelSectionRow>
@@ -2074,21 +2116,21 @@ function Content() {
         ) : null}
         {fd && readOnly && foreignWhy() ? (
           <PanelSectionRow>
-            <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.7, lineHeight: LINE_HEIGHT.body, wordBreak: "break-word" }}>
               {t("LAYOUT_WHY_TITLE")} {foreignWhy()}
             </div>
           </PanelSectionRow>
         ) : null}
         {conflictLine() ? (
           <PanelSectionRow>
-            <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.7, lineHeight: LINE_HEIGHT.body, wordBreak: "break-word" }}>
               {conflictLine()}
             </div>
           </PanelSectionRow>
         ) : null}
         {quarantineLine() ? (
           <PanelSectionRow>
-            <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.7, lineHeight: LINE_HEIGHT.body, wordBreak: "break-word" }}>
               {quarantineLine()}
             </div>
           </PanelSectionRow>
@@ -2106,13 +2148,13 @@ function Content() {
         ) : null}
         {runningLine() ? (
           <PanelSectionRow>
-            <div style={{ fontSize: 11, opacity: 0.7, lineHeight: 1.35, wordBreak: "break-word" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.7, lineHeight: LINE_HEIGHT.body, wordBreak: "break-word" }}>
               {runningLine()}
             </div>
           </PanelSectionRow>
         ) : null}
         <PanelSectionRow>
-          <div style={{ fontSize: "11px", opacity: 0.85, wordBreak: "break-word" }}>
+          <div style={{ fontSize: FONT.caption, opacity: 0.85, wordBreak: "break-word" }}>
             {busy ? t("STATUS_WORKING", "Working\u2026 {stage}{pct}", {
               stage: progress?.stage || "",
               pct: progress?.pct ? ` (${progress.pct}%)` : "",
@@ -2124,7 +2166,7 @@ function Content() {
       {/* ── 2. 分区切换器：同时只展开一个区 ──────────────────────────── */}
       <PanelSection>
         <PanelSectionRow>
-          <Focusable style={{ display: "flex", gap: "4px", width: "100%" }}>
+          <Focusable style={{ display: "flex", gap: SPACE.xs, width: "100%", boxSizing: BOX_SIZING }}>
             {([
               ["games", t("NAV_GAMES"), String((status?.catalog || []).filter((c) => c.operable).length)],
               ["import", t("NAV_IMPORT"), String(inbox?.items.length ?? "")],
@@ -2138,22 +2180,30 @@ function Content() {
                   onClick={() => setOpenSection(key)}
                   style={{
                     flex: 1,
+                    // Round 81: `height: "auto"` and a custom `padding` used to
+                    // be set here. Steam draws a DialogButton's focus ring and
+                    // its backing plate at the size the component computes, so
+                    // overriding either one decouples the box from the artwork
+                    // and the highlight lands off the button. Only the border
+                    // (which the component does not draw) is added now.
                     minWidth: 0,
-                    height: "auto",
-                    padding: "5px 2px",
-                    fontSize: "12px",
-                    lineHeight: 1.15,
+                    fontSize: FONT.body,
+                    lineHeight: LINE_HEIGHT.tab,
                     textAlign: "center",
                     opacity: active ? 1 : 0.5,
-                    borderBottom: active ? "2px solid #1a9fff" : "2px solid transparent",
+                    borderBottom: active ? BORDER.tabActive : BORDER.tabIdle,
                   }}
                 >
                   <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {label}
                   </div>
-                  {badge ? (
-                    <div style={{ fontSize: "10px", opacity: 0.8 }}>{badge}</div>
-                  ) : null}
+                  {/* Round 81: a fixed-height badge slot. The badge is absent on
+                      some tabs, and a conditionally rendered row made the three
+                      buttons different heights -- the visible "one button sits
+                      lower than its neighbours" complaint. */}
+                  <div style={{ fontSize: FONT.badge, opacity: 0.8, height: HEIGHT.badgeSlot, lineHeight: LINE_HEIGHT.badgeSlot }}>
+                    {badge || ""}
+                  </div>
                 </DialogButton>
               );
             })}
@@ -2165,7 +2215,7 @@ function Content() {
       {openSection === "games" ? (
         <PanelSection>
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.7, wordBreak: "break-word" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.7, wordBreak: "break-word" }}>
               {t("GAMES_HINT")}
             </div>
           </PanelSectionRow>
@@ -2173,7 +2223,7 @@ function Content() {
               is active at a time. Switching rewrites active_game and the engine
               is rebuilt on the next RPC, so nothing else has to change. */}
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65, fontWeight: 700, marginTop: "8px" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.65, fontWeight: 700, marginTop: SPACE.md }}>
               {t("GAMES_SUPPORTED", "Installable games")}
             </div>
           </PanelSectionRow>
@@ -2191,12 +2241,12 @@ function Content() {
             </ButtonItem>
           ))}
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65, fontWeight: 700, marginTop: "8px" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.65, fontWeight: 700, marginTop: SPACE.md }}>
               {t("GAMES_ALL", "All installed games (read-only)")}
             </div>
           </PanelSectionRow>
           {gameList.length ? (
-            <Focusable style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%" }}>
+            <Focusable style={{ display: "flex", flexDirection: "column", gap: SPACE.sm, width: "100%", boxSizing: BOX_SIZING }}>
               {/* Playable games first (active / with mods), so the game the user
                   actually manages is the first stop instead of buried at #20. */}
               {[...gameList]
@@ -2217,12 +2267,15 @@ function Content() {
                       key={g.appid}
                       disabled={busy}
                       onClick={() => (cat ? openGameMods(g) : openGameSetup(g))}
-                      style={{ width: "100%", textAlign: "left", padding: "8px 10px" }}
+                      // Round 81: no `padding` override. Steam sizes the
+                      // button's plate and focus ring from its own box; a custom
+                      // padding made the highlight sit inside a larger frame.
+                      style={{ width: "100%", boxSizing: BOX_SIZING, textAlign: "left" }}
                     >
-                      <div style={{ fontSize: "13px", fontWeight: 500 }}>
+                      <div style={{ fontSize: FONT.bodyLg, fontWeight: 500, wordBreak: "break-word" }}>
                         {isActive ? "▶ " : ""}{g.name}
                       </div>
-                      <div style={{ fontSize: "11px", opacity: 0.7 }}>
+                      <div style={{ fontSize: FONT.caption, opacity: 0.7, wordBreak: "break-word" }}>
                         {t("GAME_ROW_SUB", "AppID {appid} · {n} mods{active}", {
                           appid: String(g.appid),
                           n: String(modCount),
@@ -2236,7 +2289,7 @@ function Content() {
             </Focusable>
           ) : (
             <PanelSectionRow>
-              <div style={{ fontSize: "12px", opacity: 0.75 }}>{t("LIB_NO_GAMES")}</div>
+              <div style={{ fontSize: FONT.body, opacity: 0.75 }}>{t("LIB_NO_GAMES")}</div>
             </PanelSectionRow>
           )}
           <ButtonItem
@@ -2254,12 +2307,12 @@ function Content() {
       {openSection === "import" ? (
         <PanelSection>
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.85, wordBreak: "break-word", fontWeight: 700 }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.85, wordBreak: "break-word", fontWeight: 700 }}>
               {t("DOWNLOAD_TITLE")}
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.65, wordBreak: "break-word" }}>
               {t("DOWNLOAD_HINT")}
             </div>
           </PanelSectionRow>
@@ -2280,7 +2333,7 @@ function Content() {
             {t("INBOX_FIXED")}
           </ButtonItem>
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65 }}>{t("IMPORT_OSK")}</div>
+            <div style={{ fontSize: FONT.caption, opacity: 0.65 }}>{t("IMPORT_OSK")}</div>
           </PanelSectionRow>
           <ImportBox busy={busy} onSubmit={(p) => void inspectAndImport(p)} />
 
@@ -2297,25 +2350,33 @@ function Content() {
           >
             {t("DEPS_BTN_SUB")}
           </ButtonItem>
+          <ButtonItem
+            label={t("UPDATE_CHECK_LABEL")}
+            description={t("UPDATE_CHECK_DESC")}
+            disabled={busy}
+            onClick={() => void doCheckModUpdates()}
+          >
+            {t("UPDATE_CHECK_BODY")}
+          </ButtonItem>
           {progressLine ? (
             <PanelSectionRow>
-              <div style={{ fontSize: "12px", opacity: 0.8, wordBreak: "break-word" }}>{progressLine}</div>
+              <div style={{ fontSize: FONT.body, opacity: 0.8, wordBreak: "break-word" }}>{progressLine}</div>
             </PanelSectionRow>
           ) : null}
 
           {/* ── Nexus: browse & open in browser (no API key) ─────────────── */}
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word", marginTop: "10px", fontWeight: 700 }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.65, wordBreak: "break-word", marginTop: SPACE.lg, fontWeight: 700 }}>
               {t("NEXUS_SECTION")}
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.6, wordBreak: "break-word" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.6, wordBreak: "break-word" }}>
               {t("NEXUS_SECTION_DESC")}
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.85, wordBreak: "break-all", fontWeight: 700 }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.85, wordBreak: "break-all", fontWeight: 700 }}>
               {nexusPrefix
                 ? t("NEXUS_CURRENT_PREFIX", undefined, { prefix: nexusPrefix })
                 : t("NEXUS_NO_PREFIX")}
@@ -2323,28 +2384,28 @@ function Content() {
           </PanelSectionRow>
 
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word", marginTop: "6px" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.65, wordBreak: "break-word", marginTop: SPACE.sm }}>
               {t("NEXUS_RECENT_DESC")}
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
-            <Focusable style={{ display: "flex", flexDirection: "row", gap: "4px", width: "100%" }}>
+            <Focusable style={{ display: "flex", flexDirection: "row", gap: SPACE.xs, width: "100%", boxSizing: BOX_SIZING }}>
               <DialogButton
-                style={{ flex: 1, minWidth: 0, height: "auto", padding: "5px 2px", fontSize: "12px" }}
+                style={{ flex: 1, minWidth: 0, fontSize: FONT.body }}
                 disabled={busy || !activeNexusDomain}
                 onClick={() => doNexusRecent("latest_added")}
               >
                 {t("NEXUS_RECENT_ADDED")}
               </DialogButton>
               <DialogButton
-                style={{ flex: 1, minWidth: 0, height: "auto", padding: "5px 2px", fontSize: "12px" }}
+                style={{ flex: 1, minWidth: 0, fontSize: FONT.body }}
                 disabled={busy || !activeNexusDomain}
                 onClick={() => doNexusRecent("latest_updated")}
               >
                 {t("NEXUS_RECENT_UPDATED")}
               </DialogButton>
               <DialogButton
-                style={{ flex: 1, minWidth: 0, height: "auto", padding: "5px 2px", fontSize: "12px" }}
+                style={{ flex: 1, minWidth: 0, fontSize: FONT.body }}
                 disabled={busy || !activeNexusDomain}
                 onClick={() => doNexusRecent("trending")}
               >
@@ -2354,7 +2415,7 @@ function Content() {
           </PanelSectionRow>
 
           <PanelSectionRow>
-            <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
+            <Focusable style={{ display: "flex", flexDirection: "column", gap: SPACE.md, width: "100%", boxSizing: BOX_SIZING }}>
               <TextField
                 label={t("NEXUS_MOD_ID")}
                 value={nexusModId}
@@ -2365,7 +2426,7 @@ function Content() {
           </PanelSectionRow>
           {nexusPrefix && /^\d+$/.test(nexusModId.trim()) ? (
             <PanelSectionRow>
-              <div style={{ fontSize: "11px", opacity: 0.7, wordBreak: "break-all" }}>
+              <div style={{ fontSize: FONT.caption, opacity: 0.7, wordBreak: "break-all" }}>
                 {t("NEXUS_FULL_URL", undefined, { url: `${nexusPrefix}/${nexusModId.trim()}` })}
               </div>
             </PanelSectionRow>
@@ -2380,17 +2441,17 @@ function Content() {
           </ButtonItem>
 
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word", marginTop: "10px", fontWeight: 700 }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.65, wordBreak: "break-word", marginTop: SPACE.lg, fontWeight: 700 }}>
               {t("SEARCH_SECTION")}
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.6, wordBreak: "break-word" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.6, wordBreak: "break-word" }}>
               {t("SEARCH_SECTION_DESC")}
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
-            <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
+            <Focusable style={{ display: "flex", flexDirection: "column", gap: SPACE.md, width: "100%", boxSizing: BOX_SIZING }}>
               <TextField
                 label={t("SEARCH_INPUT")}
                 value={searchText}
@@ -2410,7 +2471,7 @@ function Content() {
 
           {readOnly ? (
             <PanelSectionRow>
-              <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word" }}>
+              <div style={{ fontSize: FONT.caption, opacity: 0.65, wordBreak: "break-word" }}>
                 {t("WRITE_GATE_NOTE", "Writes are disabled for this game (read-only mode).")}
               </div>
             </PanelSectionRow>
@@ -2441,18 +2502,22 @@ function Content() {
             </ButtonItem>
           ) : null}
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65, wordBreak: "break-word" }}>
+            <div style={{ fontSize: FONT.caption, opacity: 0.65, wordBreak: "break-word" }}>
               {t("QUAR_LINE", "Quarantine: {v}", { v: paths?.quarantine_root || "…" })}
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
-            <div style={{ fontSize: "11px", opacity: 0.65 }}>
+            {/* Round 81: this is the longest paragraph in the panel and was the
+                only one without `wordBreak`. A long Chinese sentence has no
+                spaces to wrap at, so it pushed the row wider than the QAM
+                column instead of wrapping. */}
+            <div style={{ fontSize: FONT.caption, opacity: 0.65, wordBreak: "break-word" }}>
               {t("CONSTRAINTS")}: {t("CONSTRAINTS_BODY")}
             </div>
           </PanelSectionRow>
           {limitations.length ? (
             <PanelSectionRow>
-              <div style={{ fontSize: "11px", opacity: 0.7, wordBreak: "break-word" }}>
+              <div style={{ fontSize: FONT.caption, opacity: 0.7, wordBreak: "break-word" }}>
                 <b>{t("KNOWN_LIMITS")}:</b> {limitations.join(" ")}
               </div>
             </PanelSectionRow>

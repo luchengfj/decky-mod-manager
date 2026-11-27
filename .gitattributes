@@ -1,0 +1,26 @@
+# Line endings: this project stores LF in the repository.
+#
+# Why this file exists: on Windows, editing a file with a tool that writes CRLF
+# made 18 files show every line as changed, turning a 767-line diff into 9017
+# lines of noise. That is not cosmetic -- it made the Round 83 refactor
+# unreviewable until the endings were restored by hand.
+#
+# `text=auto` lets git normalise on commit, and `eol=lf` makes the working tree
+# match the repository, so an editor that writes CRLF is corrected instead of
+# committed.
+* text=auto eol=lf
+
+# Binary files must never be normalised.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.tar binary
+*.gz binary
+
+# Windows-only helper scripts keep CRLF because cmd.exe and PowerShell expect it.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

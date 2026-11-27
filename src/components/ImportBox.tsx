@@ -17,6 +17,7 @@
 import { Focusable, TextField, DialogButton, PanelSectionRow } from "@decky/ui";
 import { useState } from "react";
 import { t } from "../i18n";
+import { FONT, SPACE, BOX_SIZING } from "../theme";
 
 interface Props {
   busy: boolean;
@@ -28,8 +29,8 @@ export function ImportBox({ busy, onSubmit }: Props) {
 
   return (
     <PanelSectionRow>
-      <Focusable style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
-        <div style={{ fontSize: "12px", opacity: 0.7 }}>
+      <Focusable style={{ display: "flex", flexDirection: "column", gap: SPACE.md, width: "100%", boxSizing: BOX_SIZING }}>
+        <div style={{ fontSize: FONT.body, opacity: 0.7 }}>
           {t("OSK_HINT")}
         </div>
         <TextField
@@ -38,7 +39,7 @@ export function ImportBox({ busy, onSubmit }: Props) {
           disabled={busy}
           onChange={(e) => setPath(e?.target?.value ?? "")}
         />
-        <Focusable style={{ display: "flex", gap: "8px" }}>
+        <Focusable style={{ display: "flex", gap: SPACE.md }}>
           <DialogButton
             disabled={busy || !path.trim()}
             onClick={() => {

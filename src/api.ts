@@ -42,6 +42,7 @@ import type {
   NexusValidateData,
   NexusRecentData,
   NexusModData,
+  UpdateCheckData,
   NexusDownloadLinkData,
   OpenModPageData,
   SearchPageData,
@@ -238,6 +239,16 @@ export const nexusValidate = () => invoke<NexusValidateData>("nexus_validate");
 export const nexusRecent = (kind: string) => invoke<NexusRecentData>("nexus_recent", kind);
 
 export const nexusMod = (modId: number) => invoke<NexusModData>("nexus_mod", modId);
+
+/**
+ * Round 82: which installed mods have a newer version published.
+ *
+ * Report-only. A free Nexus account cannot download (403 by policy), so this
+ * answers the question and stops -- it never fetches, queues or touches the
+ * mod folder. A mod with no Nexus id in its manifest is not asked about, and a
+ * version that cannot be parsed comes back as `unknown`, never as `current`.
+ */
+export const checkModUpdates = () => invoke<UpdateCheckData>("check_mod_updates");
 
 /**
  * Honest by construction: for a free account this RPC answers DL_FORBIDDEN with

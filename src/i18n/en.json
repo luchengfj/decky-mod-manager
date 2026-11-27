@@ -520,5 +520,11 @@
   "GAME_SETUP_HINT": "tap to set mod folder",
   "USER_LIMIT_LOADER": "This plugin does not install the mod loader (BepInEx/MelonLoader/UE4SS). Without one, files in the folder may not be loaded by the game.",
   "USER_LIMIT_LAUNCHOPTS": "This plugin never edits Steam launch options. If the loader needs one (e.g. WINEDLLOVERRIDES for BepInEx on Proton), the panel shows the text and you paste it into Steam yourself.",
-  "USER_LIMIT_ORDER": "No load order: two mods shipping the same path keep whichever was installed last."
+  "USER_LIMIT_ORDER": "No load order: two mods shipping the same path keep whichever was installed last.",
+  "UPDATE_CHECK_LABEL": "Check mod updates",
+  "UPDATE_CHECK_DESC": "Ask Nexus whether the installed mods have a newer version. Read-only: nothing is downloaded, installed or written. Only mods whose manifest declares a Nexus id are asked about.",
+  "UPDATE_CHECK_BODY": "A free Nexus account cannot download, so this only tells you what is stale",
+  "UPDATE_CHECK_TITLE": "Mod update check",
+  "UPDATE_CHECK_NONE": "Every installed mod is current, or none of them declares a Nexus id.",
+  "UPDATE_CHECK_NOTE": "Note"
 }

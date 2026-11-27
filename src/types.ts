@@ -822,6 +822,33 @@ export interface NexusFile {
   mod_version?: string;
 }
 
+/**
+ * Round 82: one row per installed mod that declares a Nexus id.
+ *
+ * `state` is deliberately four-valued: `unknown` (no id, or an unparsable
+ * version) must never collapse into `current`, because "I cannot tell" and
+ * "you are up to date" are different answers and only one of them is a
+ * promise this plugin can keep.
+ */
+export interface UpdateCheckRow {
+  uniqueId: string;
+  nexusId: string;
+  installed: string;
+  latest: string;
+  state: "current" | "outdated" | "unknown" | "error";
+  reason: string;
+}
+
+export interface UpdateCheckData {
+  checked: number;
+  skipped: number;
+  rows: UpdateCheckRow[];
+  outdated: string[];
+  errors: Record<string, string>;
+  summary: string;
+  note: string;
+}
+
 export interface NexusModData {
   mod_id: number;
   browser_url: string;

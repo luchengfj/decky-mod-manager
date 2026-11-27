@@ -56,6 +56,19 @@ def _log_path(jrn: Journal) -> str:
     return jrn.log_path
 
 
+def _slug(path: str) -> str:
+    """A filesystem-safe folder name for one handed-over mod root.
+
+    Round 81: an engine can now hand over more than one folder, so each needs
+    its own quarantine subfolder. Derived from the absolute path so two roots
+    with the same basename cannot collide, and stripped to ``[A-Za-z0-9._-]`` so
+    it is safe on every filesystem this plugin meets.
+    """
+    raw = str(path or "").replace("\\", "/").strip("/")
+    safe = "".join(c if (c.isalnum() or c in "._-") else "_" for c in raw)
+    return safe[-120:] or "root"
+
+
 class FileDropEngine:
     def __init__(self, registry: Registry | None = None, journal: Journal | None = None,
                  decky=None, game_id: str | None = None):
@@ -1359,17 +1372,31 @@ class FileDropEngine:
             return ok(result)
         # Round 55: a handover transaction moved entries to the quarantine; the
         # confirm dialog promised Rollback would put them back, so it must.
-        hand = next((e for e in events if e.get("event") == "MODS_HANDOVER"), None)
-        if hand and state in ("COMMITTED", "APPLYING", "PREPARED"):
-            got = handover.restore(hand.get("quarantine") or "",
-                                   hand.get("from_path") or "",
-                                   hand.get("moved") or [])
+        # Round 81: root_merge hands over several folders and records one event
+        # per folder, so every event is replayed rather than only the first.
+        hands = [e for e in events if e.get("event") == "MODS_HANDOVER"]
+        if hands and state in ("COMMITTED", "APPLYING", "PREPARED"):
+            moved_all = []
+            failed_all = {}
+            multi = len(hands) > 1
+            for hand in hands:
+                got = handover.restore(hand.get("quarantine") or "",
+                                       hand.get("from_path") or "",
+                                       hand.get("moved") or [])
+                moved_all.extend(got["moved"])
+                for name, why in (got["failed"] or {}).items():
+                    # One folder keeps the historical bare name; several folders
+                    # need the path, because the same name can fail in two of
+                    # them and one answer would hide the other.
+                    key = "%s: %s" % (hand.get("from_path") or "", name) if multi else name
+                    failed_all[key] = why
             self.journal.record("MOD_ROLLBACK_RESTORED", txn,
-                                mod={"name": "handover", "dir": hand.get("from_path")},
-                                moved=got["moved"], failed=sorted(got["failed"]))
+                                mod={"name": "handover",
+                                     "dir": hands[0].get("from_path")},
+                                moved=moved_all, failed=sorted(failed_all))
             self.journal.committed(txn, {"rollback_of": "handover"})
-            return ok({"restored": "handover", "moved": got["moved"],
-                       "failed": got["failed"], "txn": txn,
+            return ok({"restored": "handover", "moved": moved_all,
+                       "failed": failed_all, "txn": txn,
                        "log_path": _log_path(self.journal)})
         # Round 56: an upgrade moved the displaced version into the quarantine and
         # recorded where in `replaced_old`; nothing read it, so rollback answered
@@ -1566,6 +1593,15 @@ class FileDropEngine:
             self.journal.log(f"handover unexpected: {type(e).__name__}: {e}")
             return err("E_UNKNOWN", detail=f"{type(e).__name__}: {e}")
 
+    def _handover_roots(self, r) -> list:
+        """The folders this engine may take over, absolute.
+
+        Round 81: file_drop owns exactly one folder (``Mods/``). The hook exists
+        so an engine whose mods are not "one folder" can name several, without
+        duplicating the journal/confirm/rollback machinery around it.
+        """
+        return [r.mod_root]
+
     def _handover_inner(self, after_confirm: bool) -> dict:
         self._gate("local_import")
         self._check_not_running()
@@ -1577,18 +1613,67 @@ class FileDropEngine:
             raise ModError("E_CAPABILITY_DISABLED",
                            detail="handing the mod folder over is disabled in the descriptor")
 
-        survey = handover.survey(r.game_root, r.mod_root, self._external_markers())
+        roots = [str(p) for p in (self._handover_roots(r) or []) if str(p or "").strip()]
+        if not roots:
+            raise ModError("E_CAPABILITY_DISABLED",
+                           detail="this game declares no mod folder to take over")
+
+        markers = self._external_markers()
         txn = new_txn_id()
-        planned = handover.plan(survey, os.path.join(r.quarantine_root, txn))
-        if not planned.get("ok"):
+        # Survey every root before deciding anything: a refusal must cover the
+        # whole operation, never half of it.
+        blocking = []
+        notes = []
+        found = []
+        for root in roots:
+            survey = handover.survey(r.game_root, root, markers)
+            if not survey.get("ok"):
+                return err(survey.get("code") or "E_UNKNOWN",
+                           detail=survey.get("detail") or "survey failed")
+            blocking.extend(survey.get("blocking") or [])
+            if survey.get("explain"):
+                notes.append(survey["explain"])
+            movable = survey.get("movable") or []
+            if movable:
+                found.append({"root": root, "movable": movable})
+
+        seen = set()
+        uniq_blocking = []
+        for code in blocking:
+            if code not in seen:
+                seen.add(code)
+                uniq_blocking.append(code)
+        explain = "; ".join(dict.fromkeys(notes))
+
+        if uniq_blocking:
             # Refusing as a whole is the point: doing half of it and then
             # stopping would leave the other manager's deployment partly
             # dismantled with nothing gained.
-            return err(planned.get("code") or "E_CAPABILITY_DISABLED",
-                       detail=planned.get("detail") or "",
-                       data={"blocking": planned.get("blocking") or [],
-                             "explain": planned.get("explain") or "",
-                             "movable": planned.get("movable") or []})
+            return err("E_CAPABILITY_DISABLED",
+                       detail="this folder cannot be handed over safely: %s. %s"
+                              % (", ".join(uniq_blocking), explain),
+                       data={"blocking": uniq_blocking, "explain": explain,
+                             "movable": []})
+        if not found:
+            return err("E_CAPABILITY_DISABLED",
+                       detail="nothing to hand over: no symlinked entries and no "
+                              "marker files were found",
+                       data={"blocking": [], "explain": "", "movable": []})
+
+        # One quarantine subfolder per root, but only when there is more than
+        # one: a single-root game keeps the historical ``<quarantine>/<txn>``
+        # layout byte for byte.
+        multi = len(found) > 1
+        plans = []
+        for row in found:
+            qdir = os.path.join(r.quarantine_root, txn)
+            if multi:
+                qdir = os.path.join(qdir, _slug(row["root"]))
+            plans.append({"root": row["root"], "movable": row["movable"],
+                          "quarantine": qdir})
+
+        total = sum(len(p["movable"]) for p in plans)
+        flat = [m for p in plans for m in p["movable"]]
 
         if after_confirm:
             # Round 55: without these two events ``journal.state(txn)`` stays
@@ -1596,44 +1681,60 @@ class FileDropEngine:
             # entries would sit in the quarantine with no way back.
             self.journal.begin(txn, "handover",
                                {"quarantine": os.path.join(r.quarantine_root, txn),
-                                "count": len(planned.get("movable") or [])})
+                                "count": total})
             self.journal.applying(txn)
 
-        out = handover.execute(planned, after_confirm=after_confirm,
-                               quarantine_root=r.quarantine_root, txn=txn)
-        if out.get("phase") == "confirm":
-            n = int(out.get("count") or 0)
-            out.update({
+        if not after_confirm:
+            where = "Mods/" if len(roots) == 1 else "the mod folders"
+            return ok({
+                "phase": "confirm",
                 "plan": {"op": "handover", "txn": txn,
-                         "moved": [row.get("name") for row in planned.get("movable") or []],
-                         "quarantine": out.get("quarantine")},
-                "confirm_text": "Move %d deployment entr(y/ies) out of Mods/ into "
+                         "moved": [row.get("name") for row in flat],
+                         "quarantine": os.path.join(r.quarantine_root, txn)},
+                "count": total,
+                "confirm_text": "Move %d deployment entr(y/ies) out of %s into "
                                 "the quarantine? This plugin will then own the "
-                                "folder; Rollback puts them back." % n,
+                                "folder; Rollback puts them back."
+                                % (total, where),
                 "confirm_key": "CONFIRM_HANDOVER",
-                "confirm_vars": {"n": str(n), "what": planned.get("describe")
-                                 or handover.describe(planned)},
+                "confirm_vars": {"n": str(total),
+                                 "what": handover.describe({"movable": flat})},
                 "targets": {"w1_state_file": None,
                             "w2_quarantine": r.quarantine_root},
+                "log_path": _log_path(self.journal),
             })
-            out["log_path"] = _log_path(self.journal)
-            return ok(out)
 
-        moved = out.get("moved") or []
-        if moved:
-            self.journal.record("MODS_HANDOVER", txn,
-                                moved=moved,
-                                failed=sorted((out.get("failed") or {}).keys()),
-                                quarantine=out.get("quarantine"),
-                                from_path=r.mod_root)
-            self.journal.committed(txn, {"handover": True, "moved": len(moved)})
+        moved_all = []
+        failed_all = {}
+        for plan in plans:
+            # handover.execute() builds its destination as quarantine_root/txn,
+            # so split our per-root folder back into those two parts. For the
+            # single-root case this is exactly the old pair.
+            parent, base = os.path.split(plan["quarantine"])
+            out = handover.execute(plan, after_confirm=True,
+                                   quarantine_root=parent, txn=base)
+            got = out.get("moved") or []
+            failed_all.update(out.get("failed") or {})
+            if got:
+                # One event per root: each carries the from_path that its own
+                # names must go back to, and rollback replays all of them.
+                self.journal.record("MODS_HANDOVER", txn,
+                                    moved=got,
+                                    failed=sorted((out.get("failed") or {}).keys()),
+                                    quarantine=plan["quarantine"],
+                                    from_path=plan["root"])
+                moved_all.extend(got)
+
+        if moved_all:
+            self.journal.committed(txn, {"handover": True, "moved": len(moved_all)})
         else:
             # Nothing moved: close it rather than leaving a pending transaction
             # that would block every later write behind E_RECOVERY_PENDING.
             self.journal.rolled_back(txn, {"handover": True, "moved": 0})
-        out["txn"] = txn
-        out["log_path"] = _log_path(self.journal)
-        return ok(out)
+        return ok({"phase": "moved", "moved": moved_all, "failed": failed_all,
+                   "quarantine": os.path.join(r.quarantine_root, txn),
+                   "count": total, "txn": txn,
+                   "log_path": _log_path(self.journal)})
 
     # ------------------------------------------------------------------ history / refresh
     def history(self, limit: int = 50) -> dict:

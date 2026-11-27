@@ -11,6 +11,7 @@
 import { Focusable, DialogButton, PanelSectionRow } from "@decky/ui";
 import { t } from "../i18n";
 import type { ManagedMod } from "../types";
+import { FONT, SPACE, BOX_SIZING } from "../theme";
 
 interface Props {
   mod: ManagedMod;
@@ -31,15 +32,15 @@ export function ModRow({ mod, busy, canToggle, onToggle, onUninstall, onDetail }
   return (
     <PanelSectionRow>
       <Focusable
-        style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}
+        style={{ display: "flex", flexDirection: "column", gap: SPACE.md, width: "100%", boxSizing: BOX_SIZING }}
       >
-        <div style={{ fontWeight: 600, fontSize: "14px" }}>
+        <div style={{ fontWeight: 600, fontSize: FONT.lead }}>
           {mod.name || mod.packageId} <span style={{ opacity: 0.6, fontWeight: 400 }}>· v{mod.version || t("Q_MARK")}</span>
         </div>
-        <div style={{ fontSize: "11px", opacity: 0.6, wordBreak: "break-word" }}>
+        <div style={{ fontSize: FONT.caption, opacity: 0.6, wordBreak: "break-word" }}>
           {mod.packageId} · {status}
         </div>
-        <Focusable style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+        <Focusable style={{ display: "flex", flexWrap: "wrap", gap: SPACE.md }}>
           {canToggle ? (
             <DialogButton disabled={busy} onClick={() => onToggle(mod)}>
               {mod.enabled ? t("BTN_DISABLE") : t("BTN_ENABLE")}

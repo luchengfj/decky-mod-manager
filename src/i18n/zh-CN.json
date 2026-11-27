@@ -520,5 +520,11 @@
   "GAME_SETUP_HINT": "点击设置 MOD 目录",
   "USER_LIMIT_LOADER": "插件不会安装加载器（BepInEx/MelonLoader/UE4SS）。没有加载器时，放进文件夹的文件游戏可能不会加载。",
   "USER_LIMIT_LAUNCHOPTS": "插件永不修改 Steam 启动项。如果加载器需要（例如 Proton 下 BepInEx 的 WINEDLLOVERRIDES），面板会显示要填的文本，由你自己粘贴到 Steam。",
-  "USER_LIMIT_ORDER": "没有加载顺序：两个 MOD 提供同一路径时，后装的会覆盖先装的。"
+  "USER_LIMIT_ORDER": "没有加载顺序：两个 MOD 提供同一路径时，后装的会覆盖先装的。",
+  "UPDATE_CHECK_LABEL": "检查 MOD 更新",
+  "UPDATE_CHECK_DESC": "向 Nexus 查询已装 MOD 是否有新版本。只读不写：不下载、不安装、不动 MOD 目录。只查那些 manifest 里写了 Nexus id 的 MOD。",
+  "UPDATE_CHECK_BODY": "Nexus free 账号不能下载，所以这里只告诉你有哪些过时了",
+  "UPDATE_CHECK_TITLE": "MOD 更新检查",
+  "UPDATE_CHECK_NONE": "已装 MOD 都是最新版本，或都没有声明 Nexus id。",
+  "UPDATE_CHECK_NOTE": "备注"
 }

@@ -677,9 +677,23 @@ class RootMergeEngine(FileDropEngine):
                        detail="this game has no enable/disable: a mod is present "
                               "because its files are present")
 
-    def handover_mods(self, *, after_confirm: bool = False) -> dict:
-        return err("E_CAPABILITY_DISABLED",
-                   detail="handover is not implemented for this game")
+    def _handover_roots(self, r) -> list:
+        """Round 81: every declared write root is a folder another manager can own.
+
+        This engine has no single ``Mods/``: Cyberpunk receives files into
+        ``archive/pc/mod``, ``mods``, ``bin/x64/plugins``, ``r6/scripts`` and
+        ``red4ext``, and a user-configured game declares one or more folders of
+        its own. Vortex/MO2 deploy into exactly those folders, usually as
+        symlinks, so the takeover has to survey all of them -- and refuse as a
+        whole if any one of them cannot be moved back in one step.
+
+        Absolute paths, because ``handover.survey()`` compares ``st_dev``
+        against ``game_root`` and reads ``os.lstat()`` on each one.
+        """
+        out = []
+        for root in self._write_roots():
+            out.append(os.path.join(r.game_root, str(root).replace("/", os.sep)))
+        return out
 
     # ------------------------------------------------------------------- status
     def status(self) -> dict:

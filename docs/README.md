@@ -375,7 +375,8 @@ Reading order for a newcomer, and what each file is for:
  what happens when a transaction did not finish, and why rollback is the one thing that must stay open |
 | [UPDATE_KEYS.md](UPDATE_KEYS.md) | where a mod's Nexus id comes from, and why a guessed one would open someone else's mod |
 | [MOD_FOLDER_CONFLICTS.md](MOD_FOLDER_CONFLICTS.md) | which mods ship the same file, why scope belongs to the loader, and the 27 false alarms the device found |
-| [HANDOVER.md](HANDOVER.md) | handing Mods/ over from another manager without deleting anything, and what it refuses |
+| [HANDOVER.md](HANDOVER.md) | handing Mods/ over from another manager without deleting anything, and what it refuses; Round 81 covers a game whose mods are not one folder |
+| [UPDATE_CHECK.md](UPDATE_CHECK.md) | asking Nexus which installed mods have a newer file — report-only, and why "unknown" never reads as "current" |
 | [MOD_FOLDER_OWNERSHIP.md](MOD_FOLDER_OWNERSHIP.md) | who owns the Mods folder, and why a filename list can never answer that |
 | [PARKED_DEPENDENCIES.md](PARKED_DEPENDENCIES.md) | why a dependency the user disabled is reported apart from one that is absent, and the download that used to overwrite it |
 | [OUTDATED_DEPENDENCIES.md](OUTDATED_DEPENDENCIES.md) | installed, readable, and older than the mod asks for — the third state |

@@ -28,9 +28,11 @@
  * Module-level state + a global modal: survives the Steam-CEF panel remount.
  */
 import { showModal, Focusable, DialogButton } from "@decky/ui";
+import { MODAL_BODY_STYLE } from "./components/Modal";
 import { listInbox, inspectZip, installMod } from "./api";
 import { t } from "./i18n";
 import type { InboxData, InboxItem, InspectData, ConfirmData, OpEnvelope } from "./types";
+import { FONT, SPACE } from "./theme";
 
 type Handle = { Close?: () => void } | null;
 
@@ -148,13 +150,13 @@ function showSummary(r: AutoImportOutcome): void {
       onCancel={close}
       onCancelActionDescription={t("BTN_BACK")}
       onOKActionDescription={t("BTN_OK")}
-      style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "16px" }}
+      style={MODAL_BODY_STYLE}
     >
-      <div style={{ fontWeight: 700, fontSize: "17px" }}>{t("AI_TITLE", "Import new downloads")}</div>
-      <div style={{ fontSize: "13px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+      <div style={{ fontWeight: 700, fontSize: FONT.title }}>{t("AI_TITLE", "Import new downloads")}</div>
+      <div style={{ fontSize: FONT.bodyLg, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
         {lines.join("\n")}
       </div>
-      <Focusable style={{ marginTop: "6px" }}>
+      <Focusable style={{ marginTop: SPACE.sm }}>
         <DialogButton onClick={close}>{t("BTN_OK", "OK")}</DialogButton>
       </Focusable>
     </Focusable>

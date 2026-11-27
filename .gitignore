@@ -45,3 +45,6 @@ Thumbs.db
 # Session leftovers
 .workbuddy/
 /tmp*/
+
+# Scratch trees created by the test suite (.tmp/mt_mode700 etc.).
+.tmp/

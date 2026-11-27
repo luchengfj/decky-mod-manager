@@ -16,11 +16,12 @@
  *     `onOKActionDescription` (FooterLegendProps); there is NO
  *     `onActivateActionDescription`.
  */
-import { Focusable, DialogButton, PanelSectionRow, showModal } from "@decky/ui";
+import { Focusable, DialogButton, showModal } from "@decky/ui";
 import { useState } from "react";
 import { t } from "../i18n";
 import type { Envelope, FomodDescriptor } from "../types";
 import { ErrorView } from "./ErrorView";
+import { FONT, SPACE, BOX_SIZING } from "../theme";
 
 type ModalHandle = { Close?: () => void } | null;
 
@@ -46,11 +47,31 @@ export interface ListRow {
 const colStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "10px",
-  padding: "16px",
+  gap: SPACE.lg,
+  padding: SPACE.xl,
+  // Round 81: `maxHeight`/`overflowY` were declared only here, so this modal
+  // scrolled and the four others (ConfirmModal, rollbackFlow, uninstallFlow,
+  // autoImport) grew past the screen. `minHeight: 0` is what actually lets a
+  // flex child scroll instead of stretching its parent.
   maxHeight: "70vh",
   overflowY: "auto",
+  minHeight: 0,
+  // Round 83: this body carries `padding` and is the direct child of the modal
+  // frame. The frame gives it a width, so under the default content-box the
+  // padding was added on top of that width and the body came out wider than the
+  // frame. Nothing scrolls horizontally in a QAM modal, so the overflow simply
+  // fell off the right edge.
+  boxSizing: BOX_SIZING,
 };
+
+/**
+ * The one modal body style, exported so every dialog scrolls instead of
+ * overflowing. Round 81: four of the five dialogs had a near-copy of this
+ * object with `maxHeight`/`overflowY` missing, and a long confirm message
+ * pushed its buttons below the screen edge where the D-pad could not reach
+ * them.
+ */
+export const MODAL_BODY_STYLE: React.CSSProperties = colStyle;
 
 /** A generic information / preview modal. A activates a button, B closes. */
 export function showInfo(
@@ -69,16 +90,16 @@ export function showInfo(
       onOKActionDescription={t("BTN_SELECT")}
       style={colStyle}
     >
-      <div style={{ fontWeight: 700, fontSize: "18px" }}>{title}</div>
+      <div style={{ fontWeight: 700, fontSize: FONT.heading }}>{title}</div>
       {subtitle ? (
-        <div style={{ fontSize: "12px", opacity: 0.7, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        <div style={{ fontSize: FONT.body, opacity: 0.7, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
           {subtitle}
         </div>
       ) : null}
-      <div style={{ fontSize: "13px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+      <div style={{ fontSize: FONT.bodyLg, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
         {lines.join("\n")}
       </div>
-      <Focusable style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "6px" }}>
+      <Focusable style={{ display: "flex", flexWrap: "wrap", gap: SPACE.md, marginTop: SPACE.sm }}>
         {actions.map((a) => (
           <DialogButton key={a.label} onClick={() => a.onClick(close)}>
             {a.label}
@@ -108,31 +129,36 @@ export function showListModal(
       onOKActionDescription={t("BTN_SELECT")}
       style={colStyle}
     >
-      <div style={{ fontWeight: 700, fontSize: "18px" }}>{title}</div>
+      <div style={{ fontWeight: 700, fontSize: FONT.heading }}>{title}</div>
       {subtitle ? (
-        <div style={{ fontSize: "12px", opacity: 0.7, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        <div style={{ fontSize: FONT.body, opacity: 0.7, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
           {subtitle}
         </div>
       ) : null}
       {rows.length === 0 ? (
-        <div style={{ fontSize: "13px", opacity: 0.8 }}>{t("NOTHING_HERE")}</div>
+        <div style={{ fontSize: FONT.bodyLg, opacity: 0.8 }}>{t("NOTHING_HERE")}</div>
       ) : (
+        // Round 81: these rows used to sit in a PanelSectionRow, which is the
+        // QAM panel's own row container -- it carries the panel's width and
+        // padding assumptions. A modal is narrower, so the same component laid
+        // the rows out against the wrong box and they drifted off the modal's
+        // left edge. A plain block is what a modal actually needs.
         rows.map((r, i) => (
-          <PanelSectionRow key={`${r.label}-${i}`}>
+          <div key={`${r.label}-${i}`}>
             <DialogButton disabled={!!r.disabled} onClick={() => r.onActivate(close)}>
-              <div style={{ textAlign: "left" }}>
-                <div style={{ fontSize: "13px" }}>{r.label}</div>
+              <div style={{ textAlign: "left", wordBreak: "break-word" }}>
+                <div style={{ fontSize: FONT.bodyLg }}>{r.label}</div>
                 {r.sub ? (
-                  <div style={{ fontSize: "11px", opacity: 0.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                  <div style={{ fontSize: FONT.caption, opacity: 0.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                     {r.sub}
                   </div>
                 ) : null}
               </div>
             </DialogButton>
-          </PanelSectionRow>
+          </div>
         ))
       )}
-      <Focusable style={{ marginTop: "6px" }}>
+      <Focusable style={{ marginTop: SPACE.sm }}>
         <DialogButton onClick={close}>{t("BTN_BACK")}</DialogButton>
       </Focusable>
     </Focusable>
@@ -184,9 +210,9 @@ export function showFomodModal(
         onOKActionDescription={t("BTN_SELECT")}
         style={colStyle}
       >
-        <div style={{ fontWeight: 700, fontSize: "18px" }}>{t("FOMOD_TITLE")}</div>
+        <div style={{ fontWeight: 700, fontSize: FONT.heading }}>{t("FOMOD_TITLE")}</div>
         {descriptor.warnings
-          ? <div style={{ fontSize: "12px", opacity: 0.7, whiteSpace: "pre-wrap" }}>
+          ? <div style={{ fontSize: FONT.body, opacity: 0.7, whiteSpace: "pre-wrap" }}>
               {descriptor.warnings.join("\n")}
             </div>
           : null}
@@ -196,17 +222,17 @@ export function showFomodModal(
               const key = `${si}.${gi}`;
               return (
                 <div key={`g-${key}`}>
-                  <div style={{ fontWeight: 700, marginTop: "8px" }}>
+                  <div style={{ fontWeight: 700, marginTop: SPACE.md }}>
                     {st.name} / {g.name} · {g.mode === "single" ? t("FOMOD_SINGLE") : t("FOMOD_MULTI")}
                   </div>
                   {g.options.map((o) => {
                     const on = (chosen[key] || []).indexOf(o.name) >= 0;
                     return (
-                      <PanelSectionRow key={`o-${key}-${o.name}`}>
+                      <div key={`o-${key}-${o.name}`}>
                         <DialogButton onClick={() => toggle(key, g.mode, o.name)}>
                           {on ? "[A] " : "[ ] "}{o.name}{o.description ? ` — ${o.description}` : ""}
                         </DialogButton>
-                      </PanelSectionRow>
+                      </div>
                     );
                   })}
                 </div>
@@ -214,7 +240,7 @@ export function showFomodModal(
             })}
           </div>
         ))}
-        <Focusable style={{ display: "flex", gap: "8px", marginTop: "6px" }}>
+        <Focusable style={{ display: "flex", gap: SPACE.md, marginTop: SPACE.sm }}>
           <DialogButton onClick={() => { close(); onConfirm(chosen); }}>
             {t("BTN_IMPORT")}
           </DialogButton>

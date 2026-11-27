@@ -50,6 +50,7 @@ from deckymod import nexus
 from deckymod import openurl
 from deckymod import steamlib
 from deckymod import templates
+from deckymod import update_check
 
 PROGRESS_EVENT = "deckymod:progress"
 
@@ -1115,6 +1116,53 @@ class Plugin:
                            detail="[nexus_download_link] mod_id and file_id must be numbers")
             res = nexus.download_link(download.default_opener, domain, mid, fid, api_key)
             return _core_to_envelope(res, auto_import.DL_TO_E, "nexus_download_link")
+        return _guard(_run)
+
+    async def check_mod_updates(self):
+        """Round 82: which installed mods have a newer version published.
+
+        Read-only and report-only. A free Nexus account cannot download (403 by
+        policy), so nothing here fetches, queues or touches the mod folder — it
+        answers one question and stops. A mod is only asked about when its own
+        manifest names a Nexus id, and a version that cannot be parsed reads as
+        ``unknown`` rather than "up to date", the same rule Round 67 uses for
+        dependencies.
+        """
+        def _run():
+            gated = _network_download_gate()
+            if gated is not None:
+                return gated
+            domain = self._nexus_domain()
+            if domain is None:
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[check_mod_updates] nexus_metadata source disabled")
+            api_key, bad = self._nexus_key()
+            if bad is not None:
+                return bad
+            eng = self._engine()
+            try:
+                st = eng.status()
+            except Exception as e:  # noqa: BLE001 - never leak a traceback
+                return err("E_UNKNOWN", detail="[check_mod_updates] status failed: "
+                           "%s: %s" % (type(e).__name__, e))
+            if not st.get("ok"):
+                return st
+            mods = ((st.get("data") or {}).get("state") or {}).get("mods") or []
+            res = update_check.check(download.default_opener, mods,
+                                     api_key=api_key, game_domain=domain)
+            if not res.get("ok"):
+                return err(res.get("code") or "E_UNKNOWN",
+                           detail=res.get("detail") or "")
+            rows = res.get("rows") or []
+            return ok({
+                "checked": res.get("checked"),
+                "skipped": res.get("skipped"),
+                "rows": rows,
+                "outdated": res.get("outdated") or [],
+                "errors": res.get("errors") or {},
+                "summary": update_check.summary(rows),
+                "note": res.get("note") or "",
+            })
         return _guard(_run)
 
     async def open_mod_page(self, mod_id: int):

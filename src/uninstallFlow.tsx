@@ -21,9 +21,11 @@
  * it survives the panel remount and the confirmation always shows.
  */
 import { showModal, Focusable, DialogButton } from "@decky/ui";
+import { MODAL_BODY_STYLE } from "./components/Modal";
 import { uninstallMod } from "./api";
 import { t } from "./i18n";
 import type { ConfirmData, OpEnvelope } from "./types";
+import { FONT, SPACE } from "./theme";
 
 type Handle = { Close?: () => void } | null;
 
@@ -87,18 +89,18 @@ export function runUninstallFlow(dirName: string, onDone: (r: UninstallFlowResul
             onDone({ ok: true, done: false }); // cancelled
           }}
           onOKActionDescription={t("BTN_CONFIRM")}
-          style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px" }}
+          style={MODAL_BODY_STYLE}
         >
-          <div style={{ fontWeight: 700, fontSize: "18px" }}>{t("CONFIRM_TITLE")}</div>
-          <div style={{ fontSize: "14px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          <div style={{ fontWeight: 700, fontSize: FONT.heading }}>{t("CONFIRM_TITLE")}</div>
+          <div style={{ fontSize: FONT.lead, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
             {text}
           </div>
           {pathLines.length ? (
-            <div style={{ fontSize: "12px", opacity: 0.75, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            <div style={{ fontSize: FONT.body, opacity: 0.75, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
               {pathLines.join("\n")}
             </div>
           ) : null}
-          <Focusable style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+          <Focusable style={{ display: "flex", gap: SPACE.lg, marginTop: SPACE.md }}>
             <DialogButton
               onClick={() => {
                 finish();

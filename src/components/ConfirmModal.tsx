@@ -21,8 +21,10 @@
  * confirm_text is kept verbatim as the fallback for UI-built confirms.
  */
 import { Focusable, DialogButton, showModal } from "@decky/ui";
+import { MODAL_BODY_STYLE } from "./Modal";
 import { t } from "../i18n";
 import type { ConfirmData } from "../types";
+import { FONT, SPACE } from "../theme";
 
 type Decision = (confirmed: boolean) => void;
 
@@ -52,18 +54,18 @@ export function showConfirm(data: ConfirmData, decide: Decision): void {
       onCancelActionDescription={t("BTN_CANCEL")}
       onCancel={() => finish(false)}
       onOKActionDescription={t("BTN_CONFIRM")}
-      style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px" }}
+      style={MODAL_BODY_STYLE}
     >
-      <div style={{ fontWeight: 700, fontSize: "18px" }}>{t("CONFIRM_TITLE")}</div>
-      <div style={{ fontSize: "14px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+      <div style={{ fontWeight: 700, fontSize: FONT.heading }}>{t("CONFIRM_TITLE")}</div>
+      <div style={{ fontSize: FONT.lead, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
         {text}
       </div>
       {pathLines.length ? (
-        <div style={{ fontSize: "12px", opacity: 0.75, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        <div style={{ fontSize: FONT.body, opacity: 0.75, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
           {pathLines.join("\n")}
         </div>
       ) : null}
-      <Focusable style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+      <Focusable style={{ display: "flex", gap: SPACE.lg, marginTop: SPACE.md }}>
         <DialogButton onClick={() => finish(true)}>{t("BTN_CONFIRM")}</DialogButton>
         <DialogButton onClick={() => finish(false)}>{t("BTN_CANCEL")}</DialogButton>
       </Focusable>

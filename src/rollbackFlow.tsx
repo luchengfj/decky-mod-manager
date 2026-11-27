@@ -14,9 +14,11 @@
  * the RPC are independent of any panel instance, so a remount cannot swallow it.
  */
 import { showModal, Focusable, DialogButton } from "@decky/ui";
+import { MODAL_BODY_STYLE } from "./components/Modal";
 import { rollbackTxn } from "./api";
 import { t } from "./i18n";
 import type { OpEnvelope, OpResultData } from "./types";
+import { FONT, SPACE } from "./theme";
 
 type Handle = { Close?: () => void } | null;
 
@@ -43,16 +45,16 @@ export function runRollbackFlow(
       onCancelActionDescription={t("BTN_CANCEL")}
       onCancel={() => { close(); onDone({ ok: true }); }}
       onOKActionDescription={t("BTN_CONFIRM")}
-      style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px" }}
+      style={MODAL_BODY_STYLE}
     >
-      <div style={{ fontWeight: 700, fontSize: "18px" }}>{t("RB_TITLE", "Restore mod")}</div>
-      <div style={{ fontSize: "14px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+      <div style={{ fontWeight: 700, fontSize: FONT.heading }}>{t("RB_TITLE", "Restore mod")}</div>
+      <div style={{ fontSize: FONT.lead, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
         {t("RB_CONFIRM", "Restore {mod} back into the game's Mods folder?\nNothing is deleted — this undoes the uninstall.", { mod: modLabel })}
       </div>
-      <div style={{ fontSize: "12px", opacity: 0.75, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+      <div style={{ fontSize: FONT.body, opacity: 0.75, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
         {t("RB_FROM", "From: {q}", { q: quarantinePath })}
       </div>
-      <Focusable style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+      <Focusable style={{ display: "flex", gap: SPACE.lg, marginTop: SPACE.md }}>
         <DialogButton
           onClick={() => {
             close();

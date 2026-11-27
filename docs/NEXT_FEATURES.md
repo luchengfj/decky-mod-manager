@@ -448,7 +448,8 @@ negative proof that reintroducing the duplication fails the suite. See
 
 ## P2 — needed for a real release, not for correctness
 
-8. **No update check. The hooks are now pinned (Round 61).**
+8. ~~**No update check.**~~ **SHIPPED in Round 82** (`deckymod/update_check.py`,
+   `tests/test_update_check.py`, see `docs/UPDATE_CHECK.md`).
    The lifecycle hooks (`main.py` `_unload` / `_uninstall` / `_migration`) only
    drop in-memory state; they do not touch the game folder. That used to be an
    untested promise, and it is now asserted from two directions:
@@ -462,11 +463,27 @@ negative proof that reintroducing the duplication fails the suite. See
    `os.environ.pop("DECKYMOD_GAME_ID")` silently unpins the 33 historical
    RimWorld cases. That had been fixed by hand three times (rounds 47, 50, 61).
 
-   What is genuinely still missing is an update check: a stale plugin has no way
-   to tell its user it is stale.
+   Round 82 answered the mod half of it, which was the question users actually
+   ask: `check_mod_updates` reports, per installed mod, whether Nexus publishes
+   a newer file. It is report-only by necessity — a free Nexus account cannot
+   download (403 by policy) — so nothing is fetched, queued, or written. Three
+   rules keep it honest: a mod is only asked about when its own `UpdateKeys`
+   names a Nexus id; the comparison reuses `manifest._version_tuple`, so "1.2"
+   and "1.2.0" compare equal; and a version with no digits comes back as
+   `unknown`, never as `current`. The call is capped at 25 mods per run and the
+   cap is reported rather than silently applied, because the API is rate
+   limited per hour.
+
+   **Still open:** the plugin cannot tell its user that the *plugin* is stale.
+   That needs a published version endpoint this project does not have.
 9. **The panel has never been seen by a human in Game Mode.** Every claim
    about layout comes from DOM text captured over CDP. Reading text is not the
    same as looking at it, and it cannot prove the D-pad reaches every control.
+   Round 81 removed the one real layout defect a static read could find (inline
+   `height`/`padding` overriding a `DialogButton`'s own geometry, which
+   decouples the focus ring from the button) and pinned it with
+   `tests/test_panel_layout_rules.py` — but a passing test is still not a
+   person looking at the screen.
 10. ~~**No CI on the frontend.**~~ **SHIPPED in Round 46.**
     `.github/workflows/build.yml` now runs `pnpm run typecheck`
     (`tsc --noEmit`, `strict`) before `pnpm run build`. The script existed from

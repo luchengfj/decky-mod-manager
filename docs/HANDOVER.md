@@ -101,8 +101,55 @@ look like a different class of problem than another.
 | --- | --- | --- |
 | entries moved per call | all movable entries (the survey is bounded by the folder listing itself) | the operation is a whole-folder act, not a per-file one |
 | new error codes | 0 | reuses `E_CAPABILITY_DISABLED`, `E_PATH_INVALID`, `E_EXTERNAL_MANAGER`, `E_GAME_RUNNING`, `E_RECOVERY_PENDING` |
-| new RPCs | 1 (`handover_mods`) | public RPC count 27 → 28 |
+| new RPCs | 1 (`handover_mods`) | public RPC count 27 → 28 (37 after Round 82's `check_mod_updates`) |
 | scheduled or automatic runs | none | it is only ever a user action plus a confirm |
+
+## Round 81: a game whose mods are not one folder
+
+Everything above describes the `file_drop` engine, where a mod *is* a directory
+inside `Mods/`. `RootMergeEngine` (Cyberpunk 2077, and every user-configured
+game) has no such folder: files land in `archive/pc/mod`, `mods`,
+`bin/x64/plugins`, `r6/scripts` and `red4ext`, routed per file by `_route()`.
+It inherited the round-44 *refusal* but not the round-55 *exit* —
+`handover_mods` answered `E_CAPABILITY_DISABLED / "handover is not implemented
+for this game"` — so exactly the users who need it most had no way forward.
+
+The fix is one hook rather than a second implementation:
+
+```python
+def _handover_roots(self, r) -> list:
+    return [r.mod_root]            # FileDropEngine: exactly one folder
+```
+
+`RootMergeEngine` overrides it with every declared write root, resolved to an
+absolute path (absolute because `handover.survey()` compares `st_dev` against
+`game_root` and calls `os.lstat()` on each). `_handover_inner` then surveys
+**every** root before deciding anything, and refuses as a whole if any one of
+them cannot be undone in one step — half a takeover leaves the other manager's
+deployment partly dismantled with nothing gained.
+
+Two details exist only because a single folder was the old assumption:
+
+- **Each root gets its own quarantine subfolder**, named by `_slug()` from the
+  absolute path, so two roots with the same basename cannot collide. A
+  one-folder game keeps the historical `<quarantine>/<txn>/<name>` layout byte
+  for byte — tested, because gaining a nesting level would silently change
+  where every existing user's quarantine lives.
+- **Each root gets its own journal event.** The rollback block used to take
+  `next(...)` — the first `MODS_HANDOVER` it found — which restored the first
+  folder and abandoned the rest in the quarantine with no record that they
+  were ever meant to come back. It now replays all of them, and names a failure
+  `<from_path>: <name>` only when there was more than one root (a single root
+  keeps the bare name so the historical tests and any recovered journal still
+  read the same).
+
+`tests/test_handover_multiroot.py` (19 cases) drives a synthetic two-root game.
+The negative proof is deliberate: narrowing the replay back to `hands[:1]`
+makes exactly one test fail with `second root was not restored`.
+
+**Still not covered:** a root that is itself a symlink blocks the whole
+operation (correct — the plugin cannot take apart a deployment it cannot see),
+and no real Cyberpunk install has been used for a sign-off.
 
 ## What is proven, and what is not
 

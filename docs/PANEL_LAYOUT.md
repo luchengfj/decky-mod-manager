@@ -56,22 +56,73 @@ Every one of those was mounted on open. With 29 installed mods the panel was
 
 Design decisions and why:
 
-- **The switcher is four `ButtonItem`s, not a tab strip.** Decky's QAM has no
-  tab primitive that behaves reliably under gamepad focus; using the same
-  component as every other row means the D-pad model does not change between
-  the switcher and the content.
-- **`openSection` defaults to `"mods"`.** Opening the panel should land on the
-  action most users came for. It can be collapsed to `""` by tapping the open
-  section again, so a user who only wants the status line is not forced into a
-  section.
+- **The switcher is three `DialogButton`s, not a tab strip.** Decky's QAM has no
+  tab primitive that behaves reliably under gamepad focus. (Round 30 wrote
+  "four `ButtonItem`s"; Round 81 checked the code and corrected this — it is
+  three `DialogButton`s, `games` / `import` / `more`.) Round 81 also removed the
+  `height: "auto"` and custom `padding` those buttons used to carry: Steam draws
+  a `DialogButton`'s focus ring and backing plate at the size it computes
+  internally, so overriding either decouples the visible box from the artwork
+  and the highlight lands off the button.
+- **`openSection` defaults to `"games"`.** (Round 30 wrote `"mods"`; the code
+  has defaulted to `"games"` since the Round 76 reorganisation.) Tapping the
+  open section does **not** currently collapse it to `""` — Round 30's
+  description of a collapse toggle was never implemented.
 - **Exactly one section body is mounted.** This is what removes the scroll
   problem: the download flow's ~6 result rows no longer sit between the user
   and the uninstall button.
 - **Counts are in the switcher labels** (`我的 MOD (29)`, `游戏 (4)`), so the
-  collapsed state still tells you how much is in each area.
+  collapsed state still tells you how much is in each area. Round 81 gave the
+  badge a fixed-height slot, because a conditionally rendered badge made the
+  tabs different heights.
 - **Nothing was moved across capability boundaries.** The read-only banner,
   `GH_B_GATE`, confirm dialogs, guards and the 16 RPCs are untouched; only the
   arrangement changed.
+
+### Button inventory (Round 81)
+
+Round 81 counted what the panel actually offers, because "too many buttons" is
+a feeling until it is a number. Per section, with the condition that makes each
+one appear:
+
+| Section | Buttons | Conditional? |
+| --- | --- | --- |
+| always visible | `HANDOVER_BTN` | only when `fd && readOnly` (another manager owns the folder) |
+| always visible | `QUAR_RECLAIM_BTN` | only when `!readOnly` and the quarantine holds unreachable folders |
+| `games` | `GAME_SWITCH` (one per catalog row) | one per installable game |
+| `games` | `LIB_REFRESH` | always |
+| `import` | `AI_BTN` (auto-import new downloads) | always |
+| `import` | `INBOX_LABEL` (browse local ZIPs) | always |
+| `import` | `ImportBox` (absolute path field) | always |
+| `import` | `DEPS_BTN` (install missing dependencies) | always |
+| `import` | `NEXUS_MOD_FETCH` (fetch by mod id) | always |
+| `import` | `NEXUS_RECENT_*` (3 buttons: added / updated / trending) | always |
+| `import` | `SEARCH_BTN` (open the Nexus search page) | disabled until a domain and a query exist |
+| `more` | `REFRESH_LABEL` | always |
+| `more` | `HISTORY_LABEL` | always |
+| `more` | `ERRORCODES_LABEL` | always |
+| `more` | `RECOVERY_LABEL` | only when `status.recovery_needed` |
+
+That is **8 buttons in the `import` section** and **4 in `more`**, against 2 in
+`games`. The imbalance is the one layout fact Round 81 did not change, and it is
+recorded here rather than fixed, because every candidate fix trades a real
+capability for density:
+
+- `NEXUS_RECENT_*` (3) could collapse into one button plus a sort selector. It
+  saves 2 rows and costs one extra tap on every browse.
+- `DEPS_BTN` and `AI_BTN` are both "install things I did not pick". They stay
+  separate because one reads a manifest's declared dependencies and the other
+  scans the Downloads folder — merging them would make a failure impossible to
+  attribute.
+- `ImportBox` is the only way to name a path the import-root scan does not
+  cover, and it is the surface whose OSK never worked (see `docs/ACCEPTANCE.md`
+  item 10). It stays, but it is a candidate for deletion if the browser-download
+  scan covers every real case.
+
+Nothing was removed in Round 81. The only frontend deletions were two imports
+(`rollbackTxn`, `fetchDependencies`) that `index.tsx` no longer calls — both
+live in `rollbackFlow.tsx` and `depsFlow.tsx` respectively, so the capability is
+unchanged and `tsc --noEmit` stays green.
 
 ---
 
@@ -192,3 +243,170 @@ bundle contains the new `NAV_*` strings and no bare `<button>`.
   RimWorld G3 stays OPEN / NOT SHIPPABLE.
 - No capability, guard, confirm flow, or RPC signature changed — the reorg is
   presentation only.
+
+---
+
+## 7. Round 83 — sizes come from one table, measured in rem
+
+### The complaint this answers
+
+Round 81 fixed the *mechanical* half of "分辨率问题，就是贴图位移" (removing style
+overrides that decoupled a `DialogButton` from the box Steam draws). What it left
+in place was the reason a resize is risky in the first place: every size in the
+frontend was a raw pixel literal written where it was used.
+
+Measured before the change:
+
+| what | how many | where |
+| --- | --- | --- |
+| `fontSize: "NNpx"` | 54 | 9 files (`index.tsx` 47, `Modal.tsx` 18, …) |
+| `gap` / `marginTop` / `padding` in px | 40 | same 9 files |
+| fixed `height`/`lineHeight` in px | 2 | the switcher badge slot |
+
+Two consequences, and only the second is a defect:
+
+1. No single knob. Changing the caption size meant finding every copy, and the
+   copy that got missed is exactly what makes a panel look uneven at one
+   resolution and fine at another.
+2. A raw `px` font size ignores the root font size completely. If the host ever
+   scales the UI by setting that base, our text stays put while everything
+   around it grows.
+
+### What changed
+
+`src/theme.ts` is now the only place a size is written down:
+
+```ts
+export const REM_BASE = 16;
+export function rem(px: number): string { … }        // px / 16 → "0.6875rem"
+
+export const FONT  = { badge, caption, body, bodyLg, lead, strong, title, heading };
+export const SPACE = { xs, sm, md, lg, xl };
+export const HEIGHT = { badgeSlot };  export const LINE_HEIGHT = { badgeSlot };
+export const BORDER = { tabActive, tabIdle };        // the only px left, on purpose
+export const BOX_SIZING = "border-box" as const;
+export const PANEL_ROOT_STYLE / FULL_WIDTH_STYLE;
+```
+
+94 literals across 10 files became token references. The substitution was done
+by `.decky-probe/r83_units.py`, which counts every replacement and **exits
+non-zero if any `px` outside a border survives** — a partial pass cannot be
+mistaken for a finished one.
+
+### `box-sizing: border-box` — where it actually matters
+
+`box-sizing: content-box` is the CSS default, so a box's declared `width` does
+**not** include its padding or border: the rendered box is wider than the number
+written. A QAM panel has no horizontal scrollbar, so the overflow does not
+scroll — it simply falls off the right edge where the D-pad cannot reach it.
+
+Where this actually bites in this panel, measured rather than assumed:
+
+| element | `width: "100%"`? | padding / border? | `box-sizing` changes anything? |
+| --- | --- | --- | --- |
+| `MODAL_BODY_STYLE` / `colStyle` (`Modal.tsx`) | no — it is a stretched flex child | `padding: SPACE.xl` (ours) | **yes** — this is the one proven case |
+| the 10 `width: "100%"` containers | yes | none in our own style | **unknown** — see below |
+| the tab strip's `borderBottom` | no | a bottom border | no — vertical only |
+
+So the honest statement is: **one container is provably mis-sized by content-box
+today** (`colStyle`, which carries our own `padding: SPACE.xl` and is stretched
+by its flex parent). The other ten are declared border-box as a guard, not
+because a defect was observed there.
+
+**Why the ten are "unknown" rather than "fine":** they are all `Focusable`
+elements, and `Focusable` is Decky's wrapper around a Steam component whose
+padding comes from Steam's runtime stylesheet, not from our source. That sheet
+is not in this repo (`node_modules/@decky/ui` ships no CSS; the styles live in
+the Deck's own frontend bundle), so whether those elements carry padding could
+not be established offline. If they do, content-box would have made each of them
+overflow its parent by exactly that padding — which is a plausible shape for the
+reported "elements drift off the panel". Declaring border-box makes the question
+moot either way, and costs nothing if they carry none.
+
+**This is the honest limit of the change:** it removes a whole class of
+horizontal overflow, but it was not shown to fix an observed overflow at any of
+the ten sites. Confirming which (if any) of them were actually overflowing needs
+the device — see `docs/ACCEPTANCE.md` §B.5, R1/R2.
+
+A global `* { box-sizing }` rule was deliberately **not** used: this plugin would
+be restyling Steam's own components, which is the same class of mistake Round 81
+spent its time undoing.
+
+### What this does and does not prove
+
+**Proven (local, offline):**
+
+- 1033 tests `OK (skipped=17)`; `tsc --noEmit` exit 0; `rollup -c` exit 0
+  (`dist/index.js` 257411 B).
+- `tests/test_style_units.py` (21 cases) pins the rules:
+  - no `fontSize`/`gap`/`margin`/`padding` in px anywhere in `src/` (a px left
+    over fails by name and file), and no px on **any** sizing longhand either —
+    `paddingTop`, `minHeight`, `maxHeight`, `lineHeight`, `width` are all in
+    `LENGTH_PROPS`, so a new one cannot slip in beside the converted ones;
+  - every token still reproduces the exact pixel value it replaced, checked by
+    re-applying the implementation's own `parseFloat(v.toFixed(6))` rounding;
+  - the token **census** matches: every (file, token) pair must be used exactly
+    as many times as recorded, which is what catches a wrong-token swap;
+  - no token is unused (word-boundary match, so `FONT.body` is not satisfied by
+    `FONT.bodyLg`), and no JSX file names a token it did not import;
+  - every `width: "100%"` line sets `boxSizing: BOX_SIZING` — the *value* is
+    checked, not just the presence of the word;
+  - `HEIGHT.badgeSlot` and `LINE_HEIGHT.badgeSlot` are each pinned inside their
+    own block and must agree;
+  - no global `*` rule and no `insertRule` was added; no dead style export.
+
+### The audit that changed this section
+
+The first version of this round shipped 16 tests that passed while proving much
+less than they appeared to. A read-only auditor mutated a copy of the tree and
+demonstrated the gaps; the table below is the result *after* the rewrite, and
+each row was re-run against a scratch copy of `src/`+`tests/`:
+
+| mutation | caught by |
+| --- | --- |
+| `fontSize: FONT.caption` → `fontSize: "11px"` | `test_no_px_font_size_survives_anywhere` |
+| `fontSize: FONT.caption` → `fontSize: 11` | `test_no_px_font_size_written_as_a_bare_number` |
+| new `paddingTop: "4px"` / `height: "20px"` / `margin: "8px"` | `test_no_px_length_on_any_sizing_property` |
+| `caption: rem(11)` → `rem(12)` | `test_every_token_reproduces_the_number_it_replaced` |
+| `boxSizing: BOX_SIZING` → `"content-box"` | `test_the_declared_value_is_border_box_not_merely_present` |
+| one `boxSizing` line deleted | `test_the_modal_body_is_border_box` |
+| `FONT.caption` → `FONT.body` (wrong token) | `test_the_token_usage_census_matches` |
+| `FONT.body` → `FONT.bodyLg` | `test_the_token_usage_census_matches` |
+| `SPACE.md` → `SPACE.sm` | `test_the_token_usage_census_matches` |
+
+The first draft's `test_the_arithmetic_holds_for_every_value_in_the_table` was
+**tautological**: it took each number from the table, multiplied it back by 16,
+and compared it to itself — never reading `rem()`. Rewriting `rem` to return
+`(v * 2) + "rem"` left it green. It has been replaced by a test that asserts the
+implementation's rounding expression is present and applies that expression.
+
+Two other draft assertions were weaker than they read and are fixed: the
+`badgeSlot` regex was unanchored (either of two blocks satisfied it), and the
+unused-token check used a substring test (`FONT.body` was satisfied by
+`FONT.bodyLg`).
+
+**Still not caught by any test, and known:** the census is a snapshot, so a
+deliberate new row requires editing the census too — it will fail loudly rather
+than silently, which is the intent, but it is bookkeeping, not verification.
+
+**NOT proven, and not claimed:**
+
+- **`rem` is not magic and changes nothing today.** `1rem` is the root font
+  size, which with no override is 16px — so `rem(11)` and `"11px"` render
+  identically. That equality is the whole of the claim. Whether the Deck's QAM
+  ever sets a non-16px root font size is unknown; if it does, this change makes
+  the panel follow it, which is the point, but no device observation of that
+  exists.
+- **No human has looked at the panel at any resolution.** Every layout
+  conclusion in this document still comes from DOM text over CDP. 1280×800 and
+  1920×1080 remain unverified by eye — see `docs/ACCEPTANCE.md` §B.5, added in
+  this round as the checklist that would close it.
+- **The px→rem swap is not a visual fix.** If the panel looks wrong at
+  1920×1080, this round did not change how it looks at 16px root; it changed how
+  many places have to be edited to fix it.
+
+### Status discipline (unchanged)
+
+- No `CLOSED` added; `[x]` boxes stay 0; §B.4 unchecked.
+- V1 remains the only CLOSED item; V2–V20 / F1–F3 stay OPEN; G3 stays OPEN.
+- No capability, guard, confirm flow, RPC signature, or i18n key changed.

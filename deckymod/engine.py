@@ -584,17 +584,33 @@ class Engine:
 
         # Round 55: a handover transaction moved entries to the quarantine; the
         # confirm dialog promised Rollback would put them back, so it must.
-        hand = next((e for e in events if e.get("event") == "MODS_HANDOVER"), None)
-        if hand and state in ("COMMITTED", "APPLYING", "PREPARED"):
-            got = handover.restore(hand.get("quarantine") or "",
-                                   hand.get("from_path") or "",
-                                   hand.get("moved") or [])
+        # Round 81: an engine can hand over more than one folder (root_merge has
+        # no single Mods/), and each records its own event. Restoring only the
+        # first would put one folder back and silently abandon the others, so
+        # every event is replayed and the answer reports all of them.
+        hands = [e for e in events if e.get("event") == "MODS_HANDOVER"]
+        if hands and state in ("COMMITTED", "APPLYING", "PREPARED"):
+            moved_all = []
+            failed_all = {}
+            multi = len(hands) > 1
+            for hand in hands:
+                got = handover.restore(hand.get("quarantine") or "",
+                                       hand.get("from_path") or "",
+                                       hand.get("moved") or [])
+                moved_all.extend(got["moved"])
+                for name, why in (got["failed"] or {}).items():
+                    # One folder keeps the historical bare name; several folders
+                    # need the path, because the same name can fail in two of
+                    # them and one answer would hide the other.
+                    key = "%s: %s" % (hand.get("from_path") or "", name) if multi else name
+                    failed_all[key] = why
             self.journal.record("MOD_ROLLBACK_RESTORED", txn,
-                                mod={"name": "handover", "dir": hand.get("from_path")},
-                                moved=got["moved"], failed=sorted(got["failed"]))
+                                mod={"name": "handover",
+                                     "dir": hands[0].get("from_path")},
+                                moved=moved_all, failed=sorted(failed_all))
             self.journal.committed(txn, {"rollback_of": "handover"})
-            return ok({"restored": "handover", "moved": got["moved"],
-                       "failed": got["failed"], "txn": txn,
+            return ok({"restored": "handover", "moved": moved_all,
+                       "failed": failed_all, "txn": txn,
                        "log_path": _log_path(self.journal)})
 
         # Round 56: an upgrade moved the displaced version into the quarantine and

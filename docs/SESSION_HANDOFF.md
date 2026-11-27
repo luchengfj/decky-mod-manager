@@ -154,8 +154,9 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 | 3 | **音量键物理无响应** | 用户：完全关机重置 EC 后复测 |
 | 4 | ~~px→rem、1920×1080 验收项、`boxSizing`~~ **Round 83 已完成**（代码+测试+文档；仅剩 §B.5 的真机目视，已并入第 1 项） | — |
 | 5 | 插件自身版本过期检测（`docs/NEXT_FEATURES.md` P2#8 残留） | agent（本项目无版本端点） |
-| 6 | **Deck 上的插件仍是 Round 80 前后的旧构建**（`dist/index.js` 247255 B vs 本地 257411 B；后端无 `_handover_roots`/`check_mod_updates`/`update_check.py`）→ Round 81/82/83 全部未部署 | agent（需用户同意后 SSH 部署） |
-| 7 | **Round 83 全部改动仍未 commit**（27 文件 / 810 增 / 188 删 + 若干新增未跟踪文件） | agent |
+| 6 | ~~Deck 上是 Round 80 前后的旧构建~~ **已部署**（2026-11-27 20:30 UTC，见 §九） | — |
+| 7 | ~~Round 83 全部改动仍未 commit~~ **已提交** `d7cb6a8`（37 文件 / 2819 增 / 188 删） | — |
+| 8 | **`check_mod_updates` 首次真机调用返回 `E_CAPABILITY_DISABLED`**——不是缺陷，是设计前置条件：`~/homebrew/data/decky-mod-manager/data/nexus_api_key` 不存在。要在真机上走通「有 key 的路径」和「Nexus 免费账号 403」两条分支，需用户填入 key | 用户提供 key 或明确不做 |
 
 ---
 
@@ -168,3 +169,44 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 - **写测试要防"恒真断言"**：Round 83 首版 `test_the_arithmetic_holds_for_every_value_in_the_table` 拿表里的数字乘回 16 再和它自己比，从不读 `rem()` 实现——把 `rem` 改成 `(v*2)+"rem"` 它照样绿。任何"用输入验证输入"的测试都是零信息。同理，`assertIn("boxSizing", line)` 挡不住 `boxSizing: "content-box"`，子串匹配挡不住 `FONT.body` 被 `FONT.bodyLg` 满足。**验证方式是变异测试**：在副本里改坏代码，确认对应用例真的会红。
 - **Windows 上编辑文件会把行尾改成 CRLF**，而 HEAD 是 LF，导致 `git diff` 变成上万行噪音、真实改动无法 review。改完先查 `git diff --stat`，若行数远超预期就用 `.decky-probe/r83_eol.py` 那样的脚本还原 LF。建议后续加 `.gitattributes`（`* text=auto eol=lf`）。
 - 复制整个工作区做变异/试验时会撞上 `.tmp/mt_mode700`（`mode=0o700` 目录，`WinError 5` 拒绝访问）。只复制 `src/`、`tests/`、`.decky-probe/` 三目录，不要 `copytree` 整个仓库。
+
+---
+
+## 九、Round 81/82/83 部署记录（2026-11-27 20:28–20:31 UTC）
+
+提交 `d7cb6a8` 之后按 Round 78 的既有流程部署到 `deck@192.168.66.191`。
+
+**打包**：`.decky-probe/r83_deploy.tgz`（53 条目，272167 B，sha256 `2089b112…4fcd51`）——`deckymod/*.py` 38 个 + `main.py` + `dist/index.js` + `registry/**/*.json` 14 个。同时生成 `.decky-probe/r83_local_hashes.txt`（53 行 sha256 基线）。
+
+**备份**：`cp -a ~/homebrew/plugins/decky-mod-manager ~/DeckyModManager-Archive/backups/plugin-before-round83`（2.1M，`BACKUP_OK`）。
+
+**解包**：`sudo tar -xzf /tmp/r83_deploy.tgz -C ~/homebrew/plugins/decky-mod-manager --no-same-owner`（插件顶层目录 root 属主，ZIP 安装所致；`--no-same-owner` 沿用 R78 做法）。注意 tar 的退出码是 1，但文件全部落位——`--no-same-owner` 对目录本身仍有告警，属预期。
+
+**逐文件校验**：部署后对 `main.py`、`dist/index.js`、`py_modules/deckymod/*.py`（38）、`py_modules/registry/**/*.json`（14）共 **58 个文件**做 sha256 全量比对，结果 `NO_LOCAL=0 DIFF=0`。关键单点：
+
+```text
+0001bf08…2fe2a7  main.py
+983601bd…8f0ced  dist/index.js            (257740 B)
+243b24fa…075b3b  py_modules/deckymod/update_check.py   ← 新增文件，之前不存在
+50d692c2…344d9   py_modules/deckymod/smapi.py          (含 _handover_roots ×2)
+f01e4e99…0bda0   py_modules/deckymod/root_merge.py     (含 _handover_roots ×1)
+```
+
+**surface 标志**（本地基线对照）：`_handover_roots` smapi=2 / root_merge=1、`check_mod_updates` main.py=3、`MODAL_BODY_STYLE`=5、`0.6875rem`=1、`border-box`=3、`UPDATE_CHECK_LABEL`=5、`DIST_SIZE=257740`。全部一致。
+
+**重载**：`sudo systemctl restart plugin_loader.service` → `active`；子进程 `Decky MOD Manager (/home/deck/homebrew/plugins/decky-mod-manager/main.py)`（PID 1652863）；日志 `2026-11-27T12:29:55Z [info] Decky MOD Manager loaded (Stardew Valley / SMAPI (detect-only))` + `plugin loaded`，无 traceback。
+
+**真机 RPC 冒烟**（`.decky-probe/r83_smoke.py`，经真实 Decky WS `127.0.0.1:1337` 的 `loader/call_plugin_method`，只读）：
+
+| RPC | 结果 |
+| --- | --- |
+| `error_codes` | `ok:true`，52 码（与本地 `ERRORS` 一致） |
+| `status` | `ok:true`，32024 B，Stardew Valley 413150 / SMAPI `file_drop` / 已识别 Automate、AutomaticGates 等 |
+| `recovery` | `ok:true`，`pending:[] stuck:[]` |
+| `check_mod_updates` | **`E_CAPABILITY_DISABLED`**，`detail` = `no usable stored key: …/data/nexus_api_key`，`data.configured=false` |
+
+最后一项**不是部署缺陷**：RPC 存在、dispatch 正常、信封结构完整，返回的是设计好的前置条件应答（无 key 时不该去问 Nexus）。它证明 Round 82 的新 RPC 已上线；未证明的是「有 key 时」和「免费账号 403」两条分支，二者都需要用户提供 Nexus API key。
+
+**后端自检**（Deck 侧 system python3）：`from deckymod import update_check` 成功，导出 `MAX_CHECKS`/`STATE_CURRENT`/`STATE_OUTDATED`/`STATE_UNKNOWN`/`STATE_ERROR`/`check`/`compare`；`from deckymod.errors import ERRORS` → 52。
+
+**本轮未证明**：任何布局与交互的视觉效果。所有结论仍来自文件哈希与 RPC 返回值，`docs/ACCEPTANCE.md` §B.5 的 R1–R4 依旧 `DEVICE`/`OPEN`。

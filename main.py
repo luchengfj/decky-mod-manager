@@ -620,11 +620,22 @@ class Plugin:
 
         def _run():
             engine = self._engine()
-            # Only the file_drop engine knows about member roots; the other two
-            # (file_replace, root_merge) take inspect(zip_path) alone and a stray
-            # kwarg would be a TypeError surfaced as E_UNKNOWN.
-            if root is not None and hasattr(engine, "_set_enabled_inner"):
-                return engine.inspect(zip_path, member_root=root)
+            # Round 86: ask the engine what it supports instead of probing for a
+            # method every engine happens to inherit. `hasattr(engine,
+            # "_set_enabled_inner")` was true for RootMergeEngine too, so a
+            # member_root reached `inspect(zip_path)` as a stray kwarg and the
+            # TypeError came back as E_UNKNOWN.
+            #
+            # Refusing out loud, rather than dropping the argument, because a
+            # silently ignored member_root previews the WHOLE archive while the
+            # caller believes it is looking at one mod.
+            if root is not None:
+                if getattr(engine, "SUPPORTS_MEMBER_ROOT", False):
+                    return engine.inspect(zip_path, member_root=root)
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[inspect] this engine installs the whole "
+                                  "archive: it has no member-root selection",
+                           data={"reason": "no_member_root"})
             return engine.inspect(zip_path)
 
         return _guard(_run)
@@ -644,10 +655,10 @@ class Plugin:
         """
         def _run():
             engine = self._engine()
-            if not hasattr(engine, "archive_mods"):
+            if not getattr(engine, "SUPPORTS_ARCHIVE_MODS", False):
                 return err("E_CAPABILITY_DISABLED",
-                           detail="[archive_mods] this engine has no archive "
-                                  "inspection path",
+                           detail="[archive_mods] this engine installs the whole "
+                                  "archive, so there is no mod root to pick",
                            data={"reason": "no_archive_mods"})
             return engine.archive_mods(str(zip_path or ""))
         return _guard(_run)
@@ -693,12 +704,25 @@ class Plugin:
         def _run():
             _progress("install:start", op="install", package_id="")
             engine = self._engine()
-            fd_engine = hasattr(engine, "_set_enabled_inner")
             want_fomod = isinstance(fomod_choices, dict) and bool(fomod_choices)
             want_root = isinstance(member_root, str)
-            # Only the file_drop engine understands FOMOD and multi-mod roots;
-            # keep the RimWorld Engine call byte-identical when neither applies.
-            if fd_engine and (want_fomod or want_root):
+            # Round 86: ask the engine, do not guess. The old probe
+            # (hasattr(engine, "_set_enabled_inner")) is inherited by every
+            # engine, so it answered "yes, send the extra kwargs" for root_merge
+            # and the mismatch surfaced as E_UNKNOWN instead of an explanation.
+            # An engine that cannot honour an argument says so here, before the
+            # call, with a reason the UI can translate.
+            if want_fomod and not getattr(engine, "SUPPORTS_FOMOD", False):
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[install] this engine has no FOMOD installer",
+                           data={"reason": "no_fomod"})
+            if want_root and not getattr(engine, "SUPPORTS_MEMBER_ROOT", False):
+                return err("E_CAPABILITY_DISABLED",
+                           detail="[install] this engine installs the whole "
+                                  "archive: it has no member-root selection",
+                           data={"reason": "no_member_root"})
+            # Keep the RimWorld Engine call byte-identical when neither applies.
+            if want_fomod or want_root:
                 extra = {}
                 if want_fomod:
                     extra["fomod_choices"] = fomod_choices

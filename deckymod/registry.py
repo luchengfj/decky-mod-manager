@@ -32,6 +32,7 @@ class Registry:
                 continue
             path = os.path.join(self.base_dir, *meta["file"].split("/"))
             self.descriptors[gid] = self._load_json(path)
+            self._check_parser_declaration(gid, self.descriptors[gid], path)
         self.loaders: Dict[str, dict] = {}
         for lid, path in self.raw.get("loader_catalog", {}).items():
             fp = os.path.join(self.base_dir, *path.split("/"))
@@ -58,6 +59,42 @@ class Registry:
                 return json.load(f)
         except (OSError, json.JSONDecodeError) as e:
             raise ModError("E_UNKNOWN", detail=f"registry load failed {path}: {e}")
+
+    @staticmethod
+    def _check_parser_declaration(gid: str, desc: dict, path: str) -> None:
+        """Round 86: a declared manifest parser must actually exist.
+
+        ``registry/games/cyberpunk.json`` declared ``"parser": "path_map"`` and no
+        such parser was ever written. Nothing noticed for months because the only
+        code that reads the field is ``manifest.parser_for``, which nothing on the
+        root_merge path called -- until ``archive_mods`` inherited down into it and
+        answered with the raw internal string
+        ``no manifest parser named 'path_map'``. That is a plugin bug reported as
+        if it were a user action.
+
+        Failing at load is the cheap fix: the plugin is broken either way, and the
+        message names the file. Import is deferred into the method so this module
+        keeps its tiny import surface (manifest imports archive, which imports
+        nothing of ours).
+        """
+        from . import manifest  # deferred: keeps registry's import list short
+
+        mp = desc.get("mod_package") if isinstance(desc, dict) else None
+        if not isinstance(mp, dict):
+            return
+        name = mp.get("parser")
+        if not name:
+            return  # defaulting to json_map is the documented behaviour
+        if name in manifest.PARSERS:
+            return
+        raise ModError(
+            "E_UNKNOWN",
+            detail=(
+                f"registry load failed {path}: descriptor {gid!r} declares manifest "
+                f"parser {name!r}, which is not registered (known: "
+                f"{sorted(manifest.PARSERS)})"
+            ),
+        )
 
     def gate(self) -> dict:
         return self.raw.get("capability_gate", {})

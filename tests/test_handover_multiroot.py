@@ -84,7 +84,7 @@ DESCRIPTOR = {
     },
     "mod_package": {
         "archive_format": "zip",
-        "parser": "path_map",
+        # Round 86: root_merge needs no manifest parser (routes by path).
         "manifest_globs": ["mods/*/info.json"],
         "manifest_format": "json",
         "strip_single_root": False,

@@ -70,6 +70,15 @@ def _slug(path: str) -> str:
 
 
 class FileDropEngine:
+    """SMAPI-style engine: one mod == one directory under mod_root.
+
+    Round 86: capability flags replace main.py's hasattr() probes. See the
+    matching block in engine.py for why the probe was wrong.
+    """
+    SUPPORTS_FOMOD = True
+    SUPPORTS_MEMBER_ROOT = True
+    SUPPORTS_ARCHIVE_MODS = True
+
     def __init__(self, registry: Registry | None = None, journal: Journal | None = None,
                  decky=None, game_id: str | None = None):
         self.registry = registry or Registry()
@@ -713,7 +722,14 @@ class FileDropEngine:
             return self._install_inner(zip_path, after_confirm, fomod_choices,
                                        member_root)
         except ModError as e:
-            return err(e.code, detail=e.detail, rollback_available=e.rollback_available)
+            # Round 86: carry the context through as `data`, exactly like
+            # main.py's _guard does. Without this a subclass that refuses an
+            # unsupported argument ("no_fomod", "no_member_root") loses the
+            # reason word on the way out and the UI can only show a generic
+            # sentence -- the very thing this round set out to fix.
+            return err(e.code, detail=e.detail,
+                       rollback_available=e.rollback_available,
+                       data=dict(e.context) if e.context else None)
         except OSError as e:
             return err(map_oserror(e).code, detail=e.strerror, rollback_available=True)
         except Exception as e:

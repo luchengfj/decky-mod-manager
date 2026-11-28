@@ -225,6 +225,8 @@
   "ERRR_KEY_REJECTED": "Nexus 拒绝了这个 API 密钥。",
   "ERRR_OPEN_FAILED": "无法在浏览器中打开该页面。",
   "ERRR_NO_ARCHIVE_MODS": "该游戏无法检查压缩包。",
+  "ERRR_NO_FOMOD": "该游戏的引擎没有 FOMOD 安装器：这个包是按文件逐个安装的。",
+  "ERRR_NO_MEMBER_ROOT": "该游戏的引擎会整包安装，因此无法从压缩包内挑选某个 mod。",
   "LIB_SECTION": "所有游戏库",
   "LIB_REFRESH": "重新扫描游戏库 (A)",
   "LIB_REFRESH_DESC": "重新读取 libraryfolders.vdf，重新统计已安装游戏。",

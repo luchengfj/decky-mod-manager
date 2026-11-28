@@ -583,3 +583,76 @@ something live.
   a `ManagedMod`. The list is now built inline in `src/index.tsx`. That is a
   real structural change; it compiles and nothing referenced it, but no human
   has looked at the resulting panel.
+
+---
+
+## 10. Round 86 — an engine that could not install anything
+
+This section is not about pixels. It is here because the defect it records was found by
+looking at what the panel *said*, and because the panel said the wrong thing for a reason
+that no amount of visual inspection would have revealed.
+
+### What the panel showed
+
+`archive_mods` answered `E_MANIFEST_UNSAFE` with the detail
+`no manifest parser named 'path_map'`. That is a developer sentence leaking into a
+user-facing envelope: `path_map` was a parser name declared by two descriptors and
+implemented by nobody (`PARSERS` has only `json_map` and `xml_about`, and
+`git log -S"PathMapParser"` is empty).
+
+The same screen could also have shown `E_UNKNOWN` on every install attempt for a
+`root_merge` game, with the real cause only in the log:
+
+```
+TypeError: RootMergeEngine._install_inner() takes from 3 to 4 positional arguments
+           but 5 were given
+```
+
+`FileDropEngine.install()` forwards four arguments positionally; `RootMergeEngine`
+accepted three. Round 84 added the fourth argument to the base class and did not add it to
+the override. Every `root_merge` game — Cyberpunk 2077 and every game the user creates —
+could not install anything.
+
+### Why the panel said nothing useful
+
+Both defects were absorbed by the same two habits:
+
+1. `except Exception as e: return err("E_UNKNOWN", detail=f"{type(e).__name__}: {e}")`.
+   A programming error became a runtime error with the same shape as a genuine one. The
+   user saw the generic sentence; the harness saw `ok: false`; nothing was red.
+2. `hasattr(engine, "_set_enabled_inner")` used as "is this the file_drop engine". All
+   three engines define that method, so the probe was `True` for all three. It was the
+   probe that decided whether to forward `member_root`/`fomod_choices`, which is how the
+   four-argument call reached a three-argument method in the first place.
+
+### What replaced them
+
+Capability flags, declared per class, asked by name:
+
+| flag | `Engine` (xml_list) | `FileDropEngine` | `RootMergeEngine` |
+|---|---|---|---|
+| `SUPPORTS_FOMOD` | False | True | False |
+| `SUPPORTS_MEMBER_ROOT` | False | True | False |
+| `SUPPORTS_ARCHIVE_MODS` | False | True | False |
+
+`main.py` now asks `getattr(engine, "SUPPORTS_MEMBER_ROOT", False)` and answers
+`E_CAPABILITY_DISABLED` with `data.reason` = `no_fomod` / `no_member_root` /
+`no_archive_mods`. Those three words have i18n entries (`ERRR_NO_FOMOD`,
+`ERRR_NO_MEMBER_ROOT`, and the pre-existing `ERRR_NO_ARCHIVE_MODS`), so the sentence the
+user reads is written for the situation instead of being the generic capability line.
+
+The panel never shows a parser name. `archive_mods` on a `root_merge` game now says
+"this engine installs the whole archive, so there is no mod root to pick" — which is the
+truth, not an internal identifier.
+
+### Why the tests did not catch it
+
+`tests/test_engine_capabilities.py` did not exist. Of the 1073 cases, four files construct
+a `RootMergeEngine`, and **none of them calls `.install()`** — verified with an AST scan
+rather than by reading. The suite covered root_merge's path routing, `_package_id`,
+multi-root handover and loader install, but not the one action the engine exists for.
+
+The new file covers eight things and is mutation-verified: ten separate breakages of this
+round's fixes, ten caught, zero survivors. That harness is the part worth keeping — it is
+the only evidence that the new tests are not tautologies (see `docs/SESSION_HANDOFF.md`
+§八 for what happened the last time a test asserted only on its own input).

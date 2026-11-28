@@ -114,13 +114,21 @@
 ## 五、当前验证状态
 
 ```
-1073 用例全绿（skipped=18）
+1101 用例全绿（skipped=18）
 tsc --noEmit → exit 0
-rollup -c    → exit 0（dist/index.js 264823 B，Round 85 产物）
+rollup -c    → exit 0（dist/index.js 264303 B，Round 86 产物）
 ```
 
-Round 85 的产物比 Round 84 **小** 20233 B：删掉了五个死函数、`ModRow.tsx` 与 104 个
-孤儿 i18n 键。`0.6875rem` 仍出现 1 次、`border-box` 3 次、`ERRR_` 46 次（新词汇表没被误删）。
+Round 86 比 Round 85 多 28 个用例（`tests/test_engine_capabilities.py` 的 19 个 +
+修测试时补的 9 个断言），产物大 593 B（多了两句 `getattr` 守卫，没删代码）。
+`0.6875rem` 仍 1 次、`border-box` 3 次、`ERRR_` 48 次（新增 `ERRR_NO_FOMOD` /
+`ERRR_NO_MEMBER_ROOT` 两条）。
+
+`tsconfig.json` 现在带 `noUnusedLocals` + `noUnusedParameters`，由
+`tests/test_suite_hygiene.py::TestTheCompilerStillLooksForDeadCode` 钉住。
+
+**变异验证**（`.decky-probe/r86_mutate.py`）：在副本里逐个改坏 Round 86 的每处修复，
+确认对应用例真的会红。10 个 mutation 全部被抓，零存活。详见 §十三。
 
 `tsconfig.json` 现在带 `noUnusedLocals` + `noUnusedParameters`，由
 `tests/test_suite_hygiene.py::TestTheCompilerStillLooksForDeadCode` 钉住。
@@ -168,6 +176,7 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 | 11 | **归档选择器没在屏幕上见过**——RPC 与写入路径都在真机验过了，但 `showListModal` 的像素没人看过 | 并入第 1 项 |
 | 12 | ~~Round 84 报告 item 10 声称删了死代码，实际没删~~ **Round 85 已真删**（五个函数 + `ModRow.tsx` + 104 个 i18n 键），报告已加更正说明 | — |
 | 13 | **Round 85 全部改动未 commit、未部署**。删除 `ModRow.tsx` 是结构性改动：mod 行现在直接在 `src/index.tsx` 里内联构造，编译通过、无人引用，但没人看过面板实际长什么样 | agent（提交/部署）+ 用户（目视） |
+| 14 | **Round 86 全部改动未 commit、未部署**。两个缺陷都是「后端默默失败」型：root_merge 的 install 在所有该引擎的游戏上返回 `E_UNKNOWN`，`archive_mods` 报一个从未实现过的解析器名。修复已由 1101 用例与 10 个变异证伪，但**真机一次没跑过**——`install` 在 Deck 上到底恢复没有，只有真机 dry-run 能答 | agent（提交/部署 + dry-run） |
 
 ---
 
@@ -181,6 +190,9 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 - **Windows 上编辑文件会把行尾改成 CRLF**，而 HEAD 是 LF，导致 `git diff` 变成上万行噪音、真实改动无法 review。改完先查 `git diff --stat`，若行数远超预期就用 `.decky-probe/r83_eol.py` 那样的脚本还原 LF。建议后续加 `.gitattributes`（`* text=auto eol=lf`）。
 - 复制整个工作区做变异/试验时会撞上 `.tmp/mt_mode700`（`mode=0o700` 目录，`WinError 5` 拒绝访问）。只复制 `src/`、`tests/`、`.decky-probe/` 三目录，不要 `copytree` 整个仓库。
 - **「tsc exit 0」不等于「前端干净」**。Round 84 就是这样漏掉五个死函数的：`tsconfig.json` 有 `strict: true` 但没有 `noUnusedLocals`/`noUnusedParameters`，而 `strict` 管的是类型不是可达性——没人调用的函数照样通过类型检查。打开这两个开关立刻报出 10 条诊断。教训有两条：① 报告里的"已完成"要回代码里数一遍再写（我当时是照着计划写的，没数）；② 任何"绿灯"都要问它到底检查了什么。
+- **`hasattr(engine, "_set_enabled_inner")` 不是「这是不是 file_drop 引擎」的答案**。三个引擎（`Engine` / `FileDropEngine` / `RootMergeEngine`）**全都**实现这个方法，所以这个探针在三个类上都返回 True。Round 84 用它区分引擎能力，结果是 `RootMergeEngine._install_inner` 收到 5 个位置参数、抛 `TypeError`、被 `except Exception` 吞成 `E_UNKNOWN`——**每个 root_merge 游戏（含用户自建游戏）的安装都废了六个星期**，而 1073 个测试里没有一个调过 `RootMergeEngine.install()`。正确做法是显式能力标志（`SUPPORTS_FOMOD` / `SUPPORTS_MEMBER_ROOT` / `SUPPORTS_ARCHIVE_MODS`），并且**为「转发者与接收者的参数表必须一致」写一条测试**——缺陷 B 的本质就是基类转发 4 个、子类只收 3 个。
+- **「没报错」和「做对了」是两件事**。缺陷 B 的 `except Exception as e: return err("E_UNKNOWN", ...)` 把 `TypeError` 变成了一句「An unexpected error occurred. See the log for details.」，用户和测试都只能看见这个笼统句。**宽泛的 except 会把编程错误伪装成运行时错误**，这是它能活六周的直接原因。
+- **变异 harness 的基线必须自己先全绿**，否则每个「caught」都是假的。第一版副本漏了 `src/` 和 `docs/`，基线自带 55 个失败（前端/文档文本测试），全部「caught」都要作废。还有一个更隐蔽的：副本放在 `%TEMP%` 下时 `test_handover_multiroot` 的 4 个用例必失败——handover 的 quarantine 子目录名是**写根绝对路径的 slug**，副本根路径每深一层都会在目标路径里重复一次，跨过 `MAX_PATH` 后 `os.replace` 报 `WinError 3`。真仓根下实测目标 149 字符，`C:\ai\SD\.r86mut\baseline` 下 279 字符。**结论：变异副本要放在短路径下（`C:\ai\SD\b`、`C:\ai\SD\m01`），并把这件事写进 harness 注释。**
 - **数 i18n 孤儿键不能只数 `t("...")` 字面量**。`ERR_<code>`、`CAT_<category>`、`ERRR_<reason>` 三族是运行时拼出来的（`src/i18n.ts:62/68/88`），它们的键永远不会以字面量出现。按字面量数会得出 208 个"未使用"，其中 76 个是活的。正确判据是"这个名字除了字典以外，在前后端和 registry 里是否出现过"，剩下 104 个才是真孤儿。
 
 ---
@@ -407,3 +419,186 @@ validate_api_arity.py → BAD 0
 - **真机完全没碰**：本轮 `ssh` 超时、`ping` 100% loss，Deck 不在网段上。所有结论来自
   `tsc` + 1073 用例 + bundle 字符串计数，**没有一张截图**。
 - 删 `ModRow.tsx` 后 mod 行改为在 `src/index.tsx` 内联构造，编译与测试都过，但视觉效果没人看过。
+
+---
+
+## 十三、Round 86（2026-11-28 09:0x–10:4x UTC+8）
+
+### 起点：一个不该出现的错误码
+
+Round 85 部署后的真机冒烟里，`archive_mods("BetterRanching.2.0.5.zip")` 返回
+`E_MANIFEST_UNSAFE`，detail 是 `no manifest parser named 'path_map'`。Round 84 的冒烟里
+没见过这个。查下去发现是**两个独立缺陷**，而且第二个比第一个严重得多。
+
+### 缺陷 A：`path_map` 是一个从未实现过的解析器名
+
+- `deckymod/manifest.py:495` 的 `PARSERS` 只有 `json_map` 和 `xml_about`
+- 但 `registry/games/cyberpunk.json` 和 `deckymod/user_games.py:245` 都声明了 `"parser": "path_map"`
+- `git log -S"PathMapParser"` 为空——这个名字从来没有对应的类
+- 触发点只有一处：`archive_mods` → `deckymod/file_drop.py:353 parser = manifest.parser_for(mp)`
+
+关键在于 **root_merge 根本不需要 manifest 解析器**：`deckymod/root_merge.py:278`
+`_package_id()` 自己用 `zipfile` 读 `mods/*/info.json` 的 `name`/`version`；
+`_plan_archive()` 纯按路径路由。所以正确的修法**不是**去实现 `path_map`，而是把两处
+声明删掉，并让 `archive_mods` 在 root_merge 上明确回答「这个概念不适用」。
+
+### 缺陷 B：`install()` 在所有 root_merge 游戏上完全失效
+
+Round 84（`9bebbbf`）给 `FileDropEngine.install()` 加了 `fomod_choices` 和 `member_root`
+两个参数，并把它们**位置化**转发：
+
+```python
+# deckymod/smapi.py:713
+return self._install_inner(zip_path, after_confirm, fomod_choices, member_root)
+```
+
+但 `RootMergeEngine._install_inner` 只收 3 个参数（第三个还是 `fomod_choices`）：
+
+```
+TypeError: RootMergeEngine._install_inner() takes from 3 to 4 positional arguments
+           but 5 were given
+```
+
+被 `install()` 的 `except Exception` 吞成 `E_UNKNOWN`，日志里只有一行
+`install unexpected: TypeError: ...`。**每一个 root_merge 游戏（Cyberpunk 2077 + 所有
+用户自建游戏）的安装都废了**，而且连不带 `member_root` 的普通导入也一样——因为
+`FileDropEngine.install` 总是转发 4 个。
+
+真机确认（`.decky-probe/r86_deck_install.py`，经真实 Decky WS）：
+
+```
+ACTIVE_GAME 1091500 | Cyberpunk 2077 | enabled
+STRATEGY root_merge
+INSTALL_DRYRUN_CODE   E_UNKNOWN
+INSTALL_DRYRUN_DETAIL TypeError: RootMergeEngine._install_inner() takes from 3 to 4 ...
+PLAIN_CODE            E_UNKNOWN   ← 普通导入同样失败
+```
+
+### 为什么六个星期没人发现（三条同时成立）
+
+1. Round 84 冒烟时活动游戏是 Stardew Valley（`file_drop`），`path_map` 一次没走到
+2. `r84_smoke.py` 只调 `error_codes`/`status`/`recovery`/`check_mod_updates`/
+   `archive_mods`/`inspect`，**从未调过 `install`**
+3. 1073 个测试里 4 个文件构造 `RootMergeEngine`，**没有一个调 `.install()`**
+
+第 3 条是最要命的：套件覆盖了 root_merge 的路径路由、`_package_id`、handover 多根、
+loader 安装，唯独没有「装一个 mod」这个最核心的动作。已用 AST 核过。
+
+### 缺陷 C：`hasattr` 探针认错了引擎
+
+`main.py` 用 `hasattr(engine, "_set_enabled_inner")` 当「这是不是 file_drop」的判据。
+但三个引擎**全都**实现 `_set_enabled_inner`，所以这个探针永远为 True。三处受影响：
+
+- `main.py:626` `inspect` 的 `member_root` 分支
+- `main.py:632` `archive_mods` 的 `hasattr(engine, "archive_mods")`（RootMergeEngine 继承它）
+- `main.py:696` `install` 的 `fd_engine`
+
+### 修法
+
+**能力标志代替 `hasattr`**（`main.py` 唯一诚实的问法）：
+
+| 标志 | `Engine` | `FileDropEngine` | `RootMergeEngine` |
+|---|---|---|---|
+| `SUPPORTS_FOMOD` | False | True | False |
+| `SUPPORTS_MEMBER_ROOT` | False | True | False |
+| `SUPPORTS_ARCHIVE_MODS` | False | True | False |
+
+`main.py` 的三处判据全改为 `getattr(engine, "SUPPORTS_X", False)`，`install()` 的
+`fd_engine and (...)` 改成两条前置守卫，各自返回带 `reason` 的
+`E_CAPABILITY_DISABLED`（`no_fomod` / `no_member_root`）。RimWorld 的 `xml_list` 路径
+仍然走原来的 3 参调用，byte-identical。
+
+**签名补齐 + 显式拒绝**：`RootMergeEngine._install_inner` 补上 `member_root` 参数，
+并在函数体最前面拒绝：
+
+```python
+if fomod_choices:
+    raise ModError("E_CAPABILITY_DISABLED",
+                   detail="[root_merge] this engine has no FOMOD installer: "
+                          "the package is installed file by file",
+                   context={"reason": "no_fomod"})
+if isinstance(member_root, str):
+    raise ModError("E_CAPABILITY_DISABLED",
+                   detail="[root_merge] this engine installs the whole archive: "
+                          "it has no member-root selection",
+                   context={"reason": "no_member_root"})
+```
+
+注释里记了原始 `TypeError` 文本，以及「静默忽略比 TypeError 更糟」的理由。
+
+**`archive_mods` 覆盖为返回信封**（第一次写成 `raise` 是错的——所有调用者都当它返回
+信封，不包 try，探针立刻报 `ModError` 未捕获）：
+
+```python
+def archive_mods(self, zip_path: str) -> dict:
+    return err("E_CAPABILITY_DISABLED",
+               detail="[archive_mods] this engine installs the whole "
+                      "archive, so there is no mod root to pick",
+               data={"reason": "no_archive_mods"})
+```
+
+**`smapi.py` 的 `except ModError` 补 `data`**——否则子类拒绝的理由词会在出口丢失，
+UI 只能显示笼统句，正是本轮要修的东西。
+
+**registry 加载期校验**：新增 `Registry._check_parser_declaration()`，描述符声明了
+未注册的 parser 名就在加载时 `raise ModError`，detail 里列出全部已知名字。这是防
+「缺陷 A 再发生一次」的根本手段——它让错拼的解析器名在**加载时**就炸，而不是等用户
+点开某个文件才看见。
+
+### 回归测试（`tests/test_engine_capabilities.py`，19 用例）
+
+八组：hook 签名与基类一致 / 声明的能力标志与实际一致 / root_merge 装机真的成功且文件
+落盘 / 三种不支持的参数各自被拒并带 reason / `archive_mods` 在 file_drop 上仍工作 /
+registry 拒绝未注册 parser / RPC 边界用词句回答而不是异常。
+
+写测试时踩的两个坑都记在这里：
+
+- **独立继承链不能当子类比**。第一版要求所有引擎的 `_install_inner` 都是 4 参，把
+  `Engine`（自己一条链，`install` 只转发 2 个）也算进去 → 误报。改为
+  `if not issubclass(cls, FileDropEngine): continue`，另加
+  `test_every_engine_hook_matches_the_wrapper_that_calls_it` 按各自链比较。
+- **patch `main.Registry` 影响不到引擎内部**。`deckymod/smapi.py:52` 有
+  `from .registry import Registry`，`FileDropEngine.__init__` 用自己模块命名空间的
+  `Registry()`，而 `main.py:70 _make_engine()` 只传 `decky=`、不传 `registry=`。修法是
+  测试里直接把 fixture 建好的引擎交给 `plugin.engine`。
+
+### 验证
+
+```
+1101 用例全绿（skipped=18）
+tsc --noEmit → exit 0
+rollup -c    → exit 0，dist/index.js 264303 B
+validate_i18n.py → EN/ZH 各 473 键、parity 一致、ERROR_CODES 52、USED_BUT_MISSING 空
+```
+
+### 变异验证（`.decky-probe/r86_mutate.py`）：10 个 mutation，零存活
+
+| 改坏什么 | 谁抓到 |
+|---|---|
+| `_install_inner` 丢掉 `member_root` 参数 | `test_the_files_really_land_and_the_journal_records_them` |
+| `member_root` 静默忽略而非拒绝 | `test_member_root_is_refused_not_ignored` |
+| `ModError` 的 context 不再进 `data` | `test_auto_import` |
+| root_merge 谎称支持 `archive_mods` | `test_file_drop_still_declares_support_and_answers_real_roots` |
+| `archive_mods` 改抛异常而非返回信封 | `test_archive_mods_is_refused_with_its_own_envelope` |
+| 描述符重新声明 `path_map` | `test_11_production_is_wired` |
+| registry 停止校验 parser 名 | `test_an_unregistered_parser_name_fails_the_load` |
+| `inspect` 恢复 `hasattr` 探针 | `test_no_engine_probes_another_engine_by_hasattr_in_main` |
+| `install` 去掉 `member_root` 守卫 | `test_the_source_actually_asks_the_declared_flags` |
+| `install` 去掉 `fomod` 守卫 | `test_the_source_actually_asks_the_declared_flags` |
+
+harness 自己踩了三个坑，都写进了注释：① 第一版副本漏 `src/` 和 `docs/`，基线自带
+55 个失败，所有「caught」作废 ② 仓库根的 `tmpg7_5o_1s` 是 ACL 锁定的崩溃残留，
+`copytree` 直接 `WinError 5` ③ **副本路径必须短**——handover 的 quarantine 子目录名是
+写根绝对路径的 slug，副本每深一层都会在目标路径里重复，跨过 `MAX_PATH` 后
+`os.replace` 报 `WinError 3`（真仓根下 149 字符，`.r86mut\baseline` 下 279 字符）。
+
+### 没做到的
+
+- **真机一次没跑过**。修复有两个独立证据（1101 用例 + 10 个变异），但「Deck 上的
+  `install` 到底恢复没有」只有真机能答。`cyberpunk.json` 的 `EnableDisable` 是 false，
+  所以真机 dry-run（`after_confirm=False`）是零风险的第一步。
+- **`E_CAPABILITY_DISABLED` 的 message 仍是「This action is not available in this
+  version.」**，对「这个引擎不做这件事」是错的话术。没改是因为它被 52 个错误码表统一
+  管理，改 message 会动到所有调用点；本轮靠 `data.reason` + `ERRR_*` 两层兜住措辞。
+- **没加错误码**。新增一个 `E_NOT_APPLICABLE` 更准确，但会让错误码表从 52 变 53，
+  影响 `error_codes` RPC 契约与三个校验脚本。留给后续轮次决定。

@@ -225,6 +225,8 @@
   "ERRR_KEY_REJECTED": "Nexus rejected the stored API key.",
   "ERRR_OPEN_FAILED": "The page could not be opened in the browser.",
   "ERRR_NO_ARCHIVE_MODS": "This game cannot inspect archives.",
+  "ERRR_NO_FOMOD": "This game's engine has no FOMOD installer: the package is installed file by file.",
+  "ERRR_NO_MEMBER_ROOT": "This game's engine installs the whole archive, so there is no mod inside it to pick.",
   "LIB_SECTION": "Steam libraries",
   "LIB_REFRESH": "Rescan libraries (A)",
   "LIB_REFRESH_DESC": "Re-read libraryfolders.vdf and re-count installed games.",

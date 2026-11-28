@@ -55,13 +55,13 @@
   "mod_package": {
     "archive_format": "zip",
     "magic": "504b0304",
-    "parser": "path_map",
     "manifest_globs": [
       "mods/*/info.json",
       "*/info.json"
     ],
     "manifest_format": "json",
     "manifest_note": "Only REDmod packages carry info.json (name/version). Classic .archive drops have no manifest at all, so the package id is derived from the archive name and the file set, never from a guessed UniqueID.",
+    "parser_note": "Round 86: no 'parser' key, deliberately. This game uses the root_merge engine, which routes members by PATH and derives the package id itself (deckymod/root_merge.py:_package_id reads mods/*/info.json directly). Declaring a manifest parser here named 'path_map' -- which was never implemented, and which nothing on this path ever called -- only made a dead declaration that archive_mods tripped over.",
     "strip_single_root": false
   },
   "import_roots": [

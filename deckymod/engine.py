@@ -46,6 +46,21 @@ def _log_path(jrn: Journal) -> str:
 
 
 class Engine:
+    """RimWorld's xml_list engine — the oldest of the three.
+
+    Round 86: the three SUPPORTS_* flags below are the only honest way for
+    ``main.py`` to ask "can this engine do X". It used to probe
+    ``hasattr(engine, "_set_enabled_inner")``, which is true for EVERY engine,
+    so the probe answered "yes" for engines that would answer with a TypeError.
+    An engine that does not honour an argument must say so here, not raise three
+    frames below the RPC boundary where the traceback is swallowed into
+    E_UNKNOWN.
+    """
+
+    SUPPORTS_FOMOD = False
+    SUPPORTS_MEMBER_ROOT = False
+    SUPPORTS_ARCHIVE_MODS = False
+
     def __init__(self, registry: Registry | None = None, journal: Journal | None = None, decky=None):
         self.registry = registry or Registry()
         self.decky = decky

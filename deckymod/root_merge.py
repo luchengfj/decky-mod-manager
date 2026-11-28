@@ -77,6 +77,24 @@ def _sha256_file(path: str) -> str:
 class RootMergeEngine(FileDropEngine):
     """Per-file install engine driven entirely by the descriptor."""
 
+    # Round 86: this engine installs files, not mod directories, so two of the
+    # base engine's optional arguments mean nothing here. Declaring that is what
+    # main.py now asks; before, it guessed from hasattr(_set_enabled_inner),
+    # which is inherited and therefore always true.
+    #
+    # SUPPORTS_FOMOD False: a .archive/.reds drop has no FOMOD installer tree.
+    # SUPPORTS_MEMBER_ROOT False: there is no "several mods, pick one" case —
+    #   a root_merge archive is one package by definition (_plan_archive routes
+    #   every member by path, and _package_id names the whole thing).
+    # SUPPORTS_ARCHIVE_MODS False: archive_mods exists only to feed the
+    #   multi-mod picker, and it needs a manifest parser this descriptor has not
+    #   got. Inheriting it silently made the RPC reachable and then failed deep
+    #   inside file_drop with "no manifest parser named 'path_map'" — a parser
+    #   name the user cannot act on.
+    SUPPORTS_FOMOD = False
+    SUPPORTS_MEMBER_ROOT = False
+    SUPPORTS_ARCHIVE_MODS = False
+
     # ---------------------------------------------------------------- descriptor
     def _paths_cfg(self) -> dict:
         return (self._descriptor() or {}).get("paths") or {}
@@ -311,6 +329,22 @@ class RootMergeEngine(FileDropEngine):
         return pid, (name or pid), version
 
     # ------------------------------------------------------------------ inspect
+    def archive_mods(self, zip_path: str) -> dict:
+        """Round 86: refuse here too, not just at the RPC boundary.
+
+        FileDropEngine.archive_mods is inherited, and it calls
+        manifest.parser_for(), so a direct engine call (tests, future code)
+        would still surface "no manifest parser named 'path_map'". main.py asks
+        SUPPORTS_ARCHIVE_MODS first, so this is the second line of defence --
+        and it keeps the ANSWER SHAPE the base engine uses (an envelope, never
+        a raised exception), because callers of ``archive_mods`` all treat it as
+        envelope-returning.
+        """
+        return err("E_CAPABILITY_DISABLED",
+                   detail="[archive_mods] this engine installs the whole "
+                          "archive, so there is no mod root to pick",
+                   data={"reason": "no_archive_mods"})
+
     def inspect(self, zip_path: str) -> dict:
         try:
             self._gate("local_import")
@@ -381,7 +415,33 @@ class RootMergeEngine(FileDropEngine):
 
     # ------------------------------------------------------------------ install
     def _install_inner(self, zip_path: str, after_confirm: bool,
-                       fomod_choices: dict | None = None) -> dict:
+                       fomod_choices: dict | None = None,
+                       member_root: str | None = None) -> dict:
+        # Round 86: the signature above MUST match the base class's, because
+        # FileDropEngine.install() passes all four positionally. Before this fix
+        # root_merge declared only three, so every install() on every root_merge
+        # game -- Cyberpunk and every user-defined game -- raised
+        #   TypeError: _install_inner() takes from 3 to 4 positional arguments
+        #              but 5 were given
+        # which install()'s broad `except Exception` turned into E_UNKNOWN with
+        # no traceback to the user. Round 84 introduced it by adding member_root
+        # to the wrapper and only one subclass.
+        #
+        # The two arguments are accepted for signature compatibility and refused
+        # out loud. Silently ignoring them would be worse than the TypeError: a
+        # caller asking to install ONE mod of a bundle would get the whole
+        # bundle, and a caller passing FOMOD choices would get a plain extract
+        # with no indication its choices were dropped.
+        if fomod_choices:
+            raise ModError("E_CAPABILITY_DISABLED",
+                           detail="[root_merge] this engine has no FOMOD installer: "
+                                  "the package is installed file by file",
+                           context={"reason": "no_fomod"})
+        if isinstance(member_root, str):
+            raise ModError("E_CAPABILITY_DISABLED",
+                           detail="[root_merge] this engine installs the whole archive: "
+                                  "it has no member-root selection",
+                           context={"reason": "no_member_root"})
         self._gate("local_import")
         self._check_not_running()
         r = self._resolve()

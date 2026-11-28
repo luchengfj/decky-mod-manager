@@ -130,8 +130,11 @@ class TestUserDefinedPackage(unittest.TestCase):
             "write_roots": ["BepInEx/plugins"],
             "root_file_target": "BepInEx/plugins",
         }
+        # Round 86: no "parser" key. root_merge never consults a manifest
+        # parser (it routes by path), and "path_map" was never implemented --
+        # declaring it now fails registry load on purpose.
         self.eng.registry.descriptors[self.eng.game_id]["mod_package"] = {
-            "parser": "path_map", "strip_single_root": True}
+            "strip_single_root": True}
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
     def _zip(self, members):

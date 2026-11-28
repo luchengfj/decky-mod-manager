@@ -76,7 +76,8 @@ def _descriptor() -> dict:
             "staging": "${GAME_ROOT}/.decky-staging",
             "quarantine": "${GAME_ROOT}/.decky-quarantine/${TXN_ID}",
         },
-        "mod_package": {"archive_format": "zip", "parser": "path_map",
+        # Round 86: root_merge needs no manifest parser (routes by path).
+        "mod_package": {"archive_format": "zip",
                         "strip_single_root": True},
         "capabilities": {"local_import": True, "uninstall_quarantine": True,
                          "rollback": True, "loader_install": True,

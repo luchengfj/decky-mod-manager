@@ -242,7 +242,12 @@ def descriptor_for(rec: dict) -> dict:
         "mod_package": {
             "archive_format": "zip",
             "magic": "504b0304",
-            "parser": "path_map",
+            # Round 86: no "parser" key. These descriptors run on root_merge,
+            # which never consults a manifest parser (it routes by path and names
+            # the package from the archive itself). The old "path_map" value named
+            # a parser that was never written; the only code that read it was
+            # archive_mods -- which root_merge does not support (SUPPORTS_ARCHIVE_MODS
+            # is False) -- so it could only ever produce a confusing error.
             # Round 77: user games receive ordinary "MyMod/..." zips, so the
             # shared top folder is the mod's own name and must be kept under the
             # target (BepInEx/plugins/MyMod/MyMod.dll), not flattened.

@@ -114,10 +114,14 @@
 ## 五、当前验证状态
 
 ```
-1114 用例全绿（skipped=19）
+1052 用例全绿（skipped=16）
 tsc --noEmit → exit 0
-rollup -c    → exit 0（dist/index.js 264303 B，Round 86 产物；Round 87 只改后端）
+rollup -c    → exit 0（dist/index.js 248544 B，Round 88 产物）
 ```
+
+公共 RPC 从 38 降到 **30**（Round 88 删了 8 个），i18n 从 473 降到 **447** 键。
+用例数下降不是退化：删掉了 `test_nexus_credentials.py`（446 行）与
+`test_update_check.py`（248 行）两个整套，新增的比删掉的少。
 
 Round 86 比 Round 85 多 28 个用例（`tests/test_engine_capabilities.py` 的 19 个 +
 修测试时补的 9 个断言），产物大 593 B（多了两句 `getattr` 守卫，没删代码）。
@@ -126,6 +130,8 @@ Round 86 比 Round 85 多 28 个用例（`tests/test_engine_capabilities.py` 的
 
 Round 87 比 Round 86 多 14 个用例（`tests/test_reinstall_ownership.py`），**产物一个字节没变**
 ——这一轮只改 `deckymod/root_merge.py`，`dist/` 无需重新部署。
+
+Round 88 的产物**小了 15759 B**（264303 → 248544），这是删掉 key 界面与更新检查按钮的直接结果。
 
 `tsconfig.json` 现在带 `noUnusedLocals` + `noUnusedParameters`，由
 `tests/test_suite_hygiene.py::TestTheCompilerStillLooksForDeadCode` 钉住。
@@ -170,14 +176,16 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 | 5 | 插件自身版本过期检测（`docs/NEXT_FEATURES.md` P2#8 残留） | agent（本项目无版本端点） |
 | 6 | ~~Deck 上是 Round 80 前后的旧构建~~ **已部署**（2026-11-27 20:30 UTC，见 §九） | — |
 | 7 | ~~Round 83 全部改动仍未 commit~~ **已提交** `d7cb6a8`（37 文件 / 2819 增 / 188 删） | — |
-| 8 | **`check_mod_updates` 首次真机调用返回 `E_CAPABILITY_DISABLED`**——不是缺陷，是设计前置条件：`~/homebrew/data/decky-mod-manager/data/nexus_api_key` 不存在。**Round 84 补上了面板里的 key 入口**（`ApiKeyBox`），所以用户现在有路径自己解决；但要走通「有 key 的路径」和「Nexus 免费账号 403」两条分支，仍需真机上实际填一次 key | 用户提供 key 或明确不做 |
+| 8 | ~~`check_mod_updates` 需要 Nexus API key~~ **用户决定不做（m05103），Round 88 把整套 key 功能删了**。真机实测是决定依据：免费 key 读得到元数据，但 `download_link` 一律 403「premium only」，API 没有关键词搜索端点，网站 HTML 对非浏览器客户端一律 403 —— key 换不到任何一次真实下载。三个不需要 key 的网站打开器保留 | — |
 | 9 | ~~Round 84 全部改动未 commit、未部署~~ **已提交 `9bebbbf`、已部署**（2026-11-27 22:47 UTC，见 §十一） | — |
 | 10 | ~~`.7z` + `member_root` 无任何测试~~ **已在真机验证**（§十一：`r84_twomod.7z` 报 count=2，选根后 inspect 成功） | — |
 | 11 | **归档选择器没在屏幕上见过**——RPC 与写入路径都在真机验过了，但 `showListModal` 的像素没人看过 | 并入第 1 项 |
 | 12 | ~~Round 84 报告 item 10 声称删了死代码，实际没删~~ **Round 85 已真删**（五个函数 + `ModRow.tsx` + 104 个 i18n 键），报告已加更正说明 | — |
 | 13 | ~~Round 85 全部改动未 commit、未部署~~ **已提交 `f7dbd2b`、已部署两个 bundle**（§十二）。面板像素仍未目视 → 并入第 1 项 | — |
 | 14 | ~~Round 86 全部改动未 commit、未部署~~ **已提交 `ed9f1d7`、已部署 54 文件**（§十三）。真机 12 项 RPC + 7 项真实写入全 PASS | — |
-| 15 | **Round 87 全部改动未 commit**（`deckymod/root_merge.py` 已直接 `scp` 部署并真机验证，但仓库里还没提交）。`TestUninstallLeavesNoEmptyHusks` 的四个用例里有一个断言的是"文件夹仍存在"，只有真机和 `os.path.isdir` 能证伪，已由变异验证覆盖 | agent（提交） |
+| 15 | ~~Round 87 全部改动未 commit~~ **已提交**（`deckymod/root_merge.py` + `tests/test_reinstall_ownership.py` + 文档） | — |
+| 16 | **Round 88 全部改动未 commit、未部署**（8 个 RPC + 3 个模块 + 前端 + 447 键 i18n + 6 个测试文件）。这一轮改了 `main.py`、`deckymod/{nexus,user_games,registry}.py` 且**删了两个模块**，部署必须走完整 tgz 并核对 tar 内 `py_modules/` 路径（Round 84 就在这里翻过车） | agent（提交 + 部署） |
+| 17 | **删 key 之后的面板没人看过**——`docs/ACCEPTANCE.md` §B.7 的 X1–X5 全 `DEVICE`。「下载 MOD」区从约 86% 降到约 45% 是算出来的，不是量出来的 | 并入第 1 项 |
 
 ---
 
@@ -198,6 +206,14 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 - **`status()` 的返回是双层的**：mod 表在 `data["state"]["mods"]`，不在 `data["mods"]`。Round 87 的第一版真机探针读错了层级、拿到空列表，差点报成「插件把装好的 mod 弄丢了」。**写探针时先打印一格结构（`sorted(data.keys())`），不要凭印象取字段。**
 - **「删掉文件」和「删掉文件夹」是两件事**。`_uninstall_inner` 从 Round 81 起就只 `os.remove(dest)`，所以每次卸载都在游戏目录里留一个空壳；`mods/` 下堆了 `R86Write/`、`R87First/`、`R87Second/`。这类残留不会让任何测试变红，只会让用户的 Mods 目录越来越脏——**只有真机 `ls` 看得见**。
 - **数 i18n 孤儿键不能只数 `t("...")` 字面量**。`ERR_<code>`、`CAT_<category>`、`ERRR_<reason>` 三族是运行时拼出来的（`src/i18n.ts:62/68/88`），它们的键永远不会以字面量出现。按字面量数会得出 208 个"未使用"，其中 76 个是活的。正确判据是"这个名字除了字典以外，在前后端和 registry 里是否出现过"，剩下 104 个才是真孤儿。
+
+- **「不做某个功能」有两种含义，代价差一个量级，必须问清**。用户说「不需要第 8 项了」，字面上可以是不填 key（0 行），也可以是把整套 key 功能删掉（约 1090 行 + 14 个 i18n 键 + 8 个 RPC 契约变更）。我给了三选一（不填 / 只摘界面 / 整套删）并推荐最轻的那个，用户选了最彻底的——所以**先量代价再问，别按自己的偏好替人省事**。
+- **用户说「小字不要了」，量完之后结论可能是「删错东西了」**。真机截图实测：caption 字形带 12–13px、body 17–18px，11px 在 1280×800 上可读；垂直预算算下来「下载 MOD」区 600px 里 432px 是按钮、168px 是小字——小字从来不是空间问题，那个区的 key 输入框（4 个可聚焦行）才是。**用户描述的是一阶症状，测量才给得出一阶原因。** 于是照原计划删小字会省 24% 且仍挤，删 key 框省 48%。
+- **「三文件共享的词表」要有一条双向断言**。`main.py` 发 `data={"reason": "<word>"}`，`reasonText()` 把它拼成 `ERRR_<WORD>`，两个字典里得有这个键。三处没有任何测试对齐，于是 Round 88 删 RPC 之后 `ERRR_NO_KEY` / `ERRR_KEY_REJECTED` 变成了「没有任何代码能发出的句子」——死翻译，看着还活着。`tests/test_wired_contract.py::TestEveryReasonWordHasASentence` 现在双向查（发出的都有句、有句的都被发），并且**先断言 regex 有命中**，否则正则坏了会静默通过。
+- **删代码也要用行号切片，但必须先把所有断言做完**。Round 88 删 `main.py` 两段时连续三次 `AssertionError`：前一块 `del` 之后行号立刻偏移，而断言是拿偏移后的数组去比对原始行号。可行写法：断言全做完再删，且**从后往前删**。
+- **docstring 里含 `"""` 时不能用字符串字面量做 replace**。用 `find` 定位起止索引、从原片段 `rindex('\"\"\"')` 取回结尾引号才写对。
+- **`| head -20` 之后的 `$?` 是 head 的退出码**。Round 88 第一次跑 `tsc --noEmit | head -20` 得到 `TSC_EXIT=0`，其实编译是失败的。单独跑命令再取 `$?`。
+- **断言要检查「这件事存在」，而不是「这个域名字符串不出现」**。Round 88 的 `TestNexusModuleIsUrlOnly` 第一版禁掉整个 `nexusmods.com`，结果把必须保留的 `https://www.nexusmods.com/...` 模板也禁了。正确边界是：**API 子域名不许回来**（它才需要 key），网站域名必须在。同理 import 集合要排除 `__future__`（它是编译指令不是运行时 import）。
 
 ---
 
@@ -244,7 +260,7 @@ f01e4e99…0bda0   py_modules/deckymod/root_merge.py     (含 _handover_roots ×
 
 **另**：`rollup -c` 重跑后 bundle 字节一致（257740 B / `983601bd…`），所以早前文档里的 257411 B 是一次过期测量，已在 `docs/PANEL_LAYOUT.md` 与本文修正为 257740 B。
 
-## 十、Round 84（已完成，未提交未部署）
+## 十、Round 84（已完成；标题里的"未提交未部署"是当时的记录，后已提交 `9bebbbf` 并部署，见 §十一）
 
 起因：用户 m01522「检查功能性是否需要补充」。不是加功能，是找「用户会撞到但没有
 可用路径」的地方。审计方式是把 37 个 RPC 逐个对到面板上的控件，再派两个只读
@@ -370,7 +386,7 @@ Round 84 的备份里同样存在——是更早布局遗留，不是本轮产�
 
 ---
 
-## 十二、Round 85（2026-11-28 01:0x–01:3x UTC+8，未提交未部署）
+## 十二、Round 85（2026-11-28 01:0x–01:3x UTC+8；标题里的"未提交未部署"是当时记录，后已提交 `f7dbd2b` 并部署两个 bundle）
 
 起因：Round 84 的报告里 item 10 写着「删 `openGameLibrary`/`openGameCatalog`/`openModsByGame`/死 import」，
 实际一个都没删。用户 m03194 已授权「其余你可以开始改动」，本轮把这件事做完。
@@ -662,3 +678,73 @@ harness 自己踩了三个坑，都写进了注释：① 第一版副本漏 `src
 - **`status()` 里 `present` 的语义仍只对 root_merge 成立**。file_drop 引擎那边用的是
   `scan_installed_mods` 的目录扫描，两套判据并存，没有统一的「这个 mod 现在算不算装着」
   定义。这是结构问题，留给后续轮次。
+
+---
+
+## 十五、Round 88 — 删掉整套 Nexus key（2026-11-28 11:5x–12:2x UTC+8）
+
+用户 m05103 逐字：「那就不需要第8项了，然后一些小字我认为也不要，你从多角度分析，
+是否需要，也可以反驳」。我要的是决策依据，不是执行指令，所以按 spec-first 走 L2：
+先量，再给三选一。用户 m05240 逐字回「B」——最彻底的那条。
+
+### 决定依据（全部来自真机与算术，不是偏好）
+
+| 事实 | 来源 |
+| --- | --- |
+| 免费 key 能读元数据（`mod info` / 文件列表 / 三个 feed 都 200） | Round 20 真机实测 |
+| 但 `download_link` 对免费账号一律 403「this is for premium users only」 | Round 18 起多次实测 |
+| Nexus API 没有关键词搜索端点（`mods/search.json` 把 `search` 当 mod id，422） | Round 20 |
+| 网站 HTML 对非浏览器客户端一律 403 Cloudflare | Round 18 |
+| 「下载 MOD」区占 QAM 700px 视口的约 86%，其中按钮 432px、小字 168px | 本次算术 |
+| 该区里有 4 个可聚焦行属于 API key 输入框 | 代码计数 |
+
+结论：**key 换不到任何一次真实下载**，只换来一个要保护的秘密和一个「没有可用 key」的
+死胡同。留下来的是三个不需要 key 的网站打开器。
+
+### 删了什么
+
+| 类别 | 内容 |
+| --- | --- |
+| 后端 RPC | `api_key_status` / `set_api_key` / `delete_api_key` / `nexus_validate` / `nexus_recent` / `nexus_mod` / `nexus_download_link` / `check_mod_updates`（公开 RPC 38 → **30**） |
+| 后端模块 | `deckymod/credentials.py`（整删）、`deckymod/update_check.py`（整删）、`deckymod/nexus.py` 395 行 → 98 行纯 URL 构造器 |
+| 后端私有方法 | `_nexus_domain()`（只服务那 8 个 RPC）、`_nexus_key()` |
+| 前端 | `src/components/ApiKeyBox.tsx`（整删）、`doCheckModUpdates`、`UPDATE_CHECK_*` 按钮、`src/api.ts` 7 个 wrapper、`src/types.ts` 12 个类型 |
+| i18n | 473 → **447** 键（24 个孤儿 + `ERRR_NO_KEY` / `ERRR_KEY_REJECTED` 两个失联句子） |
+| 小字 | `WRITE_GATE_NOTE`（与 `READ_ONLY_BANNER` 重复）、`IMPORT_OSK`（与 placeholder 重复） |
+| 测试 | 删 `test_nexus_credentials.py`（446 行）、`test_update_check.py`（248 行）；`test_wired_contract.py` 整类重写为「凭证必须不在」 |
+
+**保留**：`open_mod_page` / `open_search_page` / `open_browse_page`（从不需要 key）、
+`_nexus_browse_domain()`、`deckymod/nexus.py` 的三个 URL 构造器与 `MAX_QUERY_CHARS`、
+`ERRR_NO_NEXUS_DOMAIN` / `ERRR_SOURCE_DISABLED`（其余 RPC 仍在用这两个 reason）。
+
+### 新增的守护
+
+`tests/test_wired_contract.py` 新增四类：
+- `TestRpcSurface`：30 个 RPC 的计数快照 + 8 个退休 RPC 必须缺席 + 3 个打开器必须存在
+- `TestNoCredentialLeftBehind`：`credentials.py`/`update_check.py` 不存在、`main.py` 无那两行 import 且 `api_key` 零出现、没有 RPC 收 `api_key` 参数、`deckymod/*.py` 里无 `nexus_api_key` 字符串
+- `TestNexusModuleIsUrlOnly`：`nexus.py` 只 import `urllib.parse`（排除 `__future__`）、代码里无 `api.nexusmods.com`（docstring 里写这个域名是**故意的**，它解释为什么删）、**必须有** `www.nexusmods.com`、三个构造器仍在
+- `TestEveryReasonWordHasASentence`：`main.py` 发出的每个 `reason` 词在两个字典里都有句子，且每个 `ERRR_` 句子都有对应的发射者；先断言 regex 有命中，否则正则坏了会静默通过
+
+变异验证：往 en.json 加回一条孤儿句子 → 2 例红；从 zh 删掉一个在用的键 → 2 例红；
+只改值不改键 → 仍绿（正确）。
+
+### 验证
+
+```
+Ran 1052 tests in 27.663s   OK (skipped=16)
+tsc --noEmit                exit 0
+rollup -c                   exit 0   dist/index.js 248544 B（-15759 B）
+validate_i18n.py            EN 447 / ZH 447, parity [], EXIT=0
+validate_p0.py              PUBLIC_RPC_COUNT 30, ALL_STATIC_CHECKS True
+validate_api_arity.py       BAD 0
+```
+
+bundle 逐项：`ApiKeyBox` 0、`UPDATE_CHECK` 0、`api_key` 0、`check_mod_updates` 0、
+`nexus_validate` 0；`ERRR_` 68 次、`archive_mods` 4、`border-box` 3、`0.6875rem` 1 全在。
+
+### 没做到的
+
+- **面板没目视**：§B.7 的 X1–X5 全 `DEVICE`。「86% → 45%」是算术，不是测量。
+- **没部署**：这一轮改了 `main.py` + 3 个后端模块并删了 2 个文件，必须走完整 tgz，
+  且要核对 tar 内的 `py_modules/` 路径（Round 84 正是在这里把后端打到了错误目录，
+  文件哈希全对、RPC 却加载的是旧引擎）。

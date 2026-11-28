@@ -206,21 +206,28 @@ class TestDownloadToImportHalfChain(unittest.TestCase):
                       "round-19: download is the shared download layer")
         self.assertIn("from deckymod import auto_import", src)
         self.assertIn("from deckymod import github_source", src)
-        # Round 39: the credential surface is back, but for METADATA only —
-        # free keys work for browsing, and download links still answer 403.
-        self.assertIn("from deckymod import credentials", src)
+        # Round 88: the Nexus API key surface is gone — ``credentials`` and
+        # ``update_check`` were deleted with it. ``nexus`` remains, but it is
+        # now the website-URL builder only (no API host, no key, no network).
+        self.assertNotIn("from deckymod import credentials", src)
+        self.assertNotIn("from deckymod import update_check", src)
         self.assertIn("from deckymod import nexus", src)
         tree = ast.parse(src)
         plugin = next(n for n in tree.body
                       if isinstance(n, ast.ClassDef) and n.name == "Plugin")
         rpcs = [m.name for m in plugin.body
                 if isinstance(m, ast.AsyncFunctionDef) and not m.name.startswith("_")]
-        self.assertEqual(len(rpcs), 38, rpcs)
+        self.assertEqual(len(rpcs), 30, rpcs)
         for name in ("gh_search", "gh_releases", "gh_download", "download_url"):
             self.assertIn(name, rpcs)
+        # Round 88 retired the whole key-reading half: four credential RPCs,
+        # three metadata RPCs, the premium download-link RPC and the update
+        # check. The three website openers stay — they never needed a key.
         for name in ("api_key_status", "set_api_key", "delete_api_key",
                      "nexus_validate", "nexus_recent", "nexus_mod",
-                     "nexus_download_link"):
+                     "nexus_download_link", "check_mod_updates"):
+            self.assertNotIn(name, rpcs, name)
+        for name in ("open_mod_page", "open_search_page", "open_browse_page"):
             self.assertIn(name, rpcs, name)
         # Retired in round 29 and NOT resurrected: these were the shapes that
         # passed the key as an argument or ran one-shot fetch+install.

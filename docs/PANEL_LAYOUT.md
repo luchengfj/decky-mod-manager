@@ -711,3 +711,83 @@ One of those mutations was written wrong the first time — `os.rmdir(x) if not
 os.listdir(x) else os.rmdir(x)` calls `os.rmdir` in both branches, so it behaves exactly
 like the original and caught nothing. A surviving equivalent mutant says nothing about the
 test; it says the mutation was not a mutation.
+
+---
+
+## 12. Round 88 — the panel loses the key box, and the section that was 86% full
+
+Round 84 added `ApiKeyBox` to this record as a new control (§8). Round 88 deletes
+it, so the record has to say why a control that was justified four rounds ago is
+now the thing to remove. The short answer is that Round 84's justification was
+"the panel says enter a key and offers no field to enter it" — and Round 88's
+answer is that the panel should not say that at all.
+
+### What was measured, before deciding
+
+The decision not to guess was taken by measuring the real device, not by reading
+the code:
+
+| measurement | result |
+| --- | --- |
+| caption glyph band on a real 1281×681 QAM screenshot | 12–13 px |
+| body glyph band, same screenshot | 17–18 px |
+| QAM content height budget | ~700 px |
+| one `ButtonItem`, all-in | ~72 px |
+| one caption line at 11 px | ~15.3 px |
+
+Vertically, per section:
+
+```
+games    4 caption lines =  61px | 2 buttons = 144px | total 205px = 29%
+import  11 caption lines = 168px | 6 buttons = 432px | total 600px = 86%   <- the only full one
+system   3 caption lines =  46px | 4 buttons = 288px | total 334px = 48%
+```
+
+The conclusion that changed the plan: **small text was never the space problem.**
+Deleting every caption line in the download section would recover 24%, and the
+section would still be two-thirds full. Deleting the key box — one `TextField`
+plus three `DialogButton`s, four focusable rows — recovered 288 px, taking the
+section from 86% to about 45%. The user asked to remove small text; the
+measurement said remove the box.
+
+Two captions were removed anyway, because they were duplicates rather than
+density:
+
+- `WRITE_GATE_NOTE` ("Writes are disabled for this game (read-only mode).") sat
+  directly under `READ_ONLY_BANNER`, which says the same thing in more detail and
+  names the reason (`LAYOUT_WHY_SYMLINK` / `LAYOUT_WHY_ENTRIES` / `LAYOUT_WHY_DEVICE`).
+  Two sentences for one fact, the weaker one second.
+- `IMPORT_OSK` ("Optional: import by absolute path (OSK)") labelled a field whose
+  own placeholder already says it. The label described the field instead of
+  saying anything about it.
+
+Everything else stayed. The captions that explain *how the plugin works* —
+"Nexus has no search endpoint, so this opens the site's own search page", "free
+accounts download in the browser", the three `LAYOUT_WHY_*` lines — are the reason
+a user can predict what a button will do before pressing it. `ErrorView`'s caption
+(error detail) and `Modal`'s `pre-wrap` body (rollback detail) are the only place a
+failure can be diagnosed at all.
+
+### What the section looks like now
+
+`src/components/ApiKeyBox.tsx` is deleted, 172 lines. The download section keeps
+the four Nexus openers (`open_mod_page`, `open_search_page`, `open_browse_page`,
+and the loader page) and the import box. `src/components/` is down to
+ConfirmModal / ErrorView / ImportBox / Modal — the four that every section uses.
+
+The style census changed with it: `UI_FILES` no longer lists `ApiKeyBox.tsx`,
+`src/index.tsx`'s `FONT.caption` count drops 27 → 25 (the two removed captions),
+and the `ApiKeyBox.tsx: {FONT.body: 1, FONT.caption: 4, SPACE.md: 2}` entry is
+gone.
+
+### What this proves, and what it does not
+
+Proven: the key box and its four focusable rows are gone from the bundle
+(`ApiKeyBox` = 0 occurrences, `UPDATE_CHECK` = 0, `api_key` = 0); the section's
+content is what the budget above says it is; the two duplicate captions no longer
+render; a new test fails if any emitted `reason` word loses its sentence in either
+dictionary, or if a sentence appears for a word nothing emits.
+
+Not proven: that the shortened section *feels* better, or that 45% is the right
+number. Nobody has looked at the built panel on the device since the deletion.
+That is §B.7's job, and it is OPEN.

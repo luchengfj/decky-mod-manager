@@ -106,7 +106,7 @@ historical regression target. For the authoritative current scope, see
 ## Repository layout
 
 ```
-main.py                       Decky entry point: class Plugin, 28 public async
+main.py                       Decky entry point: class Plugin, 30 public async
                               positional RPCs plus _main/_unload/_uninstall/_migration
 plugin.json                   Decky manifest (name, api_version, flags, publish tags)
 package.json / tsconfig.json / rollup.config.js
@@ -117,12 +117,11 @@ src/
   api.ts                      @decky/api call/callable bridge, invoke() guard
   types.ts                    TS mirror of the JSON-safe envelope + per-RPC payload types
   i18n.ts                     t() / errorText() / categoryText(), zh-CN via navigator.language
-  i18n/en.json, zh-CN.json    487 keys each, parity enforced by validate_i18n.py
+  i18n/en.json, zh-CN.json    447 keys each, parity enforced by validate_i18n.py
   components/
     Modal.tsx                 gamepad-first showInfo / showListModal / showErrorModal / showFomodModal
     ConfirmModal.tsx          two-phase confirm (A=confirm, B=cancel)
     ErrorView.tsx             one code, one message, code in small text + log path
-    ModRow.tsx                mod row: enable/disable / details / uninstall
     ImportBox.tsx             optional OSK path input (fully skippable)
 deckymod/                     stdlib-only Python backend (no third-party deps)
   errors.py                   52 user-facing codes -> (category, message, rollback?); E_RECOVERY_PENDING only gates writes from Round 51
@@ -155,8 +154,7 @@ deckymod/                     stdlib-only Python backend (no third-party deps)
   download.py                 shared low-level HTTPS + download core (no credentials)
   github_source.py            GitHub Releases search / releases / 302 asset resolve
   auto_import.py              download -> inbox -> inspect -> confirm -> install coordinator
-  credentials.py              Nexus API key at rest: 0o600, O_EXCL, atomic replace, never echoed
-  nexus.py                    Nexus v1 metadata client (browse only -- download links are premium-only)
+  nexus.py                    Nexus *website* URLs only (mod page / search / browse) -- no API, no key, no network
   loaderlog.py                reads the loader's own log: what actually LOADED vs merely installed
   import_root.py              the import list also reads the folder the browser saves to (READ ONLY)
 registry/
@@ -166,7 +164,7 @@ registry/
   games/factorio.json         planned: json_toggle_list shape example
   games/valheim.json          planned: BepInEx/Proton example (declined, §3.8 prohibitions)
   loaders/*.json              5 loader catalogs (bepinex5/smapi/xnvse/ue4ss/melonloader)
-tests/                        75 modules, 1070 cases (`Ran 1070 tests ... OK (skipped=18)`)
+tests/                        75 modules, 1052 cases (`Ran 1052 tests ... OK (skipped=16)`)
   test_mvp.py                 synthetic Steam-tree unittest, RimWorld path (pinned via env)
   test_stardew.py             file_drop engine round trip + loader-log wiring through status()
   test_loaderlog.py           real-log parsing (22/3/4/11) and the unknown-is-not-loaded rule
@@ -304,12 +302,12 @@ rather than hidden in a file:
 ## Local verification status (this Windows dev box)
 
 ```
-python .decky-probe/run_tests.py         -> Ran 1070 tests ... OK (skipped=18)  (LASTEXITCODE=0)
+python .decky-probe/run_tests.py         -> Ran 1052 tests ... OK (skipped=16)  (LASTEXITCODE=0)
 python -m compileall -q deckymod main.py tests -> 0
-.decky-probe/validate_i18n.py            -> EN 487 / ZH 487, parity [] , EXIT=0
-.decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 28, ALL_STATIC_CHECKS True
+.decky-probe/validate_i18n.py            -> EN 447 / ZH 447, parity [] , EXIT=0
+.decky-probe/validate_p0.py              -> PUBLIC_RPC_COUNT 30, ALL_STATIC_CHECKS True
 .decky-probe/validate_download_wiring.py -> DOWNLOAD_WIRING_ALL_OK=True, EXIT=0
-.decky-probe/validate_api_arity.py       -> BACKEND_RPCS 28 / FRONTEND_CALLS 28 / BAD 0
+.decky-probe/validate_api_arity.py       -> BACKEND_RPCS 30 / FRONTEND_CALLS 30 / BAD 0
 .decky-probe/r19_frontend_preflight.py   -> FRONTEND_PREFLIGHT_OK, BARE_BUTTON 0, EXIT=0
 .decky-probe/r8_zipload_probe.py         -> PHASE2_STATUS_OK True, EXIT=0
 .decky-probe/r4_tar_drift.py             -> TAR_COUNT 126 / CUR_COUNT 126, drift 0
@@ -379,7 +377,7 @@ Reading order for a newcomer, and what each file is for:
 | [UPDATE_KEYS.md](UPDATE_KEYS.md) | where a mod's Nexus id comes from, and why a guessed one would open someone else's mod |
 | [MOD_FOLDER_CONFLICTS.md](MOD_FOLDER_CONFLICTS.md) | which mods ship the same file, why scope belongs to the loader, and the 27 false alarms the device found |
 | [HANDOVER.md](HANDOVER.md) | handing Mods/ over from another manager without deleting anything, and what it refuses; Round 81 covers a game whose mods are not one folder |
-| [UPDATE_CHECK.md](UPDATE_CHECK.md) | asking Nexus which installed mods have a newer file — report-only, and why "unknown" never reads as "current" |
+| [UPDATE_CHECK.md](UPDATE_CHECK.md) | **retired in Round 88** — kept as the record of why asking Nexus for newer versions was deleted together with the API key |
 | [MOD_FOLDER_OWNERSHIP.md](MOD_FOLDER_OWNERSHIP.md) | who owns the Mods folder, and why a filename list can never answer that |
 | [PARKED_DEPENDENCIES.md](PARKED_DEPENDENCIES.md) | why a dependency the user disabled is reported apart from one that is absent, and the download that used to overwrite it |
 | [OUTDATED_DEPENDENCIES.md](OUTDATED_DEPENDENCIES.md) | installed, readable, and older than the mod asks for — the third state |

@@ -7,7 +7,7 @@ What was removed, what was kept, and why — so a future maintainer can re-run t
 | Path | Why |
 | --- | --- |
 | `.decky-probe/` | Contains SSH **private keys** (`ssh/deck_key`, `ssh/dshdeck2`), an old API-key dump (`r9_cred.txt`), device screenshots, and probe output with machine-specific values. Whole directory is ignored. |
-| `deckymod/credentials.py` consumers' data | The runtime API key lives at `${DECKY_DATA}/nexus_api_key` **on the Deck**, never in the repo. |
+| ~~`deckymod/credentials.py` consumers' data~~ | **Round 88 deleted the whole credential feature**, so there is no key file left to leak. The row is kept struck through because a re-introduced key would put `${DECKY_DATA}/nexus_api_key` back on the do-not-commit list. |
 | `dist/`, `*.tar`, `*.tar.gz` | Build output. Rebuilt by CI; the installable ZIP is a Release asset. |
 | `journal/`, `snapshots/`, `*.log` | Real device paths and transaction history. |
 

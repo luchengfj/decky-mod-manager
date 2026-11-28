@@ -1,31 +1,42 @@
-"""Contract: the plugin HAS a credential surface, and it stays opaque.
+"""Contract: the plugin stores no credential at all, and promises no search.
 
-History that matters here: round 29 removed the credential store because the
-third-party source it served answered 403 to every free account, so a stored
-key bought nothing. That file then asserted the surface was absent — an
-accurate assertion for a version whose honest answer was "this cannot work".
+Full circle, and the reasoning is worth keeping because it repeated:
 
-Round 39 reverses the premise deliberately: the same API is now used for
-*metadata only*, where a free key genuinely works, and the goal explicitly asks
-for credentials to be entered in the panel. So the old "must not exist"
-assertions are replaced by narrower, stronger ones about what the surface may
-do. What is forbidden now is not the feature but the leak:
+* round 29 removed the credential store — the source it served answered 403 to
+  every free account, so a stored key bought nothing.
+* round 39 brought it back for *metadata only*, where a free key did work: mod
+  info, file lists and the three feeds answered 200.
+* round 88 removes it again, for a different and stronger reason. A free key
+  could read metadata but never download (``download_link`` answers 403 "this
+  is for premium users only"), the API has no keyword-search endpoint, and the
+  website's HTML is behind Cloudflare for every non-browser client. So the key
+  bought nothing the panel could turn into a mod on disk. What it did buy was a
+  secret to hold, a file to protect at 0600 and a "no usable stored key" dead
+  end on the update check. The website openers replaced it: they need no key
+  and they are where a download actually happens.
 
-* no RPC may return the key, masked or not (``key_status`` is stat-only)
-* the key must never be an argument to the validation call (it is read from
-  disk, so it never crosses the bridge twice)
-* no RPC may expose a keyword search, because the endpoint does not exist
+The assertions that matter now are the negative ones — the surface, its file
+and its RPCs must stay gone — plus the positive one that the no-key openers
+survived. Search is still forbidden as an RPC: the endpoint does not exist, so
+a ``nexus_search`` would be a promise the backend cannot keep.
 """
 import ast
+import json
 import os
+import re
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-#: Every RPC that reads or writes the credential. Their signatures are audited
-#: below for key material in the wrong direction.
-CREDENTIAL_RPCS = ("api_key_status", "set_api_key", "delete_api_key",
-                   "nexus_validate")
+#: RPCs that read, wrote or served a credential, plus the two that existed only
+#: to spend one. All eight must stay gone: their absence is the invariant.
+RETIRED_RPCS = ("api_key_status", "set_api_key", "delete_api_key",
+                "nexus_validate", "nexus_recent", "nexus_mod",
+                "nexus_download_link", "check_mod_updates")
+
+#: RPCs that open a Nexus page in the signed-in browser. These never needed a
+#: key, which is exactly why they are what remains of the Nexus surface.
+NO_KEY_OPENERS = ("open_mod_page", "open_search_page", "open_browse_page")
 
 
 def _plugin_methods():
@@ -47,7 +58,8 @@ class TestRpcSurface(unittest.TestCase):
         rpc = [b.name for b in _public_rpc(plugin)]
         # Round 79: +install_loader, +open_loader_page (loader hand-off).
         # Round 84: +archive_mods (multi-mod archives get a picker).
-        self.assertEqual(len(rpc), 38, rpc)
+        # Round 88: -8 credential/metadata/update-check RPCs.
+        self.assertEqual(len(rpc), 30, rpc)
 
     def test_download_rpcs_are_still_present(self):
         plugin, _ = _plugin_methods()
@@ -56,51 +68,104 @@ class TestRpcSurface(unittest.TestCase):
                      "fetch_dependencies"):
             self.assertIn(name, rpc, name)
 
-    def test_credential_rpcs_are_present(self):
+    def test_the_credential_rpcs_are_gone(self):
         plugin, _ = _plugin_methods()
         rpc = {b.name for b in _public_rpc(plugin)}
-        for name in CREDENTIAL_RPCS:
-            self.assertIn(name, rpc, name)
+        for name in RETIRED_RPCS:
+            self.assertNotIn(name, rpc, name)
 
-    def test_nexus_rpcs_are_present(self):
+    def test_the_no_key_openers_survived(self):
         plugin, _ = _plugin_methods()
         rpc = {b.name for b in _public_rpc(plugin)}
-        for name in ("nexus_recent", "nexus_mod", "nexus_download_link"):
+        for name in NO_KEY_OPENERS:
             self.assertIn(name, rpc, name)
 
 
-class TestCredentialDirection(unittest.TestCase):
-    def test_validate_takes_no_key_argument(self):
-        # Reading the key from disk is what keeps the plaintext off the bridge
-        # once it has been saved.
-        plugin, _ = _plugin_methods()
-        by_name = {b.name: b for b in _public_rpc(plugin)}
-        self.assertEqual([a.arg for a in by_name["nexus_validate"].args.args],
-                         ["self"],
-                         "nexus_validate must not accept a key parameter")
+class TestNoCredentialLeftBehind(unittest.TestCase):
+    """Deleting the RPCs is not enough: the store, the secret's file name and
+    the update check that spent it must all be gone too. A leftover
+    ``credentials.py`` would be dead code that still looks callable."""
 
-    def test_only_set_api_key_accepts_a_key(self):
+    def test_the_credential_module_is_deleted(self):
+        self.assertFalse(os.path.exists(
+            os.path.join(ROOT, "deckymod", "credentials.py")))
+        self.assertFalse(os.path.exists(
+            os.path.join(ROOT, "deckymod", "update_check.py")))
+
+    def test_main_imports_neither(self):
+        with open(os.path.join(ROOT, "main.py"), encoding="utf-8") as f:
+            src = f.read()
+        self.assertNotIn("from deckymod import credentials", src)
+        self.assertNotIn("from deckymod import update_check", src)
+        self.assertNotIn("api_key", src)
+
+    def test_no_rpc_takes_a_key_argument(self):
         plugin, _ = _plugin_methods()
         for node in _public_rpc(plugin):
             params = [a.arg for a in node.args.args if a.arg != "self"]
-            if node.name == "set_api_key":
-                self.assertEqual(params, ["api_key"])
-            else:
-                self.assertNotIn("api_key", params, node.name)
+            self.assertNotIn("api_key", params, node.name)
 
-    def test_status_is_stat_only(self):
-        # key_status must not open the file: a mode-000 file still reports.
-        with open(os.path.join(ROOT, "deckymod", "credentials.py"),
+    def test_the_named_key_file_is_gone(self):
+        # The filename is the one string that would survive a refactor: if it
+        # is back, so is the store.
+        for root, dirs, files in os.walk(os.path.join(ROOT, "deckymod")):
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            for fn in files:
+                if not fn.endswith(".py"):
+                    continue
+                with open(os.path.join(root, fn), encoding="utf-8") as f:
+                    body = f.read()
+                self.assertNotIn("nexus_api_key", body, fn)
+
+
+class TestNexusModuleIsUrlOnly(unittest.TestCase):
+    """``deckymod/nexus.py`` survives as a URL builder. It must not have
+    regained a transport, an API host or a header carrying a secret."""
+
+    def _tree(self):
+        with open(os.path.join(ROOT, "deckymod", "nexus.py"),
                   encoding="utf-8") as f:
-            tree = ast.parse(f.read())
-        fn = next(n for n in ast.walk(tree)
-                  if isinstance(n, ast.FunctionDef) and n.name == "key_status")
-        called = {n.func.id for n in ast.walk(fn)
-                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
-        attrs = {n.func.attr for n in ast.walk(fn)
-                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
-        self.assertNotIn("open", called)
-        self.assertIn("stat", attrs)
+            return ast.parse(f.read())
+
+    def test_it_imports_no_network_layer(self):
+        tree = self._tree()
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(a.name for a in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                # ``from __future__ import annotations`` is a compiler flag,
+                # not an import of anything at run time.
+                if node.module != "__future__":
+                    imported.add(node.module or "")
+        self.assertEqual(imported, {"urllib.parse"}, imported)
+
+    def test_it_declares_no_api_host(self):
+        # Checked against the CODE, not the prose: the docstring deliberately
+        # names the host while explaining why it was removed.
+        tree = self._tree()
+        doc = ast.get_docstring(tree, clean=False) or ""
+        strings = [n.value for n in ast.walk(tree)
+                   if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                   and n.value != doc]
+        joined = "\n".join(strings)
+        # The website host is the whole point; it is the API subdomain that
+        # must not come back, because that is the one that needs a key.
+        self.assertNotIn("api.nexusmods.com", joined)
+        self.assertIn("www.nexusmods.com", joined)
+        self.assertNotIn("apikey", joined.lower())
+        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        names |= {t.id for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                  for t in n.targets if isinstance(t, ast.Name)}
+        self.assertNotIn("API_ROOT", names)
+        self.assertNotIn("API_HOST", names)
+        self.assertNotIn("H_KEY", names)
+
+    def test_the_three_url_builders_are_public(self):
+        tree = self._tree()
+        names = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
+        for name in ("mod_page_url", "search_page_url", "browse_page_url"):
+            self.assertIn(name, names)
 
 
 class TestNoSearchPromise(unittest.TestCase):
@@ -167,3 +232,44 @@ class TestNoSearchPromise(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEveryReasonWordHasASentence(unittest.TestCase):
+    """The reason vocabulary is a contract between three files.
+
+    ``main.py`` emits ``data={"reason": "<word>"}``, ``reasonText()`` turns that
+    word into ``ERRR_<WORD>``, and the two dictionaries have to hold that key.
+    Nothing used to check the three-way agreement, so Round 88's deletion left
+    ``ERRR_NO_KEY`` and ``ERRR_KEY_REJECTED`` behind as sentences for reasons no
+    code could emit any more — dead translations that still looked live. This
+    test is the check that would have caught it.
+    """
+
+    def _emitted(self) -> set:
+        with open(os.path.join(ROOT, "main.py"), encoding="utf-8") as f:
+            src = f.read()
+        return {"ERRR_" + w.upper()
+                for w in re.findall(r'"reason": "([a-z_]+)"', src)}
+
+    def _declared(self, lang: str) -> set:
+        with open(os.path.join(ROOT, "src", "i18n", lang + ".json"),
+                  encoding="utf-8") as f:
+            return {k for k in json.load(f) if k.startswith("ERRR_")}
+
+    def test_every_emitted_reason_has_en_and_zh_text(self):
+        emitted = self._emitted()
+        self.assertTrue(emitted, "no reason words found — the regex broke")
+        for lang in ("en", "zh-CN"):
+            missing = emitted - self._declared(lang)
+            self.assertEqual(missing, set(), "%s lacks %s" % (lang, missing))
+
+    def test_no_reason_sentence_is_left_without_an_emitter(self):
+        # The reverse direction: a sentence nobody can trigger is dead weight
+        # in two dictionaries and a lie about what the plugin can say.
+        for lang in ("en", "zh-CN"):
+            orphans = self._declared(lang) - self._emitted()
+            self.assertEqual(orphans, set(), "%s has orphans %s"
+                             % (lang, orphans))
+
+    def test_the_two_dictionaries_agree(self):
+        self.assertEqual(self._declared("en"), self._declared("zh-CN"))

@@ -62,7 +62,6 @@ import {
   openBrowsePage,
   handoverMods,
   reclaimQuarantine,
-  checkModUpdates,
 } from "./api";
 import type {
   Envelope,
@@ -78,7 +77,7 @@ import type {
 } from "./types";
 import { isConfirmData } from "./types";
 import { t, errorText, categoryText } from "./i18n";
-import type { ModListEntry, UpdateCheckData } from "./types";
+import type { ModListEntry } from "./types";
 import { showConfirm } from "./components/ConfirmModal";
 import { runUninstallFlow } from "./uninstallFlow";
 import { autoImportNew, autoImportSilent } from "./autoImport";
@@ -87,7 +86,6 @@ import { runDepsFlow } from "./depsFlow";
 import { showInfo, showListModal, showErrorModal, showFomodModal } from "./components/Modal";
 import type { ListRow } from "./components/Modal";
 import { ImportBox } from "./components/ImportBox";
-import { ApiKeyBox } from "./components/ApiKeyBox";
 import { BORDER, FONT, HEIGHT, LINE_HEIGHT, SPACE, PANEL_ROOT_STYLE, BOX_SIZING } from "./theme";
 
 /* ------------------------------------------------------------------ small utils */
@@ -1542,81 +1540,12 @@ function Content() {
    * error modal — never hidden, never bypassed, never retried.
    */
 
-
-
-
   /* ----------------------------------------------------- §5.3b dependencies */
   // Round 74: one entry point. The old pair of buttons split "look at the
   // plan" from "install", and neither could do anything when the SMAPI index
   // named no GitHub repo — the panel just said 0 of N. runDepsFlow() now owns
   // planning, installing what it can, and opening the Nexus page for the rest.
   const doDepsInstall = () => runDepsFlow();
-
-  /* Round 82: which installed mods have a newer version published.
-     Report-only -- a free Nexus account cannot download, so this asks the
-     question and stops. It renders through the same list modal the inbox
-     uses, so a mod with no Nexus id says so instead of being silently
-     dropped from the answer. */
-  const doCheckModUpdates = async () => {
-    setBusySafe(true);
-    const g = generation.current;
-    try {
-      const r = await checkModUpdates();
-      if (!mounted.current || generation.current !== g) return;
-      if (!r.ok) {
-        showErrorModal(r as never, {
-          onDismiss: () => setLastResult(""),
-        });
-        return;
-      }
-      const d = (r.data || {}) as UpdateCheckData;
-      const rows: ListRow[] = (d.rows || []).map((row) => {
-        const nx = Number(row.nexusId);
-        const canOpen = Number.isInteger(nx) && nx > 0;
-        return {
-          label: row.uniqueId || "(unnamed)",
-          sub: row.state === "outdated"
-            ? `${row.installed || "?"} -> ${row.latest || "?"}`
-            : row.state === "current"
-              ? `${row.installed || "?"} (current)`
-              : row.state === "error"
-                ? (row.reason || "failed")
-                : "unknown",
-          // Round 84: this row used to be inert on the theory that a free Nexus
-          // account cannot download. That is true and irrelevant — opening the
-          // mod's page needs no key at all (open_mod_page never touches the
-          // network gate), and the page is where the user CAN download. An
-          // inert row told the user "outdated" and then gave them no next step.
-          onActivate: canOpen
-            ? (close) => { close(); doOpenPage(nx); }
-            : () => {},
-        };
-      });
-      if (!rows.length) {
-        showInfo(t("UPDATE_CHECK_TITLE"), [t("UPDATE_CHECK_NONE")], []);
-        return;
-      }
-      // Round 84: `outdated` and `errors` were never read, so a check that
-      // skipped or failed on every mod looked identical to a clean one.
-      const extra: string[] = [];
-      if (d.outdated && d.outdated.length) {
-        extra.push(t("UPDATE_CHECK_OUTDATED_N", "{n} outdated", { n: d.outdated.length }));
-      }
-      if (d.errors && Object.keys(d.errors).length) {
-        extra.push(t("UPDATE_CHECK_ERRORS_N", "{n} could not be checked", {
-          n: Object.keys(d.errors).length,
-        }));
-      }
-      if (d.skipped) {
-        extra.push(t("UPDATE_CHECK_SKIPPED_N", "{n} skipped", { n: d.skipped }));
-      }
-      const subtitle = [d.note || "", ...extra].filter((x) => x !== "").join(" · ");
-      showListModal(t("UPDATE_CHECK_TITLE"), rows, subtitle);
-      setLastResult(d.summary || t("UPDATE_CHECK_NONE"));
-    } finally {
-      if (mounted.current) setBusySafe(false);
-    }
-  };
 
   /** Browse one of the three feeds. There is no search because there is no endpoint. */
   const doNexusRecent = (kind: string) => {
@@ -2203,11 +2132,7 @@ function Content() {
           >
             {t("INBOX_FIXED")}
           </ButtonItem>
-          <PanelSectionRow>
-            <div style={{ fontSize: FONT.caption, opacity: 0.65 }}>{t("IMPORT_OSK")}</div>
-          </PanelSectionRow>
           <ImportBox busy={busy} onSubmit={(p) => void inspectAndImport(p)} />
-
 
           {/* Round 74: one button. Splitting "check" from "install" left the
               user with a plan and no way to act on it when no GitHub asset
@@ -2220,14 +2145,6 @@ function Content() {
             onClick={doDepsInstall}
           >
             {t("DEPS_BTN_SUB")}
-          </ButtonItem>
-          <ButtonItem
-            label={t("UPDATE_CHECK_LABEL")}
-            description={t("UPDATE_CHECK_DESC")}
-            disabled={busy}
-            onClick={() => void doCheckModUpdates()}
-          >
-            {t("UPDATE_CHECK_BODY")}
           </ButtonItem>
           {progressLine ? (
             <PanelSectionRow>
@@ -2246,10 +2163,6 @@ function Content() {
               {t("NEXUS_SECTION_DESC")}
             </div>
           </PanelSectionRow>
-          {/* Round 84: the key box. Before this the panel had no way to enter a
-              key, so `check_mod_updates` could only ever answer "no usable
-              stored key" and the user had no path to fix it. */}
-          <ApiKeyBox busy={busy} />
           <PanelSectionRow>
             <div style={{ fontSize: FONT.caption, opacity: 0.85, wordBreak: "break-all", fontWeight: 700 }}>
               {nexusPrefix
@@ -2344,13 +2257,6 @@ function Content() {
             {t("SEARCH_SECTION")}
           </ButtonItem>
 
-          {readOnly ? (
-            <PanelSectionRow>
-              <div style={{ fontSize: FONT.caption, opacity: 0.65, wordBreak: "break-word" }}>
-                {t("WRITE_GATE_NOTE", "Writes are disabled for this game (read-only mode).")}
-              </div>
-            </PanelSectionRow>
-          ) : null}
         </PanelSection>
       ) : null}
 

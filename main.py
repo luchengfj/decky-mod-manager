@@ -42,7 +42,6 @@ from deckymod.registry import Registry
 # plus a plain https URL fallback. deckymod.download is the shared low-level
 # https/JSON/download layer. No credential is stored or read by the plugin.
 from deckymod import auto_import
-from deckymod import credentials
 from deckymod import deps
 from deckymod import github_source
 from deckymod import download
@@ -50,7 +49,6 @@ from deckymod import nexus
 from deckymod import openurl
 from deckymod import steamlib
 from deckymod import templates
-from deckymod import update_check
 
 PROGRESS_EVENT = "deckymod:progress"
 
@@ -999,102 +997,7 @@ class Plugin:
             return _core_to_envelope(res, auto_import.DL_TO_E, "fetch_dependencies")
         return _guard(_run)
 
-    # ---------------------------------------------------------- Nexus credentials
-    #
-    # Design notes that are load-bearing:
-    #
-    # * ``nexus_validate`` takes NO argument. It reads the key from disk itself,
-    #   so after ``set_api_key`` the secret never crosses the bridge again. A
-    #   validate(key) signature would force the frontend to hold the plaintext
-    #   for the lifetime of the panel.
-    # * No RPC returns the key. Not masked, not truncated, not its length alone
-    #   in combination with anything else — ``key_status`` is stat-only.
-    # * These are NOT gated by ``_network_download_gate``: storing a credential
-    #   is local, and gating it would make the key impossible to enter before a
-    #   descriptor opts into downloads. The network calls themselves ARE gated.
-
-    async def api_key_status(self):
-        """Report whether a key is stored and whether its file mode is private."""
-        def _run():
-            try:
-                return ok(credentials.key_status())
-            except Exception as e:  # noqa: BLE001 - a stat failure must not raise
-                return err("E_ACCESS", detail="[api_key_status] %s: %s"
-                           % (type(e).__name__, e))
-        return _guard(_run)
-
-    async def set_api_key(self, api_key: str):
-        """Store the key at mode 0600. Returns metadata, never the value."""
-        def _run():
-            try:
-                info = credentials.save_key(str(api_key or ""))
-            except ValueError as e:
-                return err("E_CAPABILITY_DISABLED", detail="[set_api_key] %s" % e,
-                               data={"reason": "key_rejected"})
-            except PermissionError as e:
-                return err("E_ACCESS", detail="[set_api_key] %s" % e)
-            except OSError as e:
-                return err("E_ACCESS", detail="[set_api_key] %s: %s"
-                           % (type(e).__name__, e.strerror or e))
-            _progress("api_key:set")
-            return ok(info)
-        return _guard(_run)
-
-    async def delete_api_key(self):
-        """Remove the stored key. Honest when there was nothing to remove."""
-        def _run():
-            try:
-                info = credentials.delete_key()
-            except PermissionError as e:
-                return err("E_ACCESS", detail="[delete_api_key] %s" % e)
-            except OSError as e:
-                return err("E_ACCESS", detail="[delete_api_key] %s: %s"
-                           % (type(e).__name__, e.strerror or e))
-            _progress("api_key:delete")
-            return ok(info)
-        return _guard(_run)
-
-    async def nexus_validate(self):
-        """Check the stored key against api.nexusmods.com.
-
-        Three outcomes the UI must keep distinct, because they have different
-        fixes: no key stored, key stored but rejected, key works (free or
-        premium). ``is_premium`` matters: it is the difference between "this
-        feature exists" and "this feature will always answer 403".
-        """
-        def _run():
-            gated = _network_download_gate()
-            if gated is not None:
-                return gated
-            try:
-                api_key = credentials.read_key()
-            except (OSError, ValueError) as e:
-                return err("E_CAPABILITY_DISABLED",
-                           detail="[nexus_validate] no usable stored key: %s" % e,
-                           data={"reason": "no_key", "configured": False,
-                                 "hint": "enter your Nexus API key in this panel first"})
-            res = nexus.validate(download.default_opener, api_key)
-            if not res.get("ok"):
-                problem = nexus.key_problem(res)
-                return err("E_CAPABILITY_DISABLED",
-                           detail="[nexus_validate] %s" % problem,
-                           data={"reason": "key_rejected",
-                                 "configured": True, "problem": problem,
-                                 "status": res.get("status"),
-                                 "server_message": res.get("detail")})
-            _progress("nexus_validate:done")
-            return ok(res)
-        return _guard(_run)
-
-    # ------------------------------------------------------------ Nexus metadata
-
-    def _nexus_domain(self):
-        """The game's Nexus domain, from the descriptor — never hard-coded here."""
-        cfg = _source_cfg("nexus_metadata")
-        if not cfg.get("enabled", False):
-            return None
-        domain = str(cfg.get("game_domain") or "").strip()
-        return domain or None
+    # ------------------------------------------------------ Nexus browse links
 
     def _nexus_browse_domain(self):
         """The Nexus SITE domain for the three website-page openers.
@@ -1105,10 +1008,12 @@ class Plugin:
         shape) meant a descriptor that declares only the browse-only
         ``nexus_game_domain`` (Cyberpunk 2077) answered E_CAPABILITY_DISABLED
         for pages the browser could perfectly well open. Both shapes are now
-        honoured, ``nexus_metadata`` first; the API RPCs (nexus_recent /
-        nexus_mod / nexus_download_link / nexus_validate) keep using
-        ``_nexus_domain()`` because those genuinely need the API block and a
-        stored key.
+        honoured, ``nexus_metadata`` first.
+
+        Round 88: the API RPCs that used to read a domain here
+        (nexus_recent / nexus_mod / nexus_download_link / nexus_validate /
+        check_mod_updates) are gone along with the key storage. This is now
+        the only reader of a Nexus domain, and nothing here needs a key.
         """
         try:
             _, desc = Registry().active_descriptor()
@@ -1125,145 +1030,6 @@ class Plugin:
         if isinstance(domain, str) and domain.strip():
             return domain.strip()
         return None
-
-    def _nexus_key(self):
-        try:
-            return credentials.read_key(), None
-        except (OSError, ValueError) as e:
-            return None, err("E_CAPABILITY_DISABLED",
-                             detail="[nexus] no usable stored key: %s" % e,
-                             data={"reason": "no_key", "configured": False,
-                                   "hint": "enter your Nexus API key in this panel first"})
-
-    async def nexus_recent(self, kind: str):
-        """Browse a game's latest/trending mods — the only listing the API has.
-
-        There is deliberately no ``nexus_search``: the endpoint does not exist.
-        Offering a search box would be promising something the API cannot do.
-        """
-        def _run():
-            gated = _network_download_gate()
-            if gated is not None:
-                return gated
-            domain = self._nexus_domain()
-            if domain is None:
-                return err("E_CAPABILITY_DISABLED",
-                           detail="[nexus_recent] nexus_metadata source disabled",
-                           data={"reason": "source_disabled"})
-            api_key, bad = self._nexus_key()
-            if bad is not None:
-                return bad
-            res = nexus.recent(download.default_opener, domain, str(kind), api_key)
-            return _core_to_envelope(res, auto_import.DL_TO_E, "nexus_recent")
-        return _guard(_run)
-
-    async def nexus_mod(self, mod_id: int):
-        """One mod's details plus its file list, and the page URL to download from."""
-        def _run():
-            gated = _network_download_gate()
-            if gated is not None:
-                return gated
-            domain = self._nexus_domain()
-            if domain is None:
-                return err("E_CAPABILITY_DISABLED",
-                           detail="[nexus_mod] nexus_metadata source disabled",
-                           data={"reason": "source_disabled"})
-            api_key, bad = self._nexus_key()
-            if bad is not None:
-                return bad
-            try:
-                mid = int(mod_id)
-            except (TypeError, ValueError):
-                return err("E_PATH_INVALID", detail="[nexus_mod] mod_id must be a number")
-            info = nexus.mod_info(download.default_opener, domain, mid, api_key)
-            if not info.get("ok"):
-                return _core_to_envelope(info, auto_import.DL_TO_E, "nexus_mod")
-            files = nexus.mod_files(download.default_opener, domain, mid, api_key)
-            payload = {
-                "mod_id": mid,
-                "browser_url": nexus.mod_page_url(domain, mid),
-                "info": info.get("data"),
-                "files": (files.get("files") if files.get("ok") else []),
-                "files_error": None if files.get("ok") else files.get("code"),
-            }
-            return ok(payload)
-        return _guard(_run)
-
-    async def nexus_download_link(self, mod_id: int, file_id: int):
-        """Ask for a download link — and report honestly when the tier forbids it.
-
-        Kept as an RPC rather than folded into ``nexus_mod`` because the answer
-        for a free account is a refusal, and a refusal deserves its own code
-        path (and its own browser_url) instead of looking like a broken mod.
-        """
-        def _run():
-            gated = _network_download_gate()
-            if gated is not None:
-                return gated
-            domain = self._nexus_domain()
-            if domain is None:
-                return err("E_CAPABILITY_DISABLED",
-                           detail="[nexus_download_link] nexus_metadata source disabled",
-                           data={"reason": "source_disabled"})
-            api_key, bad = self._nexus_key()
-            if bad is not None:
-                return bad
-            try:
-                mid, fid = int(mod_id), int(file_id)
-            except (TypeError, ValueError):
-                return err("E_PATH_INVALID",
-                           detail="[nexus_download_link] mod_id and file_id must be numbers")
-            res = nexus.download_link(download.default_opener, domain, mid, fid, api_key)
-            return _core_to_envelope(res, auto_import.DL_TO_E, "nexus_download_link")
-        return _guard(_run)
-
-    async def check_mod_updates(self):
-        """Round 82: which installed mods have a newer version published.
-
-        Read-only and report-only. A free Nexus account cannot download (403 by
-        policy), so nothing here fetches, queues or touches the mod folder — it
-        answers one question and stops. A mod is only asked about when its own
-        manifest names a Nexus id, and a version that cannot be parsed reads as
-        ``unknown`` rather than "up to date", the same rule Round 67 uses for
-        dependencies.
-        """
-        def _run():
-            gated = _network_download_gate()
-            if gated is not None:
-                return gated
-            domain = self._nexus_domain()
-            if domain is None:
-                return err("E_CAPABILITY_DISABLED",
-                           detail="[check_mod_updates] nexus_metadata source disabled",
-                           data={"reason": "source_disabled"})
-            api_key, bad = self._nexus_key()
-            if bad is not None:
-                return bad
-            eng = self._engine()
-            try:
-                st = eng.status()
-            except Exception as e:  # noqa: BLE001 - never leak a traceback
-                return err("E_UNKNOWN", detail="[check_mod_updates] status failed: "
-                           "%s: %s" % (type(e).__name__, e))
-            if not st.get("ok"):
-                return st
-            mods = ((st.get("data") or {}).get("state") or {}).get("mods") or []
-            res = update_check.check(download.default_opener, mods,
-                                     api_key=api_key, game_domain=domain)
-            if not res.get("ok"):
-                return err(res.get("code") or "E_UNKNOWN",
-                           detail=res.get("detail") or "")
-            rows = res.get("rows") or []
-            return ok({
-                "checked": res.get("checked"),
-                "skipped": res.get("skipped"),
-                "rows": rows,
-                "outdated": res.get("outdated") or [],
-                "errors": res.get("errors") or {},
-                "summary": update_check.summary(rows),
-                "note": res.get("note") or "",
-            })
-        return _guard(_run)
 
     async def open_mod_page(self, mod_id: int):
         """Put a mod's page on the screen the user is looking at.

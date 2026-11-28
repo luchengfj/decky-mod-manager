@@ -37,8 +37,8 @@
 | **下载（可选）** | 从白名单主机 HTTPS 下载进收件箱，然后走同一条导入路径。两阶段：先只读计划，再明确确认。 |
 | **加载器交接** | 在 MOD 目录设置页：打开加载器的官方下载页（BepInEx 5 / BepInEx 6 IL2CPP / MelonLoader，按游戏的 Unity 形态排序提示），然后解压你下载的 ZIP——一键完成，逐文件 journal，覆盖先备份，可随时移除。内置游戏和启动项不在此列。 |
 | **删除源 ZIP** | 导入与加载器确认弹窗提供「安装并删除 ZIP」——独立的显式动作（绝不自动执行），且只允许删声明过的导入目录里的文件。 |
-| **MOD 更新检查** | 向你已装 MOD 的 Nexus 页面查询是否有新版本。**只报告，不下载**——免费账号下载被 Nexus 政策禁止（403）。只查 manifest 里写了 Nexus id 的 MOD；版本号无法解析时如实报「无法判断」，绝不报「已最新」。单次上限 25 个并明确告知（第 82 轮，`docs/UPDATE_CHECK.md`）。 |
 | **接管 MOD 目录** | 别的管理器占着目录时，一次两阶段确认把它的部署条目移进隔离区，可回滚。星露谷（单目录）与赛博朋克/自定义游戏（多目录，逐目录记录）都支持（第 55 轮 / 第 81 轮，`docs/HANDOVER.md`）。 |
+| **Nexus 浏览（无需 key）** | MOD 页、关键词搜索、Trending/Newest/Updated 三类列表，全部在你自己登录的浏览器里打开。第 88 轮移除了 API key：它读得到元数据，却永远换不到一次下载。 |
 | **错误码** | 52 个稳定错误码，每个都带分类和建议下一步，直接显示在 QAM 里——绝不把堆栈甩你脸上。 |
 
 ## 硬性限制（是设计，不是事故）
@@ -133,8 +133,10 @@ CI（`.github/workflows/build.yml`）在每次 push 时运行后端自测、校�
 - **SMAPI 的启动项必须用完整路径。** `StardewModdingAPI %command%` 看着对，但这个名字不在
   Steam shell 的 PATH 里——启动会失败、游戏打不开（真机实测）。请用
   `"<游戏目录>/StardewModdingAPI" %command%`；插件只能报告启动项缺失或异常，不能替你修。
-- Nexus Mods **只做元数据和浏览器交接**。插件能浏览、能打开页面；API 给下载链接是 Premium 账号的
-  权利，免费账号请在浏览器里下载。详见 [`docs/NEXUS_ROADMAP.md`](docs/NEXUS_ROADMAP.md)。
+- Nexus Mods **只用浏览器交接，不存任何 API key**（第 88 轮删除了整套 key 功能）。插件能把 MOD 页、
+  关键词搜索页、排序列表在你自己登录的浏览器里打开，下载在那边完成；免费账号的 API 能读元数据但
+  `download_link` 一律 403「premium only」，API 也没有关键词搜索端点，所以 key 换不来一次真正的下载。
+  详见 [`docs/NEXUS_ROADMAP.md`](docs/NEXUS_ROADMAP.md)。
 - 依赖解析最多三层，能拉取 manifest 验证过的依赖，但不解决加载顺序，也不追任意深的依赖图。
 
 ## 许可证

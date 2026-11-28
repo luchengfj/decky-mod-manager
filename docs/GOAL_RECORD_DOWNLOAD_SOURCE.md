@@ -9,6 +9,14 @@ This file exists because the round-30 goal statement requires the change to be
 
 ---
 
+> **Round 88 补记（2026-11-28）**：本文件记录的第 30 轮「Nexus → GitHub Releases +
+> 直连 URL」变更，在第 39 轮被部分撤销（为了 metadata 恢复了 4 个 key RPC），
+> 现在**第 88 轮把它重新且更彻底地执行了一遍** —— 恢复的 4 个 key RPC 连同
+> `check_mod_updates` 一起删除，`deckymod/credentials.py` 再次删除。
+> 下面这段「Nexus 下载路线不得重新引入」的约束**依然成立**，而且现在代码结构与它一致
+> （第 39–88 轮之间那段时间，代码是与本约束矛盾的：它带着 key 和 API 客户端）。
+> 唯一新增的例外是三个**不需要 key、只构造网站 URL** 的打开器，它们不下载任何东西。
+
 ## The record
 
 **Change:** the plugin's download source moved from the Nexus Mods API to

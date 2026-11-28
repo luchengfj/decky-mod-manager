@@ -1587,8 +1587,10 @@ append-only 记录（Cyberpunk / user_1868140 各一组 install+uninstall 事务
 **修复（三处，全部加性）**：
 1. `main.py` 新增 `_nexus_browse_domain()`：先认 `nexus_metadata.game_domain`
    （stardew 形状），回退到 `nexus_game_domain`（cyberpunk 形状）；三个网站页打开器
-   改用它。**API RPC（nexus_recent / nexus_mod / nexus_download_link / nexus_validate）
-   刻意维持 `_nexus_domain()`**——它们真正需要 `nexus_metadata` 块和存储的 key。
+   改用它。~~**API RPC（nexus_recent / nexus_mod / nexus_download_link / nexus_validate）
+   刻意维持 `_nexus_domain()`**——它们真正需要 `nexus_metadata` 块和存储的 key。~~
+   **（第 88 轮更新：这四个 API RPC 连同 `_nexus_domain()` 一起删除了，
+   `_nexus_browse_domain()` 现在是唯一的 domain 读取者。）**
    拒绝文案改为 `no Nexus domain declared for this game (download_sources)`。
 2. `deckymod/registry.py` `catalog()` 的 `nexus_domain` 同样回退——UI 门控依据与
    后端执行规则一致。

@@ -453,8 +453,11 @@ negative proof that reintroducing the duplication fails the suite. See
 
 ## P2 — needed for a real release, not for correctness
 
-8. ~~**No update check.**~~ **SHIPPED in Round 82** (`deckymod/update_check.py`,
-   `tests/test_update_check.py`, see `docs/UPDATE_CHECK.md`).
+8. ~~**No update check.**~~ **SHIPPED in Round 82, RETIRED in Round 88**
+   (`deckymod/update_check.py` and `tests/test_update_check.py` are deleted; see
+   `docs/UPDATE_CHECK.md`, which is kept as the record of why). It went with the
+   Nexus API key: the key could read metadata but never download, so knowing a
+   mod was stale told the user nothing they could act on inside the panel.
    The lifecycle hooks (`main.py` `_unload` / `_uninstall` / `_migration`) only
    drop in-memory state; they do not touch the game folder. That used to be an
    untested promise, and it is now asserted from two directions:
@@ -468,16 +471,14 @@ negative proof that reintroducing the duplication fails the suite. See
    `os.environ.pop("DECKYMOD_GAME_ID")` silently unpins the 33 historical
    RimWorld cases. That had been fixed by hand three times (rounds 47, 50, 61).
 
-   Round 82 answered the mod half of it, which was the question users actually
-   ask: `check_mod_updates` reports, per installed mod, whether Nexus publishes
-   a newer file. It is report-only by necessity — a free Nexus account cannot
-   download (403 by policy) — so nothing is fetched, queued, or written. Three
-   rules keep it honest: a mod is only asked about when its own `UpdateKeys`
-   names a Nexus id; the comparison reuses `manifest._version_tuple`, so "1.2"
-   and "1.2.0" compare equal; and a version with no digits comes back as
-   `unknown`, never as `current`. The call is capped at 25 mods per run and the
-   cap is reported rather than silently applied, because the API is rate
-   limited per hour.
+   Round 82 answered the mod half of it, and Round 88 deleted that answer. The
+   rules it used are worth keeping in mind if the question returns: a mod was
+   only asked about when its own `UpdateKeys` named a Nexus id; the comparison
+   reused `manifest._version_tuple`, so "1.2" and "1.2.0" compared equal; and a
+   version with no digits came back as `unknown`, never as `current`. What killed
+   it was not the logic but the economics — the same key that answered "is this
+   stale" answered 403 to "give me the file", so the panel could report a problem
+   it had no way to solve.
 
    **Still open:** the plugin cannot tell its user that the *plugin* is stale.
    That needs a published version endpoint this project does not have.
@@ -515,7 +516,7 @@ auditing every RPC against every panel control rather than by adding anything.
 
 | # | Gap | What it was | What it is now |
 | --- | --- | --- | --- |
-| 1 | Nexus API key had no panel entry | `src/api.ts` had four key functions and no caller. `check_mod_updates` could only ever answer "no usable stored key", and the user had no way to create that file short of SSH. | `src/components/ApiKeyBox.tsx` in the Nexus section: status, save, validate, delete. |
+| 1 | ~~Nexus API key had no panel entry~~ | `src/api.ts` had four key functions and no caller, so `check_mod_updates` could only ever answer "no usable stored key". | `ApiKeyBox.tsx` added in Round 84; **deleted again in Round 88 with the whole key surface**, because a key that cannot download is not worth a secret. See the Round 88 section below. |
 | 2 | `E_CAPABILITY_DISABLED` carried 8+ reasons | One code, one sentence: "This action is not available in this version." True for none of them -- the version was fine, the capability or the key was not. | 24 call sites now carry `data.reason` from a fixed 10-word vocabulary; `reasonText()` renders `ERRR_*`. No new `E_*` codes: the 52-code contract is asserted in three tests and six documents. |
 | 3 | Update-check rows were inert | `onActivate: () => {}`. A list of rows that do nothing when pressed, with no explanation. | A row opens its Nexus page when the mod declares a Nexus id -- that page needs no key, so it is a path the user actually has. |
 | 4 | `forget_game` had no confirmation | One press removed a game and its config, and silently switched the managed game if it was the active one. | Two-phase confirm, and the result names the game it switched to. |
@@ -539,3 +540,29 @@ Two things this round did **not** do, deliberately:
   audit flagged the name as misleading; renaming it would touch five
   descriptors, the panel's badge counts and the catalog tests for a naming
   complaint, not a defect.
+
+## Round 88 — 删掉整套 Nexus key，连同它带来的三项功能
+
+这一轮不是「发现缺口」，是「发现一个已交付的功能不值得留」。记录在这里是因为
+`docs/NEXT_FEATURES.md` 是功能账本，删除也是账目的一部分。
+
+### 删掉的不是一项，是四项
+
+| 项 | 为什么它曾经存在 | 为什么它不值得留 |
+| --- | --- | --- |
+| Nexus API key（4 个 RPC + 0o600 文件 + 面板输入框） | Round 39 认为免费 key 能读元数据就是价值 | 元数据在网站上免费可见，而 key 是一个要保护的秘密 |
+| `nexus_recent` / `nexus_mod` / `nexus_download_link` | 同上，把元数据搬进面板 | 前两个网站页面直接给；第三个对免费账号永远 403 |
+| `check_mod_updates`（Round 82） | 「我装的 mod 是不是最新的」是用户的真问题 | 答得出来，但答完无处可去——**报告一个问题而无法解决它，比不报告更让人难受** |
+| `ApiKeyBox` 面板控件（Round 84） | Round 84 的审计说「面板让你填 key 却不给输入框」 | 那个审计的结论应该是「面板不该让你填 key」 |
+
+### 保留下来的
+
+三个不需要 key 的网站打开器：`open_mod_page`、`open_search_page`、`open_browse_page`。
+它们把「浏览 → 决定 → 在浏览器里下载」这条唯一真实可行的路径做完整了。
+`deckymod/nexus.py` 从 395 行缩到 98 行，只剩 URL 构造。
+
+### 关于「以后再想加回来」
+
+技术门槛不高（git 历史里全都在），但要先回答一个问题：**这次它能下载吗？**
+免费账号的 403 是 Nexus 的会员政策，不是我们的实现缺陷；除非政策变化或用户有 Premium，
+否则加回来只会重复同一个死胡同。

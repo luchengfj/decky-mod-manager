@@ -1,4 +1,19 @@
-# Which installed mods have a newer version published
+# Which installed mods have a newer version published — RETIRED
+
+> **This feature no longer exists.** Round 88 removed `check_mod_updates`, the
+> Nexus API key that fed it and the four RPCs that managed that key. The file is
+> kept, not deleted, because the reasoning below is the record of *why a key was
+> worth having and why it turned out not to be*, and that question will come back.
+>
+> What replaced it: nothing. The three `open_*_page` RPCs open the mod page,
+> the site's own keyword search and the Trending/Newest/Updated lists in the
+> user's signed-in browser. A person who wants to know whether a mod is current
+> looks at its page — which is also the only place a download can start, since
+> the API refuses free accounts with 403 "this is for premium users only".
+>
+> The panel-side cost of keeping it, which is what tipped the decision: the key
+> box alone was four focusable rows and 172 lines, sitting in the one QAM
+> section that was already 86% of a 700px viewport.
 
 Round 82. `docs/NEXT_FEATURES.md` P2#8 recorded the gap: nothing in the plugin
 answered *"is there a new version of the thing I installed"* — Round 67 only

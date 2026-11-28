@@ -5,9 +5,11 @@ buttons answered E_CAPABILITY_DISABLED "[open_browse_page] nexus_metadata source
 disabled", because the descriptor declares the browse-only alias
 ``download_sources.nexus_game_domain`` (a plain string) while the three
 website-page openers read only the API-shaped ``nexus_metadata`` block. Opening
-a website page needs no API key, so the alias is now honoured — and the API
-RPCs deliberately still require ``nexus_metadata``, because those genuinely
-need a stored key.
+a website page needs no API key, so the alias is now honoured.
+
+Round 88: the API RPCs that did need a stored key are gone, so the alias is
+now the ONLY shape anything reads. ``_nexus_domain()`` — the API-shaped reader —
+went with them.
 
 The openers are tested with ``deckymod.openurl.open_url`` stubbed: the contract
 under test is the URL that would be handed to the browser, not the open itself.
@@ -122,14 +124,11 @@ class TestNexusBrowse(unittest.TestCase):
         self.assertFalse(r["ok"])
         self.assertEqual(r["code"], "E_PATH_INVALID")
 
-    def test_api_rpc_still_requires_the_nexus_metadata_block(self):
-        # The API listing needs a key only the nexus_metadata shape promises;
-        # the browse-only alias must NOT unlock it.
-        asyncio.run(self.plugin.switch_game("browsegame"))
-        r = asyncio.run(self.plugin.nexus_recent("trending"))
-        self.assertFalse(r["ok"])
-        self.assertEqual(r["code"], "E_CAPABILITY_DISABLED")
-        self.assertIn("nexus_metadata", r.get("detail") or "")
+    def test_the_key_reading_rpc_is_gone(self):
+        # Round 88 removed nexus_recent with the key surface. A browse-only
+        # descriptor used to reach it and get "nexus_metadata source disabled";
+        # now the RPC does not exist at all, which is the stronger guarantee.
+        self.assertFalse(hasattr(self.plugin, "nexus_recent"))
 
     def test_open_mod_page_accepts_the_browse_only_alias(self):
         with mock.patch("deckymod.openurl.open_url",

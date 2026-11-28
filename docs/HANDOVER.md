@@ -101,7 +101,7 @@ look like a different class of problem than another.
 | --- | --- | --- |
 | entries moved per call | all movable entries (the survey is bounded by the folder listing itself) | the operation is a whole-folder act, not a per-file one |
 | new error codes | 0 | reuses `E_CAPABILITY_DISABLED`, `E_PATH_INVALID`, `E_EXTERNAL_MANAGER`, `E_GAME_RUNNING`, `E_RECOVERY_PENDING` |
-| new RPCs | 1 (`handover_mods`) | public RPC count 27 → 28 (37 after Round 82's `check_mod_updates`) |
+| new RPCs | 1 (`handover_mods`) | public RPC count 27 → 28 (30 after Round 88 dropped the eight key/metadata/update-check RPCs) |
 | scheduled or automatic runs | none | it is only ever a user action plus a confirm |
 
 ## Round 81: a game whose mods are not one folder

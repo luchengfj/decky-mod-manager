@@ -5,6 +5,15 @@
 > goal：`goal-c9e307e2-507e-4ee0-acc9-bd83438750ae` rev3 / active / round 1 of 256。
 > 本轮**保持 goal active**，不调用 `update_goal(complete)`、不写 CLOSED、不勾 §B.4、不翻 V#/F#、不改已部署插件、不放宽 `strict:true`、不新增 `as any`/`@ts-ignore`。
 
+> **第 88 轮的状态更正（2026-11-28）**：本文件是第 1 轮的决策记录，其中
+> **所有围绕 Nexus API key 的部分都已作废** —— 「接管」「凭证数据类」「0o600 key 文件」
+> 「API 元数据」「更新检查」全部随第 88 轮删除。真机实测给出的推翻理由：免费 key 能读
+> 元数据但 `download_link` 一律 403 premium-only、API 无关键词搜索端点、网站 HTML 对
+> 非浏览器客户端一律 403 —— key 换不到任何一次真实下载。
+> **仍然成立的部分**：三个不需要 key 的网站打开器（`open_mod_page` /
+> `open_search_page` / `open_browse_page`）、「下载交给浏览器」这条产品结论、
+> 以及 D2/D3 等非凭证决策。下文原样保留作为推演过程，不作现状描述。
+
 ## §0 诚实边界： shipped 现状 vs 新目标
 
 已交付并装机的是 **单游戏 / 本地 ZIP 导入 / DETECT-ONLY / read_only MVP**：
@@ -59,7 +68,14 @@ NET：4 个动词里 **3 个需显式 goal 级策略变更 + 真机验证**；�
 
 按「效率优先」，这些决策决定后续架构，先定后建，避免返工。每项给推荐默认值：
 
-- **D1 — 联网与凭证**：是否授权 G-a？推荐 = 授权，但**只做 OSK 粘贴个人 Nexus API key**（不做 OAuth SSO，无 headless 路径）。Key 存 `${DECKY_DATA}` 明文、`0o600`（**新增 credential 数据类**，需你知情接受「同 uid 进程可读」这一上限）。
+- **D1 — 联网与凭证**：~~是否授权 G-a？推荐 = 授权，但只做 OSK 粘贴个人 Nexus API key…~~
+  **已被第 88 轮推翻**：整套 key 功能（4 个 key 管理 RPC + 4 个消费 key 的 RPC +
+  `deckymod/credentials.py` + `deckymod/update_check.py` + `ApiKeyBox.tsx`）全部删除。
+  推翻理由是真机实测出来的，不是偏好：免费 key 能读元数据，但 `download_link` 一律
+  403「this is for premium users only」，API 没有关键词搜索端点，网站 HTML 对非浏览器
+  客户端一律 403 Cloudflare —— 所以 key 换不到**任何一次真实下载**，只换来一个要保护的
+  秘密和一个「没有可用 key」的死胡同。保留下来的是三个不需要 key 的网站打开器
+  （`open_mod_page` / `open_search_page` / `open_browse_page`）。
 - **D2 — 单一管理器（破坏性，最关键）**：G-b 要写 `Mods/`，但设备现由 Amethyst VFS 占用。二选一：
   - **(推荐 A) 不写回**：下载只落 `${DECKY_INBOX}`，复用现有 `list_inbox`/`inspect`/`install` 由你手动 A 确认导入；`read_only` 与 Amethyst 零破坏保持不变。
   - **(B) 接管写入**：你自行移除 `.mm_deployed`/`Mods_Core`、把 `Mods/` 迁成真实目录后，再授权翻转 DETECT-ONLY posture 与新增写回验收（Step 5 移出 OOS）。**此动作会动到你现有的 27 个 MOD 部署，须你明确同意，agent 绝不代做**。

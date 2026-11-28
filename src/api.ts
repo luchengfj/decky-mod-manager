@@ -37,14 +37,6 @@ import type {
   SteamLibData,
   SwitchGameData,
   GameSetupData,
-  KeyStatusData,
-  KeySetData,
-  KeyDeleteData,
-  NexusValidateData,
-  NexusRecentData,
-  NexusModData,
-  UpdateCheckData,
-  NexusDownloadLinkData,
   OpenModPageData,
   SearchPageData,
   BrowsePageData,
@@ -229,55 +221,6 @@ export const fetchDependencies = (
   afterConfirm: boolean,
 ) => invoke<ConfirmData | OpResultData>("fetch_dependencies", allowInstall, afterConfirm) as Promise<OpEnvelope>;
 
-/* ------------------------------------------------------- round 39: Nexus metadata
- * FOUR credential RPCs + THREE metadata RPCs. The credential half is where a
- * mistake costs the user their key, so the shape is deliberately narrow:
- *
- *   - `set_api_key` is the ONLY function that accepts a key. It is called once,
- *     with whatever the user typed, and the backend stores it at mode 0600 and
- *     replies with a description of the file (never the contents).
- *   - `nexus_validate` takes NO arguments. Validation re-reads the stored key
- *     inside the backend, so the plaintext never crosses the bridge twice.
- *   - `api_key_status` is stat-only: it reports whether a file exists and what
- *     its mode bits are, and it does not open the file.
- *
- * Nothing here returns key material, and no wrapper below should ever be given
- * one to hold. There is no `nexusSearch`: the API has no keyword-search endpoint
- * (mods/search.json parses "search" as a mod id and answers 422), so browsing is
- * limited to the three feeds the API actually serves.
- */
-export const apiKeyStatus = () => invoke<KeyStatusData>("api_key_status");
-
-export const setApiKey = (apiKey: string) => invoke<KeySetData>("set_api_key", apiKey);
-
-export const deleteApiKey = () => invoke<KeyDeleteData>("delete_api_key");
-
-/** No arguments ON PURPOSE: the backend reads the stored key itself. */
-export const nexusValidate = () => invoke<NexusValidateData>("nexus_validate");
-
-/** kind ∈ latest_added | latest_updated | trending -- anything else is refused. */
-export const nexusRecent = (kind: string) => invoke<NexusRecentData>("nexus_recent", kind);
-
-export const nexusMod = (modId: number) => invoke<NexusModData>("nexus_mod", modId);
-
-/**
- * Round 82: which installed mods have a newer version published.
- *
- * Report-only. A free Nexus account cannot download (403 by policy), so this
- * answers the question and stops -- it never fetches, queues or touches the
- * mod folder. A mod with no Nexus id in its manifest is not asked about, and a
- * version that cannot be parsed comes back as `unknown`, never as `current`.
- */
-export const checkModUpdates = () => invoke<UpdateCheckData>("check_mod_updates");
-
-/**
- * Honest by construction: for a free account this RPC answers DL_FORBIDDEN with
- * `premium_required: true` and a `browser_url`. The UI must show that refusal
- * and point at the browser, not pretend a download happened.
- */
-export const nexusDownloadLink = (modId: number, fileId: number) =>
-  invoke<NexusDownloadLinkData>("nexus_download_link", modId, fileId);
-
 /**
  * Round 41: show a mod's page in the Game Mode browser.
  *
@@ -366,15 +309,6 @@ export const callableHandles = {
   gh_download: callable<[string, string, number, string, boolean, boolean], OpEnvelope>("gh_download"),
   download_url: callable<[string, string, boolean, boolean], OpEnvelope>("download_url"),
   fetch_dependencies: callable<[boolean, boolean], OpEnvelope>("fetch_dependencies"),
-  // Round 39. `nexus_validate` has an EMPTY tuple on purpose: the backend reads
-  // the stored key, so validation takes no arguments.
-  api_key_status: callable<[], Envelope<KeyStatusData>>("api_key_status"),
-  set_api_key: callable<[string], Envelope<KeySetData>>("set_api_key"),
-  delete_api_key: callable<[], Envelope<KeyDeleteData>>("delete_api_key"),
-  nexus_validate: callable<[], Envelope<NexusValidateData>>("nexus_validate"),
-  nexus_recent: callable<[string], Envelope<NexusRecentData>>("nexus_recent"),
-  nexus_mod: callable<[number], Envelope<NexusModData>>("nexus_mod"),
-  nexus_download_link: callable<[number, number], Envelope<NexusDownloadLinkData>>("nexus_download_link"),
   open_mod_page: callable<[number], Envelope<OpenModPageData>>("open_mod_page"),
   open_search_page: callable<[string], Envelope<SearchPageData>>("open_search_page"),
   open_browse_page: callable<[string], Envelope<BrowsePageData>>("open_browse_page"),

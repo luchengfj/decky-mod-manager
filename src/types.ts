@@ -139,7 +139,6 @@ export interface ReclaimData {
   bytes?: number;
 }
 
-
 /** Round 50: whether the game is running, read from /proc.
  *  `unknown` means the check could not be performed -- it is never a
  *  claim that the game is stopped, and the panel says so. */
@@ -210,7 +209,6 @@ export interface LoaderLogData {
   counts?: Record<string, number>;
   truncated?: boolean;
 }
-
 
 export interface StateInfo {
   // RimWorld (xml_list)
@@ -760,139 +758,6 @@ export interface ProgressPayload {
   pct: number;
 }
 
-/* --------------------------------------------------- round 39: Nexus credential surface
- * These types describe a file on disk, not a secret. Every field here is safe
- * to render: `path` is a location, `mode_actual` is a permission bitmask, and
- * `state` is one of three words. None of them is, or can be derived into, the
- * key itself -- the backend never returns the key and there is no type for it.
- */
-export interface KeyStatusData {
-  configured: boolean;
-  path: string;
-  /** `missing` = no file; `unreadable` = present but not private/readable;
-   *  `present` = a key is stored and readable. */
-  state: "missing" | "unreadable" | "present";
-  mode_requested: string;
-  /** Already formatted by the backend, e.g. "0o600". Not a number: a device
-   *  probe showed `oct()` output crossing the bridge as a string, so the UI must
-   *  render it verbatim instead of re-formatting (prepending "0" produced the
-   *  nonsense "00o600" in the first draft). `null` = the file could not be stat'ed. */
-  mode_actual: string | null;
-  mode_ok: boolean | null;
-  /** False on a filesystem with no POSIX mode bits (e.g. exFAT), where the
-   *  0600 promise cannot be enforced -- the UI must say so rather than imply it. */
-  posix: boolean;
-  size?: number;
-  detail?: string;
-}
-
-export interface KeySetData {
-  stored: boolean;
-  path: string;
-  mode_requested: string;
-  mode_actual: string | null;
-}
-
-export interface KeyDeleteData {
-  deleted: boolean;
-  path?: string;
-  reason?: string;
-}
-
-/**
- * Optional payload fields the backend attaches to a FAILED Nexus call.
- *
- * `hint` / `problem` are short, backend-curated sentences safe to echo;
- * `server_message` is the raw upstream body and must never be shown in the UI.
- */
-export interface NexusErrorExtras {
-  configured?: boolean;
-  hint?: string;
-  problem?: string;
-  server_message?: string;
-}
-
-export interface NexusValidateData extends NexusErrorExtras {
-  status: number;
-  name?: string;
-  is_premium?: boolean;
-  is_supporter?: boolean;
-  email_verified?: boolean;
-  profile_url?: string;
-}
-
-export interface NexusRecentRow {
-  mod_id: number;
-  name: string;
-  version?: string;
-  author?: string;
-  summary?: string;
-  endorsement_count?: number;
-  mod_page_url: string;
-}
-
-export interface NexusRecentData {
-  kind: string;
-  mods: NexusRecentRow[];
-}
-
-/** The 8 fields the backend keeps out of a 383 KB files.json response. */
-export interface NexusFile {
-  file_id: number;
-  name: string;
-  version?: string;
-  category_name?: string;
-  file_name?: string;
-  size_kb?: number;
-  uploaded_timestamp?: number;
-  mod_version?: string;
-}
-
-/**
- * Round 82: one row per installed mod that declares a Nexus id.
- *
- * `state` is deliberately four-valued: `unknown` (no id, or an unparsable
- * version) must never collapse into `current`, because "I cannot tell" and
- * "you are up to date" are different answers and only one of them is a
- * promise this plugin can keep.
- */
-export interface UpdateCheckRow {
-  uniqueId: string;
-  nexusId: string;
-  installed: string;
-  latest: string;
-  state: "current" | "outdated" | "unknown" | "error";
-  reason: string;
-}
-
-export interface UpdateCheckData {
-  checked: number;
-  skipped: number;
-  rows: UpdateCheckRow[];
-  outdated: string[];
-  errors: Record<string, string>;
-  summary: string;
-  note: string;
-}
-
-export interface NexusModData {
-  mod_id: number;
-  browser_url: string;
-  info: {
-    mod_id?: number;
-    name?: string;
-    version?: string;
-    author?: string;
-    summary?: string;
-    endorsement_count?: number;
-    mod_page_url?: string;
-  };
-  files: NexusFile[];
-  /** Present when the file list itself failed (e.g. `Mod not available`) while
-   *  the mod metadata loaded -- a partial answer the UI must show as partial. */
-  files_error?: string;
-}
-
 /** Round 41: result of asking the Steam client to display a mod page. */
 export interface OpenModPageData {
   url: string;
@@ -909,29 +774,6 @@ export interface SearchPageData { url: string; query: string; opened: boolean }
 
 /** Round 73: no-key browse page (trending / newest / updated). */
 export interface BrowsePageData { url: string; sort: string; opened: boolean }
-
-/** One row in the `links` array of a successful download_link.json answer. */
-export interface NexusDownloadUri {
-  URI?: string;
-  uri?: string;
-  short_name?: string;
-}
-
-/** Normally an array; tolerate the object form a few responses use. */
-export type NexusDownloadLinks =
-  | NexusDownloadUri[]
-  | { uri?: string | string[] | NexusDownloadUri[] }
-  | null;
-
-export interface NexusDownloadLinkData extends NexusErrorExtras {
-  /** True for every free account: the API issues download links to premium only. */
-  premium_required: boolean;
-  browser_url: string;
-  status?: number;
-  /** Present on success: the raw download_link.json body (URI rows). */
-  links?: NexusDownloadLinks;
-}
-
 /** Union for a two-phase op result: either the confirm payload or the commit. */
 export type OpEnvelope = Envelope<ConfirmData | OpResultData>;
 

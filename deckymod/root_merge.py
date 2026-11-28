@@ -521,12 +521,84 @@ class RootMergeEngine(FileDropEngine):
 
     # ---------------------------------------------------------------- uninstall
     def _placed_for(self, package_id: str) -> list:
-        """Every FILE_PLACED row this package still owns, newest txn first."""
+        """The FILE_PLACED rows the CURRENT install of this package owns.
+
+        Round 87 (found on the device): this used to return every FILE_PLACED
+        row ever written for the id, across every transaction. Two consequences,
+        both visible in the panel:
+
+          * reinstall the same package to a different folder and the stale rows
+            point at paths that no longer exist, so ``status()`` computed
+            ``present=False`` for a mod sitting right there -- the panel said the
+            mod was gone and offered to install it again;
+          * ``files`` grew by the size of every previous install (4 files for a
+            2-file package on the second install), because the count was a
+            lifetime total, not a current one.
+
+        The rows that matter are the ones written by the install that is
+        standing now, which is the last MOD_INSTALLED transaction for this id.
+        Uninstall and rollback both read this, so they see exactly the current
+        file set: the uninstall before its own MOD_UNINSTALLED is written still
+        resolves to the live install, and a rollback of that uninstall resolves
+        to the same transaction whose files came back.
+
+        Legacy journals may carry FILE_PLACED rows with no MOD_INSTALLED at all
+        (loader installs predating that event). For those, fall back to every
+        row rather than dropping files the user can no longer remove.
+        """
         rows = []
+        current = None
         for rec in self.journal.read_all():
-            if rec.get("event") == "FILE_PLACED" and rec.get("packageId") == package_id:
+            if rec.get("packageId") != package_id:
+                continue
+            if rec.get("event") == "MOD_INSTALLED":
+                current = rec.get("txn")
+            elif rec.get("event") == "FILE_PLACED":
                 rows.append(rec)
-        return rows
+        if current is None:
+            return rows
+        return [r for r in rows if r.get("txn") == current]
+
+    def _prune_empty_dirs(self, r, dest: str) -> int:
+        """Remove folders this file left empty, stopping at the write roots.
+
+        Round 87 (seen on the device): uninstall deleted the files and left the
+        folders behind, so ``mods/R87First/`` survived as an empty husk after the
+        only file in it was removed. Repeated installs littered empty folders the
+        plugin itself had created.
+
+        Safety, in the order the loop enforces it:
+          * only ``os.rmdir``, which fails on a non-empty folder -- a folder that
+            still holds anything at all is never touched;
+          * never removes a declared write root itself, nor anything protected by
+            the descriptor, nor the game root;
+          * walks upward only as far as the folder that contains the file, so a
+            path outside the write roots is impossible (``_route`` put every
+            target there in the first place).
+        """
+        game_root = os.path.abspath(r.game_root)
+        protected = {os.path.join(game_root, p.replace("/", os.sep)).lower()
+                     for p in self._protected()}
+        roots = {os.path.join(game_root, p.replace("/", os.sep)).lower()
+                 for p in self._write_roots()}
+        removed = 0
+        current = os.path.abspath(os.path.dirname(dest))
+        while True:
+            low = current.lower()
+            if current == game_root or low in roots or low in protected:
+                break
+            if not current.startswith(game_root + os.sep):
+                break
+            try:
+                os.rmdir(current)      # refuses a non-empty folder, by design
+            except OSError:
+                break                  # still in use, or holds someone else's file
+            removed += 1
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+        return removed
 
     def _uninstall_inner(self, package_id: str, after_confirm: bool) -> dict:
         self._gate("uninstall_quarantine")
@@ -554,6 +626,7 @@ class RootMergeEngine(FileDropEngine):
         self.journal.begin(txn, "root_merge_uninstall", {"packageId": package_id})
         removed = 0
         restored = 0
+        pruned = 0
         for rec in placed:
             target = _norm(rec.get("target") or "")
             if not target or _is_unsafe(target):
@@ -564,6 +637,7 @@ class RootMergeEngine(FileDropEngine):
                 if os.path.exists(dest):
                     os.remove(dest)
                     removed += 1
+                    pruned += self._prune_empty_dirs(r, dest)
                 if backup_rel:
                     backup = os.path.join(r.quarantine_root,
                                           str(backup_rel).replace("/", os.sep))
@@ -577,7 +651,7 @@ class RootMergeEngine(FileDropEngine):
                             dir=package_id, files=removed, restored=restored)
         self.journal.committed(txn, {"packageId": package_id, "removed": removed})
         return ok({"uninstalled": package_id, "removed": removed,
-                   "restored": restored, "txn": txn})
+                   "restored": restored, "pruned_dirs": pruned, "txn": txn})
 
     # ------------------------------------------------------- loader install
     # Round 79 (user-approved red-line change): a loader ZIP (BepInEx …) may be

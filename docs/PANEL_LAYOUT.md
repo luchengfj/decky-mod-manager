@@ -656,3 +656,58 @@ The new file covers eight things and is mutation-verified: ten separate breakage
 round's fixes, ten caught, zero survivors. That harness is the part worth keeping — it is
 the only evidence that the new tests are not tautologies (see `docs/SESSION_HANDOFF.md`
 §八 for what happened the last time a test asserted only on its own input).
+
+## 11. Round 87 — the installer forgot which files it had just placed
+
+Round 86 made `install` work again on root_merge games. The first thing a real install
+then showed was that the panel could not read its own work back.
+
+### What the user saw
+
+Install a mod, open the panel: the mod is not in the list, or it is listed with twice the
+files it has and a warning that it is gone. Uninstall it: the folder it lived in stays
+behind, empty, and the next install to that name collides with a folder that looks like a
+leftover.
+
+### Two separate causes, one line of code apart
+
+`_placed_for(package_id)` answered "which files does this mod own" with "every
+`FILE_PLACED` row this package id has ever produced". Every consequence in the panel came
+from that:
+
+| panel symptom | what the code did |
+| --- | --- |
+| `files=N×2` after a reinstall | counted both installs |
+| `present=false` on a mod that is on disk | checked the old txn's paths, which were gone |
+| the mod vanishes from the list | `present` is what the list filters on |
+| confirm dialog offered to remove 4 files from a 2-file mod | same lifetime total |
+
+The rule is now: the current install is the txn of the **last `MOD_INSTALLED` row** for
+that id, and only that txn's `FILE_PLACED` rows count. Journals written before this rule
+may have `FILE_PLACED` without any `MOD_INSTALLED` (early loader installs) — those fall
+back to all rows, because owning too many rows only makes the panel verbose, while owning
+too few makes files the user can never remove.
+
+The second cause is unrelated and older: `_uninstall_inner` removed files with
+`os.remove` and never removed the directory. `mods/R86Write/` survived empty after its
+only file was deleted. `_prune_empty_dirs` now walks up from the removed file and stops at
+the write roots. It uses `os.rmdir` specifically because it refuses a non-empty folder —
+the safety is the syscall, not a condition someone can later get wrong.
+
+### Why no test noticed
+
+Nothing in the suite installed the same package twice. `tests/test_engine_capabilities.py`
+(Round 86) installs once and checks the files landed; it never asks what the panel would
+show *afterward*. `tests/test_reinstall_ownership.py` now does: 14 cases over the current-
+install rule, the legacy-journal fallback, and the three ways pruning can go wrong
+(removing a write root, removing a folder that still holds someone else's file, doing
+nothing at all).
+
+Mutation-verified: reverting `_placed_for` to the lifetime total fails 4 cases; disabling
+pruning fails 2; letting pruning ignore write roots fails 1; replacing `os.rmdir` with
+`shutil.rmtree` fails 2.
+
+One of those mutations was written wrong the first time — `os.rmdir(x) if not
+os.listdir(x) else os.rmdir(x)` calls `os.rmdir` in both branches, so it behaves exactly
+like the original and caught nothing. A surviving equivalent mutant says nothing about the
+test; it says the mutation was not a mutation.

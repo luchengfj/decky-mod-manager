@@ -114,9 +114,9 @@
 ## 五、当前验证状态
 
 ```
-1101 用例全绿（skipped=18）
+1114 用例全绿（skipped=19）
 tsc --noEmit → exit 0
-rollup -c    → exit 0（dist/index.js 264303 B，Round 86 产物）
+rollup -c    → exit 0（dist/index.js 264303 B，Round 86 产物；Round 87 只改后端）
 ```
 
 Round 86 比 Round 85 多 28 个用例（`tests/test_engine_capabilities.py` 的 19 个 +
@@ -124,14 +124,14 @@ Round 86 比 Round 85 多 28 个用例（`tests/test_engine_capabilities.py` 的
 `0.6875rem` 仍 1 次、`border-box` 3 次、`ERRR_` 48 次（新增 `ERRR_NO_FOMOD` /
 `ERRR_NO_MEMBER_ROOT` 两条）。
 
+Round 87 比 Round 86 多 14 个用例（`tests/test_reinstall_ownership.py`），**产物一个字节没变**
+——这一轮只改 `deckymod/root_merge.py`，`dist/` 无需重新部署。
+
 `tsconfig.json` 现在带 `noUnusedLocals` + `noUnusedParameters`，由
 `tests/test_suite_hygiene.py::TestTheCompilerStillLooksForDeadCode` 钉住。
 
 **变异验证**（`.decky-probe/r86_mutate.py`）：在副本里逐个改坏 Round 86 的每处修复，
 确认对应用例真的会红。10 个 mutation 全部被抓，零存活。详见 §十三。
-
-`tsconfig.json` 现在带 `noUnusedLocals` + `noUnusedParameters`，由
-`tests/test_suite_hygiene.py::TestTheCompilerStillLooksForDeadCode` 钉住。
 
 命令：
 
@@ -175,8 +175,9 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 | 10 | ~~`.7z` + `member_root` 无任何测试~~ **已在真机验证**（§十一：`r84_twomod.7z` 报 count=2，选根后 inspect 成功） | — |
 | 11 | **归档选择器没在屏幕上见过**——RPC 与写入路径都在真机验过了，但 `showListModal` 的像素没人看过 | 并入第 1 项 |
 | 12 | ~~Round 84 报告 item 10 声称删了死代码，实际没删~~ **Round 85 已真删**（五个函数 + `ModRow.tsx` + 104 个 i18n 键），报告已加更正说明 | — |
-| 13 | **Round 85 全部改动未 commit、未部署**。删除 `ModRow.tsx` 是结构性改动：mod 行现在直接在 `src/index.tsx` 里内联构造，编译通过、无人引用，但没人看过面板实际长什么样 | agent（提交/部署）+ 用户（目视） |
-| 14 | **Round 86 全部改动未 commit、未部署**。两个缺陷都是「后端默默失败」型：root_merge 的 install 在所有该引擎的游戏上返回 `E_UNKNOWN`，`archive_mods` 报一个从未实现过的解析器名。修复已由 1101 用例与 10 个变异证伪，但**真机一次没跑过**——`install` 在 Deck 上到底恢复没有，只有真机 dry-run 能答 | agent（提交/部署 + dry-run） |
+| 13 | ~~Round 85 全部改动未 commit、未部署~~ **已提交 `f7dbd2b`、已部署两个 bundle**（§十二）。面板像素仍未目视 → 并入第 1 项 | — |
+| 14 | ~~Round 86 全部改动未 commit、未部署~~ **已提交 `ed9f1d7`、已部署 54 文件**（§十三）。真机 12 项 RPC + 7 项真实写入全 PASS | — |
+| 15 | **Round 87 全部改动未 commit**（`deckymod/root_merge.py` 已直接 `scp` 部署并真机验证，但仓库里还没提交）。`TestUninstallLeavesNoEmptyHusks` 的四个用例里有一个断言的是"文件夹仍存在"，只有真机和 `os.path.isdir` 能证伪，已由变异验证覆盖 | agent（提交） |
 
 ---
 
@@ -193,6 +194,9 @@ NODE="C:/Users/cheng/.dsh/dsh-runtimes/dsh-next-primary-runtime/dependencies/nod
 - **`hasattr(engine, "_set_enabled_inner")` 不是「这是不是 file_drop 引擎」的答案**。三个引擎（`Engine` / `FileDropEngine` / `RootMergeEngine`）**全都**实现这个方法，所以这个探针在三个类上都返回 True。Round 84 用它区分引擎能力，结果是 `RootMergeEngine._install_inner` 收到 5 个位置参数、抛 `TypeError`、被 `except Exception` 吞成 `E_UNKNOWN`——**每个 root_merge 游戏（含用户自建游戏）的安装都废了六个星期**，而 1073 个测试里没有一个调过 `RootMergeEngine.install()`。正确做法是显式能力标志（`SUPPORTS_FOMOD` / `SUPPORTS_MEMBER_ROOT` / `SUPPORTS_ARCHIVE_MODS`），并且**为「转发者与接收者的参数表必须一致」写一条测试**——缺陷 B 的本质就是基类转发 4 个、子类只收 3 个。
 - **「没报错」和「做对了」是两件事**。缺陷 B 的 `except Exception as e: return err("E_UNKNOWN", ...)` 把 `TypeError` 变成了一句「An unexpected error occurred. See the log for details.」，用户和测试都只能看见这个笼统句。**宽泛的 except 会把编程错误伪装成运行时错误**，这是它能活六周的直接原因。
 - **变异 harness 的基线必须自己先全绿**，否则每个「caught」都是假的。第一版副本漏了 `src/` 和 `docs/`，基线自带 55 个失败（前端/文档文本测试），全部「caught」都要作废。还有一个更隐蔽的：副本放在 `%TEMP%` 下时 `test_handover_multiroot` 的 4 个用例必失败——handover 的 quarantine 子目录名是**写根绝对路径的 slug**，副本根路径每深一层都会在目标路径里重复一次，跨过 `MAX_PATH` 后 `os.replace` 报 `WinError 3`。真仓根下实测目标 149 字符，`C:\ai\SD\.r86mut\baseline` 下 279 字符。**结论：变异副本要放在短路径下（`C:\ai\SD\b`、`C:\ai\SD\m01`），并把这件事写进 harness 注释。**
+- **变异测试自己也会写错，而写错的变异看起来像「测试太弱」**。Round 87 想验证「剪枝必须尊重非空文件夹」，第一个变异写成 `os.rmdir(current) if not os.listdir(current) else os.rmdir(current)` —— 两个分支都调 `os.rmdir`，而 `os.rmdir` 对非空目录本来就会失败，所以变异体的行为与原代码**完全一致**（等价变异 / equivalent mutant），`caught=0`。差一点据此判定「`test_a_folder_holding_something_else_is_kept` 没用」。换成 `shutil.rmtree(current)` 后立刻 caught=2。**判据：变异之后必须先问「这行代码的行为真的变了吗」，而不是「测试怎么没红」。**
+- **`status()` 的返回是双层的**：mod 表在 `data["state"]["mods"]`，不在 `data["mods"]`。Round 87 的第一版真机探针读错了层级、拿到空列表，差点报成「插件把装好的 mod 弄丢了」。**写探针时先打印一格结构（`sorted(data.keys())`），不要凭印象取字段。**
+- **「删掉文件」和「删掉文件夹」是两件事**。`_uninstall_inner` 从 Round 81 起就只 `os.remove(dest)`，所以每次卸载都在游戏目录里留一个空壳；`mods/` 下堆了 `R86Write/`、`R87First/`、`R87Second/`。这类残留不会让任何测试变红，只会让用户的 Mods 目录越来越脏——**只有真机 `ls` 看得见**。
 - **数 i18n 孤儿键不能只数 `t("...")` 字面量**。`ERR_<code>`、`CAT_<category>`、`ERRR_<reason>` 三族是运行时拼出来的（`src/i18n.ts:62/68/88`），它们的键永远不会以字面量出现。按字面量数会得出 208 个"未使用"，其中 76 个是活的。正确判据是"这个名字除了字典以外，在前后端和 registry 里是否出现过"，剩下 104 个才是真孤儿。
 
 ---
@@ -602,3 +606,59 @@ harness 自己踩了三个坑，都写进了注释：① 第一版副本漏 `src
   管理，改 message 会动到所有调用点；本轮靠 `data.reason` + `ERRR_*` 两层兜住措辞。
 - **没加错误码**。新增一个 `E_NOT_APPLICABLE` 更准确，但会让错误码表从 52 变 53，
   影响 `error_codes` RPC 契约与三个校验脚本。留给后续轮次决定。
+
+## 十四、Round 87（2026-11-28 10:46–11:0x UTC+8）
+
+起点不是计划，是 Round 86 部署后的一次真机探针。`status` 报 `mods=[]`，我先误判成
+「插件把装好的 mod 弄丢了」，实际是探针读错了层级（`data["state"]["mods"]`）。读对之后
+暴露出两个真缺陷，**都是 Round 81 前后就存在的，不是 Round 86 引入的**。
+
+### 缺陷 D — 重装之后 `files` 翻倍、`present` 撒谎
+
+`deckymod/root_merge.py:523 _placed_for(package_id)` 返回该 packageId **历史上所有**
+`FILE_PLACED` 行，不按 txn 过滤。于是一个两文件包装第二次报 `files=4`；`present` 遍历
+全部历史行，旧 txn 的 target 早已不存在，所以**明明在盘上的 mod 报 `present=False`**，
+面板提示用户重新安装。真机 journal 里 `r86.write` 有 6 条 `FILE_PLACED`（两个 txn 各 2
+条 + 2 条 Round 78 的测试残留）。
+
+修法：取该 id **最后一条 `MOD_INSTALLED` 的 txn** 作为「当前安装」，只认这个 txn 的行。
+旧 journal 可能只有 `FILE_PLACED` 没有 `MOD_INSTALLED`（早期 loader 安装），那种情况
+回退到全部行——**宁可多认几行，也不能丢掉用户再也删不掉的文件**。
+
+### 缺陷 E — 卸载删了文件，留下空文件夹
+
+`_uninstall_inner` 只 `os.remove(dest)`，从不删目录（全文件的 `grep rmdir` 只有
+`_drop_staging` 与 quarantine 清理）。真机上卸载 `r86.write` 后 `Cyberpunk 2077/mods/`
+下留着 `R86Write/`。
+
+修法：新增 `_prune_empty_dirs(r, dest)`，从文件所在目录向上走。三重保护写在循环顺序里：
+
+1. 只用 `os.rmdir`——非空目录必失败，所以任何还装着东西的文件夹天然不会被碰；
+2. 永不删声明的 write root 本身、`_protected()` 里的路径、game root；
+3. 只在 `game_root` 之内向上走，而 `_route` 当初就把每个 target 放进 write roots 了。
+
+`_uninstall_inner` 的返回信封新增 `"pruned_dirs"`。
+
+### 验证
+
+- `Ran 1114 tests` / `OK (skipped=19)`；`tsc --noEmit` exit 0；`rollup -c` exit 0
+  （`dist/index.js` 264303 B，**一个字节没变**——这轮只改后端）。
+- 新建 `tests/test_reinstall_ownership.py`（14 用例）：当前安装只拥有自己的文件、重装
+  从空列表开始、重装到新目录报 present=True、卸载找到全部当前文件、旧 journal 仍可卸载、
+  文件夹被剪掉、write root 不被剪、装着别人文件的文件夹不被剪、`pruned_dirs` 有值。
+- **变异验证**（两轮）：`_placed_for` 换回累加全部行 → 4 个用例失败；剪枝禁用 → 2 个；
+  剪枝忽略 write roots → 1 个；剪枝改成 `shutil.rmtree` → 2 个。**第一条「忽略非空检查」
+  的变异是等价变异（两个分支都调 `os.rmdir`），caught=0 是变异写错，不是测试弱。**
+- **真机前后对比**（`.decky-probe/r87_deck_write.py`）：修复前 4 项 FAIL（`files=4`、
+  `present=False`、confirm 数 4、两个文件夹残留）；修复后 14 项全 PASS
+  （`files=2 present=True`、列表里消失、无残留文件、无残留空目录）。
+- 部署：只改一个文件，`scp` + `sudo cp` 进 `py_modules/deckymod/root_merge.py`，
+  sha256 `4cc61558…d454496d` 设备与本地一致，重载后 `active`，无 traceback。
+
+### 没做到的
+
+- **只在 Cyberpunk 的合成/真实目录树上验过**。`_prune_empty_dirs` 对 `bin/x64/plugins`
+  这类多层 write root 没在真机跑过——逻辑上等价，但没有证据。
+- **`status()` 里 `present` 的语义仍只对 root_merge 成立**。file_drop 引擎那边用的是
+  `scan_installed_mods` 的目录扫描，两套判据并存，没有统一的「这个 mod 现在算不算装着」
+  定义。这是结构问题，留给后续轮次。
